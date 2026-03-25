@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "GitHub API (Stronghold Subset)", "version": "1.0.0"},
+  "servers": [{"url": "https://api.github.com"}],
+  "paths": {
+    "/repos/{owner}/{repo}/issues": {
+      "post": {
+        "operationId": "create_issue",
+        "summary": "Create an issue in a GitHub repository",
+        "parameters": [
+          {"name": "owner", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "repo", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "title": {"type": "string"},
+              "body": {"type": "string"},
+              "labels": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["title"]
+          }}}
+        }
+      }
+    },
+    "/repos/{owner}/{repo}/contents/{path}": {
+      "get": {
+        "operationId": "get_file_contents",
+        "summary": "Get the contents of a file in a repository",
+        "parameters": [
+          {"name": "owner", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "repo", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "path", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "ref", "in": "query", "schema": {"type": "string"}}
+        ]
+      },
+      "put": {
+        "operationId": "create_or_update_file",
+        "summary": "Create or update a file in a repository",
+        "parameters": [
+          {"name": "owner", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "repo", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "path", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "message": {"type": "string"},
+              "content": {"type": "string", "description": "Base64 encoded content"},
+              "branch": {"type": "string"},
+              "sha": {"type": "string", "description": "Required for updates, SHA of file being replaced"}
+            },
+            "required": ["message", "content"]
+          }}}
+        }
+      }
+    },
+    "/repos/{owner}/{repo}/pulls": {
+      "post": {
+        "operationId": "create_pull_request",
+        "summary": "Create a pull request",
+        "parameters": [
+          {"name": "owner", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "repo", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "title": {"type": "string"},
+              "body": {"type": "string"},
+              "head": {"type": "string"},
+              "base": {"type": "string"}
+            },
+            "required": ["title", "head", "base"]
+          }}}
+        }
+      }
+    },
+    "/repos/{owner}/{repo}/git/refs": {
+      "post": {
+        "operationId": "create_branch",
+        "summary": "Create a git reference (branch)",
+        "parameters": [
+          {"name": "owner", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "repo", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "properties": {
+              "ref": {"type": "string", "description": "refs/heads/branch-name"},
+              "sha": {"type": "string", "description": "SHA to branch from"}
+            },
+            "required": ["ref", "sha"]
+          }}}
+        }
+      }
+    }
+  }
+}

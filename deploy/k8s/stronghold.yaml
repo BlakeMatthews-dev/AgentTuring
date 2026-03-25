@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stronghold
+  namespace: stronghold
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stronghold
+  template:
+    metadata:
+      labels:
+        app: stronghold
+    spec:
+      containers:
+        - name: stronghold
+          image: stronghold:dev
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8100
+          env:
+            - name: DATABASE_URL
+              value: postgresql://stronghold:stronghold@postgres:5432/stronghold
+            - name: LITELLM_URL
+              value: http://litellm:4000
+            - name: ROUTER_API_KEY
+              value: sk-stronghold-demo
+            - name: STRONGHOLD_CONFIG
+              value: /app/config/example.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+      volumes:
+        - name: config
+          configMap:
+            name: stronghold-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stronghold
+  namespace: stronghold
+spec:
+  type: NodePort
+  selector:
+    app: stronghold
+  ports:
+    - port: 8100
+      targetPort: 8100
+      nodePort: 30100

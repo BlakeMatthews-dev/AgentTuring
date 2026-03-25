@@ -1,0 +1,17 @@
+spec_version: "0.1.0"
+name: artificer-reviewer
+version: 1.0.0
+description: Runs quality checks and reviews code.
+soul: SOUL.md
+reasoning:
+  strategy: react
+  max_rounds: 1
+model: auto
+tools:
+  - run_pytest
+  - run_ruff_check
+  - run_ruff_format
+  - run_mypy
+  - run_bandit
+  - file_ops
+trust_tier: t0

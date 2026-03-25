@@ -1,0 +1,13 @@
+spec_version: "0.1.0"
+name: artificer-coder
+version: 1.0.0
+description: Implements code for a specific subtask.
+soul: SOUL.md
+reasoning:
+  strategy: react
+  max_rounds: 3
+model: auto
+tools:
+  - file_ops
+  - shell
+trust_tier: t0

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-tools-mcp
+  namespace: stronghold
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev-tools-mcp
+  template:
+    metadata:
+      labels:
+        app: dev-tools-mcp
+    spec:
+      containers:
+        - name: dev-tools-mcp
+          image: dev-tools-mcp:dev
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8300
+          volumeMounts:
+            - name: repo
+              mountPath: /workspace
+      volumes:
+        - name: repo
+          hostPath:
+            path: /stronghold-repo
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-tools-mcp
+  namespace: stronghold
+spec:
+  selector:
+    app: dev-tools-mcp
+  ports:
+    - port: 8300
+      targetPort: 8300

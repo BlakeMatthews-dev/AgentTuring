@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stronghold — The Knights</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --stone-dark:#1a1a2e; --stone-mid:#16213e; --stone-light:#1e2d4a; --iron:#4a4a5a; --iron-light:#6b6b7b; --gold:#e2a529; --gold-dim:#c9a227; --parchment:#f5f0e1; --blood:#8b2500; --emerald:#2d6a4f; }
+  body { background: linear-gradient(135deg, var(--stone-dark), var(--stone-mid)); color: #d4d0c8; font-family: 'JetBrains Mono', monospace; min-height: 100vh; }
+  h1,h2,h3 { font-family: 'Playfair Display', Georgia, serif; color: var(--gold); }
+  .sidebar { background: linear-gradient(180deg, #0d1321, #1a1a2e); border-right: 2px solid var(--iron); width: 240px; min-height: 100vh; }
+  .sidebar-item { padding: 12px 20px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 10px; color: #8b8b9b; font-size: 0.85rem; text-decoration: none; }
+  .sidebar-item:hover { background: rgba(226,165,41,0.08); color: var(--gold-dim); border-left-color: var(--gold-dim); }
+  .sidebar-item.active { background: rgba(226,165,41,0.12); color: var(--gold); border-left-color: var(--gold); }
+  .card { background: var(--stone-light); border: 1px solid var(--iron); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .knight-card { transition: transform 0.2s, box-shadow 0.2s; }
+  .knight-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(226,165,41,0.15); }
+  .sigil { font-size: 2.5rem; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid var(--gold-dim); background: rgba(226,165,41,0.08); }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 4px; font-size: 0.7rem; font-weight: 500; }
+  .badge-strategy { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .badge-tool { background: rgba(45,106,79,0.15); color: #6fcf97; font-size: 0.65rem; }
+  .btn-gold { background: linear-gradient(135deg, var(--gold-dim), var(--gold)); color: #1a1a2e; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 8px 16px; border: none; font-size: 0.85rem; }
+  .btn-gold:hover { box-shadow: 0 0 12px rgba(226,165,41,0.3); }
+  .btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 4px; cursor: pointer; border: none; }
+  .btn-iron { background: var(--iron); color: #d4d0c8; }
+  .btn-iron:hover { background: var(--iron-light); }
+  .btn-blood { background: var(--blood); color: #f5f0e1; }
+  .btn-blood:hover { background: #a63000; }
+  .btn-emerald { background: var(--emerald); color: #f5f0e1; }
+  .btn-emerald:hover { background: #3a8a63; }
+  select, input[type=text], textarea { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); border-radius: 6px; padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; width: 100%; }
+  select:focus, input:focus, textarea:focus { border-color: var(--gold-dim); outline: none; }
+  label.field-label { font-size: 0.75rem; color: var(--iron-light); margin-bottom: 4px; display: block; }
+  .form-panel { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
+  .form-panel.collapsed { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+  .form-panel.expanded { max-height: 1200px; opacity: 1; }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--stone-dark); }
+  ::-webkit-scrollbar-thumb { background: var(--iron); border-radius: 4px; }
+  /* Mobile */
+  .mobile-menu-btn { display: none; }
+  @media (max-width: 768px) {
+    body { display: block; }
+    .sidebar {
+      position: fixed; top: 0; left: -260px; z-index: 1000;
+      width: 260px; height: 100vh; height: 100dvh;
+      transition: left 0.3s ease;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); z-index: 999;
+    }
+    .sidebar-overlay.open { display: block; }
+    .mobile-menu-btn {
+      display: flex; align-items: center; gap: 8px;
+      background: none; border: none; color: var(--gold); cursor: pointer;
+      font-size: 1.5rem; padding: 0;
+    }
+    main { width: 100%; }
+    .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .py-6 { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    .stat-value { font-size: 1.4rem; }
+    .stat-label { font-size: 0.6rem; }
+    select, textarea, input[type=text] { font-size: 16px !important; }
+  }
+</style>
+<script src="/dashboard/auth.js"></script>
+</head>
+<body class="flex">
+<div class="sidebar-overlay" id="sidebar-overlay" role="button" onclick="closeSidebar()"></div>
+
+<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
+  <div class="p-5 border-b border-[var(--iron)]">
+    <div class="flex items-center gap-3">
+      <span class="tower-crest" style="font-size:2rem; text-shadow: 0 0 20px rgba(226,165,41,0.4)">&#x1F3F0;</span>
+      <div><h1 class="text-lg leading-tight">Stronghold</h1><p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p></div>
+    </div>
+  </div>
+  <div class="flex-1 py-4">
+    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall</a>
+    <a href="/dashboard/agents" class="sidebar-item active"><span style="width:24px;text-align:center">&#x2694;</span> Knights</a>
+    <a href="/dashboard/skills" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F6E1;</span> Armory</a>
+    <a href="/dashboard/mcp" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F525;</span> Forge</a>
+    <a href="/dashboard/security" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F5FC;</span> Watchtower</a>
+    <a href="/dashboard/outcomes" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4B0;</span> Treasury</a>
+    <a href="/dashboard/quota" class="sidebar-item"><span style="width:24px;text-align:center">&#x2696;</span> Ledger</a>
+    <a href="/prompts" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4DC;</span> Scrolls</a>
+  </div>
+  <div class="py-2 border-t border-[var(--iron)]">
+    <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
+  </div>
+  <div class="p-4 border-t border-[var(--iron)] text-xs text-[var(--iron-light)]">
+    <div class="flex justify-between items-center"><span>v0.1.0</span><a href="/logout" onclick="strongholdLogout();return false" style="color:var(--iron-light);text-decoration:none;transition:color 0.2s" class="sh-logout">Logout</a></div>
+  </div>
+</nav>
+
+<main class="flex-1 overflow-auto">
+  <header class="px-8 py-6 border-b border-[var(--iron)] flex items-center justify-between">
+    <div>
+      <div class="flex items-center gap-3"><button class="mobile-menu-btn" onclick="openSidebar()">&#x2630;</button><h2 class="text-2xl">&#x2694; The Knights</h2></div>
+      <p class="text-sm text-[var(--iron-light)] mt-1">Specialist agents sworn to defend the realm</p>
+    </div>
+    <div class="flex gap-2">
+      <label class="btn-iron btn-sm flex items-center gap-1" style="cursor:pointer">
+        &#x1F4E5; Import Zip
+        <input type="file" accept=".zip" id="import-file" style="display:none">
+      </label>
+      <button class="btn-iron btn-sm" onclick="promptImportUrl()">&#x1F517; Import URL</button>
+      <button class="btn-gold" id="btn-recruit" onclick="toggleForm()">&#x2694; Recruit Knight</button>
+    </div>
+  </header>
+
+  <!-- Tab Bar -->
+  <div class="flex border-b border-[var(--iron)] px-8">
+    <button onclick="showAgentTab('knights')" id="tab-knights" class="px-4 py-3 text-sm border-b-2 border-[var(--gold)] text-[var(--gold)]">Knights</button>
+    <button onclick="showAgentTab('agent-mp')" id="tab-agent-mp" class="px-4 py-3 text-sm border-b-2 border-transparent text-[var(--iron-light)] hover:text-[var(--gold-dim)]">Marketplace</button>
+  </div>
+
+  <!-- Agent Marketplace Panel -->
+  <div id="agent-mp-panel" class="hidden">
+    <div class="px-8 py-4 border-b border-[var(--iron)]">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <input type="text" id="amp-repo-url" placeholder="Paste a GitAgent repo URL to scan..." class="text-sm" style="background:var(--stone-dark);border:1px solid var(--iron);color:var(--parchment);border-radius:6px;padding:10px 14px;font-size:16px;flex:1;min-width:0;">
+        <button onclick="scanAgentRepo()" class="btn-gold text-sm" id="btn-scan-agent-repo">Scan Repo</button>
+      </div>
+      <div id="agent-repo-scan-result" class="mt-2"></div>
+    </div>
+    <div class="px-8 py-4 border-b border-[var(--iron)]">
+      <input type="text" id="amp-search" placeholder="Search GitAgent repos..." class="text-sm" style="background:var(--stone-dark);border:1px solid var(--iron);color:var(--parchment);border-radius:6px;padding:10px 14px;font-size:16px;width:100%;box-sizing:border-box;" onkeyup="if(event.key==='Enter')searchAgentMP()">
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 p-8" id="amp-grid">
+      <div class="text-center py-12 text-[var(--iron-light)] col-span-3">Loading agent marketplace...</div>
+    </div>
+  </div>
+
+  <div id="knights-panel">
+  <!-- Create / Edit Form Panel -->
+  <div id="form-panel" class="form-panel collapsed px-8 border-b border-[var(--iron)]">
+    <div class="card p-6 my-4">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg" id="form-title">Recruit New Knight</h3>
+        <button class="btn-sm btn-iron" onclick="toggleForm()">Cancel</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="field-label">Name (lowercase, a-z, hyphens)</label>
+          <input type="text" id="f-name" placeholder="e.g. sentinel">
+        </div>
+        <div>
+          <label class="field-label">Strategy</label>
+          <select id="f-strategy">
+            <option value="direct">Direct</option>
+            <option value="react">ReAct (tool-using)</option>
+            <option value="plan_execute">Plan &amp; Execute</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="field-label">Description</label>
+        <input type="text" id="f-description" placeholder="What does this agent do?">
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="field-label">Tools (comma-separated)</label>
+          <input type="text" id="f-tools" placeholder="e.g. shell, web_search, file_read">
+        </div>
+        <div>
+          <label class="field-label">Trust Tier</label>
+          <select id="f-tier">
+            <option value="t0">T0 — Built-in (highest trust)</option>
+            <option value="t1">T1 — Vetted</option>
+            <option value="t2" selected>T2 — Community</option>
+            <option value="t3">T3 — Forged</option>
+            <option value="t4">T4 — Untrusted</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="field-label">Soul Prompt (system instructions)</label>
+        <textarea id="f-soul" rows="6" placeholder="You are a specialist agent that..."></textarea>
+      </div>
+      <div class="mb-4">
+        <label class="field-label">Rules (MUST-ALWAYS / MUST-NEVER constraints)</label>
+        <textarea id="f-rules" rows="3" placeholder="MUST-ALWAYS: verify before executing\nMUST-NEVER: expose credentials"></textarea>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn-gold" onclick="submitAgent()">Save Knight</button>
+        <span id="form-status" class="text-sm self-center" style="color: var(--iron-light)"></span>
+      </div>
+      <input type="hidden" id="f-editing" value="">
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 p-8" id="knights-grid">
+    <div class="text-center py-12 text-[var(--iron-light)] sh-loading">&#x2694; Summoning the knights...</div>
+  </div>
+  </div><!-- /knights-panel -->
+</main>
+
+<script src="/dashboard/scan-report.js"></script>
+<script>
+const SIGILS = {
+  artificer: '&#x1F528;', conduit: '&#x1F451;', ranger: '&#x1F50D;',
+  scribe: '&#x270D;', 'warden-at-arms': '&#x1F6E1;', default: '&#x2699;'
+};
+const TITLES = {
+  artificer: 'The Artificer', conduit: 'The Conduit', ranger: 'The Ranger',
+  scribe: 'The Scribe', 'warden-at-arms': 'Warden-at-Arms', default: 'Squire'
+};
+const MOTTOS = {
+  artificer: 'Code forged in fire, tested in steel',
+  conduit: 'Sees all, touches nothing',
+  ranger: 'Knowledge is the sharpest blade',
+  scribe: 'The pen shapes worlds',
+  'warden-at-arms': 'Guardian of the realm\'s devices',
+  default: 'Ready for any quest'
+};
+
+let formOpen = false;
+
+function toggleForm() {
+  const panel = document.getElementById('form-panel');
+  formOpen = !formOpen;
+  if (formOpen) {
+    panel.classList.remove('collapsed');
+    panel.classList.add('expanded');
+  } else {
+    panel.classList.remove('expanded');
+    panel.classList.add('collapsed');
+    clearForm();
+  }
+}
+
+function clearForm() {
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-description').value = '';
+  document.getElementById('f-strategy').value = 'direct';
+  document.getElementById('f-tools').value = '';
+  document.getElementById('f-tier').value = 't2';
+  document.getElementById('f-soul').value = '';
+  document.getElementById('f-rules').value = '';
+  document.getElementById('f-editing').value = '';
+  document.getElementById('form-title').textContent = 'Recruit New Knight';
+  document.getElementById('f-name').disabled = false;
+  document.getElementById('form-status').textContent = '';
+}
+
+function editAgent(agent) {
+  document.getElementById('f-name').value = agent.name || '';
+  document.getElementById('f-name').disabled = true;
+  document.getElementById('f-description').value = agent.description || '';
+  document.getElementById('f-strategy').value = agent.reasoning_strategy || agent.strategy || 'direct';
+  document.getElementById('f-tools').value = (agent.tools || []).join(', ');
+  document.getElementById('f-tier').value = agent.trust_tier || 't2';
+  document.getElementById('f-soul').value = agent.soul_prompt || '';
+  document.getElementById('f-rules').value = agent.rules || '';
+  document.getElementById('f-editing').value = agent.name;
+  document.getElementById('form-title').textContent = 'Edit Knight: ' + agent.name;
+  if (!formOpen) toggleForm();
+}
+
+async function submitAgent() {
+  const editing = document.getElementById('f-editing').value;
+  const name = document.getElementById('f-name').value.trim();
+  const statusEl = document.getElementById('form-status');
+
+  if (!name) { statusEl.textContent = 'Name is required'; return; }
+
+  const body = {
+    name: name,
+    description: document.getElementById('f-description').value,
+    reasoning_strategy: document.getElementById('f-strategy').value,
+    tools: document.getElementById('f-tools').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean),
+    trust_tier: document.getElementById('f-tier').value,
+    soul_prompt: document.getElementById('f-soul').value,
+    rules: document.getElementById('f-rules').value,
+  };
+
+  statusEl.textContent = 'Saving...';
+  try {
+    const url = editing
+      ? '/v1/stronghold/agents/' + encodeURIComponent(editing)
+      : '/v1/stronghold/agents';
+    const method = editing ? 'PUT' : 'POST';
+    const resp = await fetch(url, {
+      method: method,
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = 'Error: ' + (data.detail || resp.statusText);
+      statusEl.style.color = 'var(--blood)';
+      return;
+    }
+    statusEl.textContent = editing ? 'Updated!' : 'Created!';
+    statusEl.style.color = 'var(--emerald)';
+    setTimeout(function() { toggleForm(); loadKnights(); }, 600);
+  } catch(e) {
+    statusEl.textContent = 'Failed: ' + e.message;
+    statusEl.style.color = 'var(--blood)';
+  }
+}
+
+async function deleteAgent(name) {
+  if (!confirm('Dismiss knight "' + name + '" from service? This cannot be undone.')) return;
+  try {
+    const resp = await fetch('/v1/stronghold/agents/' + encodeURIComponent(name), {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (resp.ok) loadKnights();
+    else alert('Failed to dismiss: ' + resp.statusText);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function exportAgent(name) {
+  try {
+    const resp = await fetch('/v1/stronghold/agents/' + encodeURIComponent(name) + '/export', {
+      headers: authHeaders(),
+    });
+    if (!resp.ok) { alert('Export failed: ' + resp.statusText); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name + '.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Export error: ' + e.message); }
+}
+
+async function promptImportUrl() {
+  var url = prompt('Enter GitAgent URL (GitHub zip link):');
+  if (!url) return;
+  try {
+    var h = authHeaders();
+    var resp = await fetch('/v1/stronghold/agents/import-url', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({url: url}),
+    });
+    var data = await resp.json();
+    if (resp.ok) {
+      alert('Imported: ' + (data.name || 'unknown') + '\nTrust: T4 (Untrusted)\nStatus: Inactive — requires admin review');
+      loadKnights();
+    } else {
+      alert('Import failed: ' + (data.detail || resp.statusText));
+    }
+  } catch(e) { alert('Import error: ' + e.message); }
+}
+
+document.getElementById('import-file').addEventListener('change', async function(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const resp = await fetch('/v1/stronghold/agents/import', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      alert('Imported knight: ' + (data.name || 'unknown'));
+      loadKnights();
+    } else {
+      alert('Import failed: ' + (data.detail || resp.statusText));
+    }
+  } catch(e) { alert('Import error: ' + e.message); }
+  ev.target.value = '';
+});
+
+async function loadKnights() {
+  try {
+    const resp = await fetch('/v1/stronghold/agents', {headers: authHeaders()});
+    const agents = await resp.json();
+    const grid = document.getElementById('knights-grid');
+    grid.textContent = '';
+
+    for (const agent of (Array.isArray(agents) ? agents : [])) {
+      const name = agent.name || 'unknown';
+      const sigil = SIGILS[name] || SIGILS.default;
+      const title = TITLES[name] || name;
+      const motto = MOTTOS[name] || agent.description || '';
+      const tools = agent.tools || [];
+      const strategy = agent.reasoning_strategy || agent.strategy || 'direct';
+
+      const card = document.createElement('div');
+      card.className = 'card knight-card p-6';
+
+      // Top row: sigil + title + action buttons
+      const topRow = document.createElement('div');
+      topRow.className = 'flex items-start justify-between mb-4 gap-2';
+
+      const leftSide = document.createElement('div');
+      leftSide.className = 'flex items-start gap-4';
+      const sigilDiv = document.createElement('div');
+      sigilDiv.className = 'sigil';
+      sigilDiv.innerHTML = sigil;
+      const infoDiv = document.createElement('div');
+      const h3 = document.createElement('h3');
+      h3.className = 'text-lg';
+      h3.textContent = title;
+      const mottoP = document.createElement('p');
+      mottoP.className = 'text-xs text-[var(--iron-light)] italic';
+      mottoP.textContent = '"' + motto + '"';
+      infoDiv.appendChild(h3);
+      infoDiv.appendChild(mottoP);
+      leftSide.appendChild(sigilDiv);
+      leftSide.appendChild(infoDiv);
+
+      // Action buttons
+      const actions = document.createElement('div');
+      actions.className = 'flex gap-1 flex-shrink-0 flex-wrap';
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn-sm btn-iron';
+      editBtn.textContent = 'Edit';
+      editBtn.title = 'Edit knight';
+      editBtn.addEventListener('click', (function(a) { return function(ev) { loadAgentDetail(a.name); }; })(agent));
+
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'btn-sm btn-emerald';
+      exportBtn.textContent = 'Export';
+      exportBtn.title = 'Export as GitAgent zip';
+      exportBtn.addEventListener('click', (function(n) { return function(ev) { exportAgent(n); }; })(name));
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-sm btn-blood';
+      deleteBtn.textContent = 'Dismiss';
+      deleteBtn.title = 'Delete knight';
+      deleteBtn.addEventListener('click', (function(n) { return function(ev) { deleteAgent(n); }; })(name));
+
+      actions.appendChild(editBtn);
+      actions.appendChild(exportBtn);
+      actions.appendChild(deleteBtn);
+
+      topRow.appendChild(leftSide);
+      topRow.appendChild(actions);
+
+      // Badges row
+      const badgeRow = document.createElement('div');
+      badgeRow.className = 'flex flex-wrap gap-2 mb-3';
+      const stratBadge = document.createElement('span');
+      stratBadge.className = 'badge badge-strategy';
+      stratBadge.textContent = strategy;
+      badgeRow.appendChild(stratBadge);
+      for (const t of tools) {
+        const tb = document.createElement('span');
+        tb.className = 'badge badge-tool';
+        tb.textContent = t;
+        badgeRow.appendChild(tb);
+      }
+
+      // Trust row
+      const trustDiv = document.createElement('div');
+      trustDiv.className = 'text-xs text-[var(--iron-light)]';
+      trustDiv.textContent = 'Trust: ';
+      const trustSpan = document.createElement('span');
+      trustSpan.style.color = 'var(--gold)';
+      trustSpan.textContent = agent.trust_tier || 't0';
+      trustDiv.appendChild(trustSpan);
+
+      card.appendChild(topRow);
+      card.appendChild(badgeRow);
+      card.appendChild(trustDiv);
+      grid.appendChild(card);
+    }
+
+    if (grid.children.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'text-center py-12 text-[var(--iron-light)] col-span-3';
+      empty.innerHTML = strongholdEmptyState('&#x2694;', 'The barracks are empty', 'No knights have been summoned yet. Deploy your first agent to begin your campaign.', 'Summon a Knight', '#');
+      grid.appendChild(empty);
+    }
+  } catch(err) {
+    const grid = document.getElementById('knights-grid');
+    grid.textContent = '';
+    const errDiv = document.createElement('div');
+    errDiv.className = 'text-center py-12 text-[var(--blood)]';
+    errDiv.textContent = 'Failed to load roster';
+    grid.appendChild(errDiv);
+  }
+}
+
+async function loadAgentDetail(name) {
+  try {
+    const resp = await fetch('/v1/stronghold/agents/' + encodeURIComponent(name), {
+      headers: authHeaders(),
+    });
+    if (resp.ok) {
+      const detail = await resp.json();
+      editAgent(detail);
+    } else {
+      // Fallback: use list data (less detail but works)
+      editAgent({name: name});
+    }
+  } catch(e) {
+    editAgent({name: name});
+  }
+}
+
+loadKnights();
+
+// ── Tab switching ──
+function showAgentTab(tab) {
+  document.getElementById('knights-panel').classList.toggle('hidden', tab !== 'knights');
+  document.getElementById('agent-mp-panel').classList.toggle('hidden', tab !== 'agent-mp');
+  document.getElementById('tab-knights').style.borderBottomColor = tab === 'knights' ? 'var(--gold)' : 'transparent';
+  document.getElementById('tab-knights').style.color = tab === 'knights' ? 'var(--gold)' : 'var(--iron-light)';
+  document.getElementById('tab-agent-mp').style.borderBottomColor = tab === 'agent-mp' ? 'var(--gold)' : 'transparent';
+  document.getElementById('tab-agent-mp').style.color = tab === 'agent-mp' ? 'var(--gold)' : 'var(--iron-light)';
+  if (tab === 'agent-mp' && !window._ampLoaded) { window._ampLoaded = true; searchAgentMP(); }
+}
+
+// ── Agent Marketplace ──
+async function searchAgentMP() {
+  var query = (document.getElementById('amp-search') || {}).value || '';
+  var grid = document.getElementById('amp-grid');
+  grid.innerHTML = '<div class="text-center py-12 text-[var(--iron-light)] col-span-3">Searching...</div>';
+
+  try {
+    var resp = await fetch('/v1/stronghold/marketplace/agents?query=' + encodeURIComponent(query), {headers: authHeaders()});
+    var items = await resp.json();
+    grid.textContent = '';
+    if (!items.length) {
+      grid.innerHTML = '<div class="text-center py-12 text-[var(--iron-light)] col-span-3">No agents found.</div>';
+      return;
+    }
+    for (var i = 0; i < items.length; i++) {
+      grid.appendChild(_mkAgentMPCard(items[i]));
+    }
+  } catch(e) {
+    grid.innerHTML = '<div class="text-[var(--blood)] col-span-3">Failed to load marketplace</div>';
+  }
+}
+
+function _mkAgentMPCard(item) {
+  var card = document.createElement('div');
+  card.className = 'card';
+
+  var header = document.createElement('div');
+  header.className = 'card-header';
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;';
+  var name = document.createElement('span');
+  name.style.cssText = 'font-weight:600;color:var(--gold);';
+  name.textContent = item.name;
+  var badge = document.createElement('span');
+  badge.style.cssText = 'font-size:0.65rem;padding:2px 6px;border-radius:3px;background:rgba(100,100,100,0.2);color:#aaa;';
+  badge.textContent = 'GitAgent';
+  header.appendChild(name);
+  header.appendChild(badge);
+  card.appendChild(header);
+
+  var body = document.createElement('div');
+  body.className = 'card-body';
+  body.style.fontSize = '0.8rem';
+
+  var desc = document.createElement('div');
+  desc.style.cssText = 'color:var(--iron-light);margin-bottom:8px;min-height:2.4em;';
+  desc.textContent = item.description || 'No description';
+  body.appendChild(desc);
+
+  var meta = document.createElement('div');
+  meta.style.cssText = 'font-size:0.7rem;color:var(--iron);margin-bottom:10px;';
+  meta.textContent = (item.author || '') + (item.stars ? ' \u2022 ' + item.stars + ' stars' : '');
+  body.appendChild(meta);
+
+  var report = document.createElement('div');
+  report.id = 'agent-report-' + item.name;
+  body.appendChild(report);
+
+  var btn = document.createElement('button');
+  btn.className = 'btn-gold text-sm';
+  btn.style.width = '100%';
+  btn.textContent = 'Scan';
+  btn.dataset.state = 'ready';
+  btn.dataset.url = item.repo_url || '';
+  btn.dataset.type = 'agent';
+  btn.dataset.name = item.name;
+  btn.onclick = function() { handleMarketplaceAction(this, report); };
+  body.appendChild(btn);
+
+  card.appendChild(body);
+  return card;
+}
+
+// Reuse the same Scan→Fix→Import handler from skills (if not already defined)
+if (typeof handleMarketplaceAction === 'undefined') {
+  async function handleMarketplaceAction(btn, reportEl) {
+    var state = btn.dataset.state;
+    var url = btn.dataset.url;
+    var type = btn.dataset.type;
+
+    if (state === 'ready') {
+      btn.disabled = true; btn.textContent = 'Scanning...'; btn.style.opacity = '0.6';
+      try {
+        var resp = await fetch('/v1/stronghold/marketplace/scan', {method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,type:type})});
+        var scan = await resp.json();
+        if (scan.detail) {
+          var _errDiv=document.createElement('div');_errDiv.style.cssText='color:#ff6b6b;padding:8px;font-size:0.8rem';_errDiv.textContent=scan.detail;reportEl.textContent='';reportEl.appendChild(_errDiv);
+          btn.textContent='Retry Scan'; btn.dataset.state='ready'; btn.disabled=false; btn.style.opacity='1';
+          btn.style.background='linear-gradient(135deg,var(--gold-dim),var(--gold))'; return;
+        }
+        renderScanReport(scan, reportEl);
+        _addReportButton(reportEl, scan, null);
+        btn.disabled = false; btn.style.opacity = '1';
+        btn.dataset.scannedContent = scan.content || '';
+        if (scan.safe) { btn.dataset.state='clean'; btn.dataset.fixedContent=scan.content||''; btn.textContent='Import'; btn.style.background='linear-gradient(135deg,var(--emerald),#3d8b6f)'; }
+        else { btn.dataset.state='fixable'; btn.textContent='Fix '+scan.total_issues+' Issue(s)'; btn.style.background='linear-gradient(135deg,#b8860b,#daa520)'; btn.style.color='#1a1a2e'; }
+      } catch(e) {
+        var _errDiv=document.createElement('div');_errDiv.style.cssText='color:#ff6b6b;padding:8px;font-size:0.8rem';_errDiv.textContent='Network error \u2014 try again';reportEl.innerHTML='';reportEl.appendChild(_errDiv);
+        btn.textContent='Retry Scan'; btn.dataset.state='ready'; btn.disabled=false; btn.style.opacity='1';
+        btn.style.background='linear-gradient(135deg,var(--gold-dim),var(--gold))';
+      }
+    } else if (state === 'fixable') {
+      btn.disabled = true; btn.textContent = 'Repairing...'; btn.style.opacity = '0.6';
+      try {
+        var resp2 = await fetch('/v1/stronghold/marketplace/fix', {method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,type:type,content:btn.dataset.scannedContent||''})});
+        var fix = await resp2.json();
+        renderFixReport(fix, reportEl);
+        _addReportButton(reportEl, null, fix);
+        btn.disabled = false; btn.style.opacity = '1';
+        if (fix.deeply_flawed) { btn.dataset.state='unfixable'; btn.textContent='Deeply Flawed'; btn.style.background='linear-gradient(135deg,#8b2500,#b33000)'; btn.style.color='#ffaaaa'; btn.disabled=true; }
+        else { btn.dataset.state='fixed'; btn.dataset.fixedContent=fix.fixed_content||''; btn.textContent='Import'; btn.style.background='linear-gradient(135deg,var(--emerald),#3d8b6f)'; }
+      } catch(e) { btn.textContent='Fix Failed'; btn.style.background='var(--iron)'; btn.disabled=false; }
+    } else if (state === 'clean' || state === 'fixed') {
+      btn.disabled = true; btn.textContent = 'Importing...'; btn.style.opacity = '0.6';
+      try {
+        var resp3 = await fetch('/v1/stronghold/marketplace/import', {method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,type:type,fixed_content:btn.dataset.fixedContent||''})});
+        var imp = await resp3.json();
+        if (imp.detail) { btn.textContent=imp.detail; btn.style.background='var(--iron)'; }
+        else { btn.textContent='Installed \u2713'; btn.style.background='var(--emerald)'; btn.style.color='#fff'; }
+      } catch(e) { btn.textContent='Import Failed'; btn.style.background='var(--iron)'; btn.disabled=false; }
+    }
+  }
+}
+
+var _FD = {
+  'code_execution': {t:'Code Execution Detected',s:'CRITICAL',d:'Contains exec(), eval(), subprocess calls.',m:'Stronghold strips all code execution calls.'},
+  'credential_leak': {t:'Hardcoded Credentials',s:'CRITICAL',d:'Contains hardcoded API keys, passwords, or tokens.',m:'Replaced with environment variable placeholders.'},
+  'prompt_injection': {t:'Prompt Injection Attack',s:'CRITICAL',d:'Phrases designed to override system prompt or bypass safety.',m:'4-layer Warden detection catches injection attempts.'},
+  'Direct instruction override': {t:'Direct Instruction Override',s:'CRITICAL',d:'Explicit attempt to override system instructions.',m:'Warden Layer 2+3 detect override patterns.'},
+  'Jailbreak (restriction removal)': {t:'Jailbreak',s:'CRITICAL',d:'Attempts to remove safety restrictions.',m:'Detected across all 4 Warden layers.'},
+  'Role reassignment': {t:'Role Reassignment',s:'HIGH',d:'Attempts to change agent permissions.',m:'Sentinel enforces actual role regardless of prompt.'},
+  'dangerous import': {t:'Dangerous Import',s:'CRITICAL',d:'Imports system-access modules.',m:'Stripped. Skills use approved tool dispatch.'},
+  'trust tier': {t:'Trust Tier Fraud',s:'HIGH',d:'Falsely claims elevated trust.',m:'Forced to T2. Promotion requires review.'},
+};
+var _FD_DEFAULT = {t:'Security Finding',s:'WARNING',d:'Potential security issue detected.',m:'Review before importing.'};
+
+function _findKey(text) {
+  var t = text.toLowerCase();
+  if (t.indexOf('direct instruction override') !== -1) return 'Direct instruction override';
+  if (t.indexOf('jailbreak') !== -1 || t.indexOf('restriction removal') !== -1) return 'Jailbreak (restriction removal)';
+  if (t.indexOf('code_execution') !== -1 || t.indexOf('exec()') !== -1 || t.indexOf('subprocess') !== -1) return 'code_execution';
+  if (t.indexOf('credential') !== -1 || t.indexOf('password') !== -1) return 'credential_leak';
+  if (t.indexOf('dangerous import') !== -1) return 'dangerous import';
+  if (t.indexOf('trust tier') !== -1) return 'trust tier';
+  if (t.indexOf('prompt') !== -1 && t.indexOf('injection') !== -1) return 'prompt_injection';
+  return null;
+}
+
+function _addReportButton(container, scanData, fixData) {
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'View Full Security Report';
+  btn.style.cssText = 'display:block;width:100%;margin-top:10px;padding:12px;border:2px solid #c9a227;background:rgba(226,165,41,0.1);color:#e2a529;font-family:inherit;font-size:0.9rem;font-weight:700;border-radius:6px;cursor:pointer;text-align:center;';
+  btn.onclick = function() {
+    var old = document.getElementById('sh-report-overlay');
+    if (old) old.remove();
+    var ov = document.createElement('div');
+    ov.id = 'sh-report-overlay';
+    ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99998;background:rgba(13,13,26,0.92);display:flex;align-items:center;justify-content:center;padding:16px;font-family:JetBrains Mono,monospace;';
+    ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+    var modal = document.createElement('div');
+    modal.style.cssText = 'background:linear-gradient(180deg,rgba(30,45,74,0.98),rgba(26,26,46,0.99));border:2px solid #4a4a5a;border-top:3px solid #e2a529;border-radius:12px;box-shadow:0 0 60px rgba(0,0,0,0.5);max-width:600px;width:100%;max-height:85vh;overflow-y:scroll;-webkit-overflow-scrolling:touch;color:#d4d0c8;';
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'padding:20px 24px 12px;border-bottom:1px solid #4a4a5a;display:flex;justify-content:space-between;align-items:center;';
+    hdr.innerHTML = '<h2 style="font-family:Playfair Display,serif;color:#e2a529;font-size:1.3rem;margin:0">Full Security Report</h2>';
+    var xBtn = document.createElement('button'); xBtn.textContent='\u2715'; xBtn.style.cssText='background:none;border:none;color:#8b8b9b;font-size:1.4rem;cursor:pointer;padding:4px 8px;'; xBtn.onclick=function(){ov.remove();}; hdr.appendChild(xBtn);
+    modal.appendChild(hdr);
+    var body = document.createElement('div'); body.style.padding='20px 24px';
+    function addCard(text, color, prefix) {
+      var key=_findKey(text); var info=(key&&_FD[key])?_FD[key]:_FD_DEFAULT;
+      var card=document.createElement('div'); card.style.cssText='background:rgba(26,26,46,0.6);border:1px solid #333;border-radius:8px;padding:14px;margin:8px 0;';
+      var tt=document.createElement('div'); tt.style.cssText='font-weight:600;font-size:0.9rem;margin-bottom:8px;color:'+(color||(info.s==='CRITICAL'?'#ff6b6b':'#fbbf24')); tt.textContent=(prefix?prefix+': ':'')+info.t+' ['+info.s+']'; card.appendChild(tt);
+      var desc=document.createElement('div'); desc.style.cssText='font-size:0.8rem;color:#c4c0b8;margin-bottom:8px;'; desc.textContent=info.d; card.appendChild(desc);
+      var mit=document.createElement('div'); mit.style.cssText='background:rgba(45,106,79,0.15);border:1px solid rgba(45,106,79,0.3);border-radius:6px;padding:8px 12px;font-size:0.8rem;color:#4ade80;'; mit.textContent=info.m; card.appendChild(mit);
+      body.appendChild(card);
+    }
+    if (scanData&&scanData.findings) { for (var i=0;i<scanData.findings.length;i++) { var f=scanData.findings[i]; if(f.parser_findings) for(var j=0;j<f.parser_findings.length;j++) addCard(f.parser_findings[j]); if(f.warden_flags) for(var k=0;k<f.warden_flags.length;k++) addCard(f.warden_flags[k]); } }
+    if (fixData) { if(fixData.fixes_applied) for(var fi=0;fi<fixData.fixes_applied.length;fi++) addCard(fixData.fixes_applied[fi],'#4ade80','Fixed'); if(fixData.unfixable_issues) for(var ui=0;ui<fixData.unfixable_issues.length;ui++) addCard(fixData.unfixable_issues[ui],'#ff6b6b','Unfixable'); }
+    if (!body.children.length) { var c=document.createElement('div'); c.style.cssText='text-align:center;color:#4ade80;padding:20px;'; c.textContent='No issues. Content is clean.'; body.appendChild(c); }
+    modal.appendChild(body); ov.appendChild(modal); document.body.appendChild(ov);
+  };
+  container.appendChild(btn);
+}
+
+async function scanAgentRepo() {
+  var url = document.getElementById('amp-repo-url').value.trim();
+  if (!url) return;
+  var btn = document.getElementById('btn-scan-agent-repo');
+  var resultEl = document.getElementById('agent-repo-scan-result');
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  resultEl.textContent = '';
+  try {
+    var resp = await fetch('/v1/stronghold/marketplace/scan', {method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,type:'agent'})});
+    var scan = await resp.json();
+    if (scan.detail) { resultEl.textContent=''; var _e2=document.createElement('div');_e2.style.cssText='color:var(--blood);padding:8px';_e2.textContent=scan.detail;resultEl.appendChild(_e2); }
+    else { renderScanReport(scan, resultEl); }
+  } catch(e) { resultEl.innerHTML = '<div style="color:var(--blood);padding:8px">Scan failed</div>'; }
+  btn.disabled = false; btn.textContent = 'Scan Repo';
+}
+
+// Mobile sidebar
+function openSidebar() { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
+</script>
+</body>
+</html>

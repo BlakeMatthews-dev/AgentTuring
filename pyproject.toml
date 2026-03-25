@@ -1,0 +1,90 @@
+[project]
+name = "stronghold"
+version = "0.1.0"
+description = "Secure Agent Governance Platform"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.28.0",
+    "pyyaml>=6.0.2",
+    "asyncpg>=0.31.0",
+    "sqlmodel>=0.0.37",
+    "sqlalchemy[asyncio]>=2.0.48",
+    "alembic>=1.18.0",
+    "argon2-cffi>=25.1.0",
+    "redis[hiredis]>=7.0.0",
+    "PyJWT[crypto]>=2.9.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.9",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "pgvector>=0.3.0",
+    "kubernetes>=28.0.0",
+    "regex>=2024.0.0",
+    # CVE pinning (2026-03-31 audit)
+    "cryptography>=46.0.6",       # CVE-2026-34073
+    "urllib3>=2.6.3",              # CVE-2026-21441
+    "requests>=2.33.0",           # CVE-2026-25645
+    "h2>=4.3.0",                  # CVE-2025-57804
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "bandit>=1.8.0",
+    "pre-commit>=4.0.0",
+    "coverage>=7.0.0",
+    "types-regex>=2024.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "perf: performance regression tests",
+    "critical: fast regression tests that run on every change (<3s)",
+    "happy: one happy-path test per feature, run on every feature branch push",
+    "e2e: end-to-end tests against live Docker stack (requires docker compose up)",
+]
+
+[tool.coverage.run]
+source = ["stronghold"]
+omit = ["src/stronghold/persistence/pg_*.py"]
+
+[tool.coverage.report]
+fail_under = 95
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
+[tool.bandit]
+targets = ["src/stronghold"]
+severity = "medium"

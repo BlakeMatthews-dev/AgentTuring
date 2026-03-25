@@ -1,0 +1,91 @@
+# Stronghold Helm values
+# Override these for your environment
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/agent-stronghold/stronghold
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8100
+
+ingress:
+  enabled: false
+  className: ""
+  hosts:
+    - host: stronghold.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# PostgreSQL (bundled or external)
+postgresql:
+  enabled: true
+  auth:
+    username: stronghold
+    password: stronghold
+    database: stronghold
+  primary:
+    persistence:
+      size: 10Gi
+    # pgvector extension must be available
+    initdb:
+      scriptsConfigMap: stronghold-migrations
+
+# External database (if postgresql.enabled=false)
+externalDatabase:
+  host: ""
+  port: 5432
+  username: stronghold
+  password: ""
+  database: stronghold
+
+# Arize Phoenix (bundled for small teams)
+phoenix:
+  enabled: true
+  image:
+    repository: arizephoenix/phoenix
+    tag: latest
+  service:
+    port: 6006
+
+# Arize Enterprise (external, for enterprise)
+arize:
+  enabled: false
+  apiKey: ""
+  spaceKey: ""
+
+# LiteLLM (external reference)
+litellm:
+  url: http://litellm:4000
+  masterKey: ""
+
+# Auth
+auth:
+  # Keycloak
+  keycloak:
+    enabled: false
+    issuer: ""
+    audience: stronghold
+  # Entra ID
+  entraId:
+    enabled: false
+    tenantId: ""
+    clientId: ""
+  # Static key (always available as fallback)
+  staticKey: ""
+
+# Secrets (use K8s secrets in production)
+secretName: stronghold-secrets
+
+resources:
+  limits:
+    cpu: "2"
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi

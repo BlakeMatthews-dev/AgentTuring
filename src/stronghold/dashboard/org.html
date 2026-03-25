@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stronghold — The Throne Room</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --stone-dark:#1a1a2e; --stone-mid:#16213e; --stone-light:#1e2d4a; --iron:#4a4a5a; --iron-light:#6b6b7b; --gold:#e2a529; --gold-dim:#c9a227; --gold-bright:#f4c430; --parchment:#f5f0e1; --blood:#8b2500; --emerald:#2d6a4f; }
+  body { background: linear-gradient(135deg, var(--stone-dark), var(--stone-mid)); color: #d4d0c8; font-family: 'JetBrains Mono', monospace; min-height: 100vh; }
+  h1,h2,h3 { font-family: 'Playfair Display', Georgia, serif; color: var(--gold); }
+  .sidebar { background: linear-gradient(180deg, #0d1321, #1a1a2e); border-right: 2px solid var(--iron); width: 240px; min-height: 100vh; }
+  .sidebar-item { padding: 12px 20px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 10px; color: #8b8b9b; font-size: 0.85rem; text-decoration: none; }
+  .sidebar-item:hover { background: rgba(226,165,41,0.08); color: var(--gold-dim); border-left-color: var(--gold-dim); }
+  .sidebar-item.active { background: rgba(226,165,41,0.12); color: var(--gold); border-left-color: var(--gold); }
+  .card { background: var(--stone-light); border: 1px solid var(--iron); border-radius: 8px; }
+  .stat-value { font-size: 2rem; font-weight: 700; font-family: 'Playfair Display', serif; }
+  .stat-label { font-size: 0.7rem; color: var(--iron-light); text-transform: uppercase; letter-spacing: 1px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: 500; }
+  .badge-approved { background: rgba(45,106,79,0.3); color: #4ade80; }
+  .badge-pending { background: rgba(217,119,6,0.2); color: #fbbf24; }
+  .badge-rejected { background: rgba(139,37,0,0.3); color: #f87171; }
+  .badge-disabled { background: rgba(100,100,120,0.3); color: #8b8b9b; }
+  .badge-role { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .badge-team { background: rgba(45,106,79,0.15); color: #6fcf97; }
+  .btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 4px; cursor: pointer; border: none; }
+  .btn-emerald { background: var(--emerald); color: #f5f0e1; }
+  .btn-emerald:hover { background: #357a5a; }
+  .btn-blood { background: var(--blood); color: #f5f0e1; }
+  .btn-blood:hover { background: #a63000; }
+  .btn-iron { background: var(--iron); color: #d4d0c8; }
+  .btn-iron:hover { background: var(--iron-light); }
+  .btn-gold { background: linear-gradient(135deg, var(--gold-dim), var(--gold)); color: #1a1a2e; font-weight: 600; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 0.85rem; }
+  .btn-gold:hover { box-shadow: 0 0 12px rgba(226,165,41,0.3); }
+  .user-row { border-bottom: 1px solid rgba(74,74,90,0.3); padding: 12px 0; }
+  .user-row:last-child { border-bottom: none; }
+  .bar { height: 20px; border-radius: 4px; transition: width 0.5s ease; }
+  .bar-fill { background: linear-gradient(90deg, var(--emerald), #4ade80); }
+  .bar-warn { background: linear-gradient(90deg, #d97706, #fbbf24); }
+  .bar-danger { background: linear-gradient(90deg, var(--blood), #ff6b6b); }
+  select, input[type=text] { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); border-radius: 6px; padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+  select:focus, input:focus { border-color: var(--gold-dim); outline: none; }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: var(--stone-dark); } ::-webkit-scrollbar-thumb { background: var(--iron); border-radius: 4px; }
+  .mobile-menu-btn { display: none; }
+  .sidebar-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; }
+  .sidebar-overlay.open { display:block; }
+  @media (max-width: 768px) {
+    body { display: block; }
+    .sidebar { position:fixed; top:0; left:-260px; z-index:1000; width:260px; height:100vh; height:100dvh; transition:left 0.3s ease; box-shadow:4px 0 20px rgba(0,0,0,0.5); }
+    .sidebar.open { left: 0; }
+    .mobile-menu-btn { display:flex; align-items:center; gap:8px; background:none; border:none; color:var(--gold); cursor:pointer; font-size:1.5rem; padding:0; }
+    main { width: 100%; }
+    .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .py-6 { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    .stat-value { font-size: 1.4rem; }
+    .user-row { flex-wrap: wrap; gap: 4px; }
+    select, input[type=text] { font-size: 16px !important; }
+  }
+</style>
+<script src="/dashboard/auth.js"></script>
+</head>
+<body class="flex">
+<div class="sidebar-overlay" id="sidebar-overlay" role="button" onclick="closeSidebar()"></div>
+<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
+  <div class="p-5 border-b border-[var(--iron)]"><div class="flex items-center gap-3"><span class="tower-crest" style="font-size:2rem;text-shadow:0 0 20px rgba(226,165,41,0.4)">&#x1F3F0;</span><div><h1 class="text-lg leading-tight">Stronghold</h1><p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p></div></div></div>
+  <div class="flex-1 py-4">
+    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall</a>
+    <a href="/dashboard/agents" class="sidebar-item"><span style="width:24px;text-align:center">&#x2694;</span> Knights</a>
+    <a href="/dashboard/skills" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F6E1;</span> Armory</a>
+    <a href="/dashboard/mcp" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F525;</span> Forge</a>
+    <a href="/dashboard/security" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F5FC;</span> Watchtower</a>
+    <a href="/dashboard/outcomes" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4B0;</span> Treasury</a>
+    <a href="/dashboard/quota" class="sidebar-item"><span style="width:24px;text-align:center">&#x2696;</span> Ledger</a>
+    <a href="/prompts" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4DC;</span> Scrolls</a>
+  </div>
+  <div class="py-2 border-t border-[var(--iron)]">
+    <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
+  </div>
+  <div class="p-4 border-t border-[var(--iron)] text-xs text-[var(--iron-light)]">
+    <div class="flex justify-between items-center"><span>v0.1.0</span><a href="/logout" onclick="strongholdLogout();return false" style="color:var(--iron-light);text-decoration:none;transition:color 0.2s" class="sh-logout">Logout</a></div>
+  </div>
+</nav>
+
+<main class="flex-1 overflow-auto">
+  <header class="px-8 py-6 border-b border-[var(--iron)]">
+    <div class="flex items-center gap-3">
+      <button class="mobile-menu-btn" onclick="openSidebar()">&#x2630;</button>
+      <div>
+        <h2 class="text-2xl">&#x1F451; The Throne Room</h2>
+        <p class="text-sm text-[var(--iron-light)] mt-1">Organization administration — users, teams, quotas, and security</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Access denied -->
+  <div id="access-denied" class="hidden px-8 py-12 text-center">
+    <div style="font-size:3rem;margin-bottom:16px">&#x1F451;</div>
+    <h3 class="text-xl mb-2">The Throne Room is Sealed</h3>
+    <p class="text-sm text-[var(--iron-light)]">You need the <strong>org_admin</strong> role to enter the Throne Room.</p>
+  </div>
+
+  <div id="org-content" class="hidden">
+    <!-- Org Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 px-8 py-6">
+      <div class="card p-5 text-center">
+        <div class="stat-value text-[var(--gold)]" id="stat-users">—</div>
+        <div class="stat-label">Total Users</div>
+      </div>
+      <div class="card p-5 text-center">
+        <div class="stat-value text-[var(--emerald)]" id="stat-active">—</div>
+        <div class="stat-label">Active</div>
+      </div>
+      <div class="card p-5 text-center">
+        <div class="stat-value text-[#fbbf24]" id="stat-pending">—</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="card p-5 text-center">
+        <div class="stat-value text-[#60a5fa]" id="stat-teams">—</div>
+        <div class="stat-label">Teams</div>
+      </div>
+      <div class="card p-5 text-center">
+        <div class="stat-value text-[var(--blood)]" id="stat-strikes">—</div>
+        <div class="stat-label">Active Strikes</div>
+      </div>
+    </div>
+
+    <!-- Quota Usage -->
+    <div class="px-8 pb-4">
+      <div class="card">
+        <div class="p-5 border-b border-[var(--iron)]">
+          <h3 class="text-lg">&#x2696; Provider Quotas</h3>
+          <p class="text-xs text-[var(--iron-light)]">Token budget consumption across all providers</p>
+        </div>
+        <div class="p-5" id="quota-bars">
+          <div class="text-sm text-[var(--iron-light)]">Loading quotas...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Management -->
+    <div class="px-8 pb-4">
+      <div class="card">
+        <div class="p-5 border-b border-[var(--iron)] flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 class="text-lg">&#x1F465; All Users</h3>
+            <p class="text-xs text-[var(--iron-light)]">Manage all users across the organization</p>
+          </div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <select id="filter-team" class="text-xs" onchange="loadAllUsers()">
+              <option value="">All Teams</option>
+            </select>
+            <select id="filter-status" class="text-xs" onchange="loadAllUsers()">
+              <option value="">All Status</option>
+              <option value="approved">Active</option>
+              <option value="pending">Pending</option>
+              <option value="disabled">Disabled</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+        </div>
+        <div class="p-5 max-h-[600px] overflow-y-auto" id="all-users">
+          <div class="text-sm text-[var(--iron-light)] sh-loading">&#x1F451; Surveying the realm...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Disabled Accounts -->
+    <div class="px-8 pb-4">
+      <div class="card">
+        <div class="p-5 border-b border-[var(--iron)]">
+          <h3 class="text-lg">&#x26D4; Disabled Accounts</h3>
+          <p class="text-xs text-[var(--iron-light)]">Accounts disabled due to repeated violations — only org admins can re-enable</p>
+        </div>
+        <div class="p-5" id="disabled-list">
+          <div class="text-sm text-[var(--iron-light)] sh-loading">&#x1F451; Surveying the realm...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Teams Overview -->
+    <div class="px-8 pb-8">
+      <div class="card">
+        <div class="p-5 border-b border-[var(--iron)]">
+          <h3 class="text-lg">&#x1F3F0; Teams</h3>
+          <p class="text-xs text-[var(--iron-light)]">Organizational structure — member distribution across teams</p>
+        </div>
+        <div class="p-5" id="teams-grid">
+          <div class="text-sm text-[var(--iron-light)] sh-loading">&#x1F451; Surveying the realm...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Role Editor Modal -->
+<div id="role-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(13,13,26,0.92);align-items:center;justify-content:center;">
+  <div style="background:var(--stone-light);border:2px solid var(--gold-dim);border-radius:12px;max-width:480px;width:95vw;">
+    <div style="padding:20px;border-bottom:1px solid var(--iron);display:flex;justify-content:space-between;align-items:center;">
+      <h3 id="role-modal-title" style="margin:0;"></h3>
+      <button onclick="closeRoleModal()" class="btn-sm btn-iron">Close</button>
+    </div>
+    <div style="padding:20px;">
+      <p class="text-xs text-[var(--iron-light)] mb-3">Toggle roles for this user:</p>
+      <div id="role-checkboxes" class="space-y-2"></div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="saveRoles()" class="btn-gold text-sm">Save Roles</button>
+        <span id="role-status" class="text-xs self-center" style="color:var(--iron-light)"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _session = null;
+var _allUsers = [];
+var _editingUserId = null;
+
+var AVAILABLE_ROLES = ['admin', 'org_admin', 'team_admin', 'engineer', 'operator', 'viewer', 'user'];
+
+(async function() {
+  try {
+    var resp = await fetch('/auth/session', {headers: authHeaders()});
+    if (!resp.ok) { showDenied(); return; }
+    _session = await resp.json();
+    var roles = _session.roles || [];
+    if (roles.indexOf('org_admin') === -1 && roles.indexOf('admin') === -1) {
+      showDenied(); return;
+    }
+    document.getElementById('org-content').classList.remove('hidden');
+    loadAllUsers();
+    loadStrikes();
+    loadQuotas();
+  } catch(e) { showDenied(); }
+})();
+
+function showDenied() { document.getElementById('access-denied').classList.remove('hidden'); }
+function esc(s) { var d = document.createElement('div'); d.textContent = String(s || ''); return d.innerHTML; }
+
+function statusBadge(status) {
+  var cls = status === 'approved' ? 'badge-approved' : status === 'pending' ? 'badge-pending' : status === 'disabled' ? 'badge-disabled' : 'badge-rejected';
+  return '<span class="badge ' + cls + '">' + esc(status) + '</span>';
+}
+
+async function loadAllUsers() {
+  try {
+    var filterStatus = document.getElementById('filter-status').value;
+    var filterTeam = document.getElementById('filter-team').value;
+    var url = '/v1/stronghold/admin/users' + (filterStatus ? '?status=' + filterStatus : '');
+    var resp = await fetch(url, {headers: authHeaders()});
+    if (!resp.ok) return;
+    _allUsers = await resp.json();
+
+    if (filterTeam) {
+      _allUsers = _allUsers.filter(function(u) { return u.team_id === filterTeam; });
+    }
+
+    // Stats
+    var active = _allUsers.filter(function(u) { return u.status === 'approved'; }).length;
+    var pending = _allUsers.filter(function(u) { return u.status === 'pending'; }).length;
+    var teams = {};
+    _allUsers.forEach(function(u) { teams[u.team_id || 'default'] = (teams[u.team_id || 'default'] || 0) + 1; });
+
+    document.getElementById('stat-users').textContent = _allUsers.length;
+    document.getElementById('stat-active').textContent = active;
+    document.getElementById('stat-pending').textContent = pending;
+    document.getElementById('stat-teams').textContent = Object.keys(teams).length;
+
+    // Populate team filter
+    var teamSelect = document.getElementById('filter-team');
+    var currentFilter = teamSelect.value;
+    teamSelect.innerHTML = '<option value="">All Teams</option>';
+    Object.keys(teams).sort().forEach(function(t) {
+      var opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t + ' (' + teams[t] + ')';
+      if (t === currentFilter) opt.selected = true;
+      teamSelect.appendChild(opt);
+    });
+
+    // Teams grid
+    var teamsEl = document.getElementById('teams-grid');
+    teamsEl.textContent = '';
+    var teamGrid = document.createElement('div');
+    teamGrid.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4';
+    Object.keys(teams).sort().forEach(function(t) {
+      var card = document.createElement('div');
+      card.style.cssText = 'background:rgba(26,26,46,0.5);border:1px solid var(--iron);border-radius:8px;padding:16px;';
+      card.innerHTML = '<div class="flex items-center justify-between mb-2">'
+        + '<span class="text-sm font-bold" style="color:var(--gold)">' + esc(t) + '</span>'
+        + '<span class="badge badge-team">' + teams[t] + ' members</span>'
+        + '</div>';
+      teamGrid.appendChild(card);
+    });
+    teamsEl.appendChild(teamGrid);
+
+    // User list
+    var listEl = document.getElementById('all-users');
+    listEl.textContent = '';
+    if (_allUsers.length === 0) {
+      listEl.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No users match the filter.</div>';
+      return;
+    }
+
+    _allUsers.forEach(function(u) {
+      var row = document.createElement('div');
+      row.className = 'user-row flex items-center justify-between gap-4';
+
+      var info = document.createElement('div');
+      info.className = 'flex-1 min-w-0';
+      var nameDiv = document.createElement('div');
+      nameDiv.className = 'flex items-center gap-2 flex-wrap';
+      nameDiv.innerHTML = '<span class="text-sm font-medium" style="color:var(--parchment)">' + esc(u.display_name || u.email) + '</span> '
+        + statusBadge(u.status)
+        + ' <span class="badge badge-team">' + esc(u.team_id || 'default') + '</span>';
+      (u.roles || []).forEach(function(r) {
+        if (r !== 'user') nameDiv.innerHTML += ' <span class="badge badge-role">' + esc(r) + '</span>';
+      });
+      var emailDiv = document.createElement('div');
+      emailDiv.className = 'text-xs text-[var(--iron-light)] truncate';
+      emailDiv.textContent = u.email;
+      info.appendChild(nameDiv);
+      info.appendChild(emailDiv);
+
+      var actions = document.createElement('div');
+      actions.className = 'flex gap-2 flex-shrink-0 flex-wrap';
+
+      // Role editor button
+      var roleBtn = document.createElement('button');
+      roleBtn.className = 'btn-sm btn-iron';
+      roleBtn.textContent = 'Roles';
+      roleBtn.onclick = (function(user) { return function() { openRoleModal(user); }; })(u);
+      actions.appendChild(roleBtn);
+
+      // Status actions
+      if (u.status === 'pending') {
+        var approveBtn = document.createElement('button');
+        approveBtn.className = 'btn-sm btn-emerald';
+        approveBtn.textContent = 'Approve';
+        approveBtn.onclick = (function(id) { return function() { userAction(id, 'approve'); }; })(u.id);
+        actions.appendChild(approveBtn);
+        var rejectBtn = document.createElement('button');
+        rejectBtn.className = 'btn-sm btn-blood';
+        rejectBtn.textContent = 'Reject';
+        rejectBtn.onclick = (function(id) { return function() { userAction(id, 'reject'); }; })(u.id);
+        actions.appendChild(rejectBtn);
+      } else if (u.status === 'approved') {
+        var disableBtn = document.createElement('button');
+        disableBtn.className = 'btn-sm btn-iron';
+        disableBtn.textContent = 'Disable';
+        disableBtn.onclick = (function(id) { return function() { userAction(id, 'disable'); }; })(u.id);
+        actions.appendChild(disableBtn);
+      }
+
+      row.appendChild(info);
+      row.appendChild(actions);
+      listEl.appendChild(row);
+    });
+  } catch(e) {
+    document.getElementById('all-users').innerHTML = '<div class="text-[var(--blood)]">Failed to load users</div>';
+  }
+}
+
+async function loadStrikes() {
+  try {
+    var resp = await fetch('/v1/stronghold/admin/strikes', {headers: authHeaders()});
+    if (!resp.ok) return;
+    var records = await resp.json();
+    document.getElementById('stat-strikes').textContent = records.length;
+
+    var disabled = records.filter(function(r) { return r.scrutiny_level === 'disabled'; });
+    var el = document.getElementById('disabled-list');
+    el.textContent = '';
+    if (disabled.length === 0) {
+      el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No disabled accounts. The realm is at peace.</div>';
+      return;
+    }
+    disabled.forEach(function(r) {
+      var row = document.createElement('div');
+      row.className = 'user-row flex items-center justify-between gap-4';
+      row.innerHTML = '<div>'
+        + '<div class="text-sm font-medium" style="color:var(--parchment)">' + esc(r.user_id) + '</div>'
+        + '<div class="text-xs text-[var(--iron-light)]">' + r.strike_count + ' strike(s) &middot; disabled</div>'
+        + '</div>';
+      var enableBtn = document.createElement('button');
+      enableBtn.className = 'btn-sm btn-emerald';
+      enableBtn.textContent = 'Re-enable';
+      enableBtn.onclick = (function(uid) { return function() { strikeAction(uid, 'enable'); }; })(r.user_id);
+      row.appendChild(enableBtn);
+      el.appendChild(row);
+    });
+  } catch(e) {}
+}
+
+async function loadQuotas() {
+  try {
+    var resp = await fetch('/v1/stronghold/admin/quota', {headers: authHeaders()});
+    if (!resp.ok) {
+      document.getElementById('quota-bars').innerHTML = '<div class="text-sm text-[var(--iron-light)]">Quota data not available.</div>';
+      return;
+    }
+    var data = await resp.json();
+    var el = document.getElementById('quota-bars');
+    el.textContent = '';
+
+    if (!data.providers || data.providers.length === 0) {
+      el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No provider quotas configured.</div>';
+      return;
+    }
+
+    // Summary
+    if (data.summary) {
+      var sum = document.createElement('div');
+      sum.className = 'text-xs text-[var(--iron-light)] mb-4';
+      sum.textContent = data.summary.active_providers + ' active providers | '
+        + (data.summary.total_tokens || 0).toLocaleString() + ' tokens used of '
+        + (data.summary.total_budget || 0).toLocaleString() + ' budget ('
+        + ((data.summary.overall_usage_pct || 0) * 100).toFixed(1) + '%)';
+      el.appendChild(sum);
+    }
+
+    data.providers.forEach(function(p) {
+      if (p.status !== 'active') return;
+      var pct = (p.usage_pct || 0) * 100;
+      var div = document.createElement('div');
+      div.className = 'mb-3';
+      var label = document.createElement('div');
+      label.className = 'flex justify-between text-xs mb-1';
+      label.innerHTML = '<span style="color:var(--gold-dim)">' + esc(p.provider) + '</span>'
+        + '<span>' + pct.toFixed(1) + '% (' + (p.total_tokens || 0).toLocaleString() + ' / ' + (p.free_tokens || 0).toLocaleString() + ')</span>';
+      var barBg = document.createElement('div');
+      barBg.style.cssText = 'background:rgba(74,74,90,0.3);border-radius:4px;overflow:hidden';
+      var barFill = document.createElement('div');
+      barFill.className = 'bar ' + (pct > 90 ? 'bar-danger' : pct > 70 ? 'bar-warn' : 'bar-fill');
+      barFill.style.width = Math.min(pct, 100) + '%';
+      barBg.appendChild(barFill);
+      div.appendChild(label);
+      div.appendChild(barBg);
+      el.appendChild(div);
+    });
+  } catch(e) {
+    document.getElementById('quota-bars').innerHTML = '<div class="text-sm text-[var(--iron-light)]">Failed to load quota data.</div>';
+  }
+}
+
+// Role Editor Modal
+function openRoleModal(user) {
+  _editingUserId = user.id;
+  document.getElementById('role-modal-title').textContent = 'Roles: ' + (user.display_name || user.email);
+  var container = document.getElementById('role-checkboxes');
+  container.textContent = '';
+  var currentRoles = user.roles || [];
+
+  AVAILABLE_ROLES.forEach(function(role) {
+    var label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;';
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = role;
+    checkbox.checked = currentRoles.indexOf(role) !== -1;
+    checkbox.style.accentColor = 'var(--gold)';
+    label.appendChild(checkbox);
+    var text = document.createElement('span');
+    text.textContent = role;
+    text.style.color = 'var(--parchment)';
+    label.appendChild(text);
+    container.appendChild(label);
+  });
+
+  document.getElementById('role-status').textContent = '';
+  document.getElementById('role-modal').style.display = 'flex';
+}
+
+function closeRoleModal() {
+  document.getElementById('role-modal').style.display = 'none';
+  _editingUserId = null;
+}
+
+async function saveRoles() {
+  if (!_editingUserId) return;
+  var checkboxes = document.querySelectorAll('#role-checkboxes input[type=checkbox]');
+  var roles = [];
+  checkboxes.forEach(function(cb) { if (cb.checked) roles.push(cb.value); });
+
+  var statusEl = document.getElementById('role-status');
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = 'var(--iron-light)';
+
+  try {
+    var resp = await fetch('/v1/stronghold/admin/users/' + _editingUserId + '/roles', {
+      method: 'PUT', headers: authHeaders(),
+      body: JSON.stringify({roles: roles}),
+    });
+    if (resp.ok) {
+      statusEl.textContent = 'Saved!';
+      statusEl.style.color = 'var(--emerald)';
+      setTimeout(function() { closeRoleModal(); loadAllUsers(); }, 500);
+    } else {
+      var d = await resp.json();
+      statusEl.textContent = d.detail || 'Failed';
+      statusEl.style.color = 'var(--blood)';
+    }
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.style.color = 'var(--blood)';
+  }
+}
+
+async function userAction(id, action) {
+  try {
+    var resp = await fetch('/v1/stronghold/admin/users/' + id + '/' + action, {method:'POST', headers:authHeaders()});
+    if (resp.ok) loadAllUsers();
+    else { var d = await resp.json(); alert(d.detail || 'Failed'); }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function strikeAction(userId, action) {
+  try {
+    var resp = await fetch('/v1/stronghold/admin/strikes/' + encodeURIComponent(userId) + '/' + action, {method:'POST', headers:authHeaders(), body:'{}'});
+    if (resp.ok) { loadStrikes(); loadAllUsers(); }
+    else { var d = await resp.json(); alert(d.detail || 'Failed'); }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function openSidebar() { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
+</script>
+</body>
+</html>

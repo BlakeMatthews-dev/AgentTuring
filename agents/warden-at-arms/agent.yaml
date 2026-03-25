@@ -1,0 +1,36 @@
+spec_version: "0.1.0"
+name: warden-at-arms
+version: 1.0.0
+description: Real-world interaction. Device control, APIs, runbooks.
+soul: SOUL.md
+reasoning:
+  strategy: react
+  max_rounds: 3
+  force_tool_first_round: true
+model: auto
+model_constraints:
+  temperature: 0.2
+  max_tokens: 2048
+tools:
+  - ha_control
+  - ha_list_devices
+  - ha_notify
+  - api_call
+  - runbook_execute
+memory:
+  learnings: true
+  episodic: true
+  knowledge: false
+  session: true
+  shared: false
+  scope: agent
+rules:
+  - "MUST-NEVER execute more than 5 device commands per request"
+  - "MUST-ALWAYS confirm destructive actions before executing"
+  - "MUST-ALWAYS use exact entity_ids from the device list"
+trust_tier: t1
+permissions:
+  max_tool_calls_per_request: 5
+  rate_limit: 30/minute
+  require_confirmation:
+    - runbook_execute

@@ -1,0 +1,10 @@
+spec_version: "0.1.0"
+name: artificer-planner
+version: 1.0.0
+description: Decomposes tasks into testable subtasks.
+soul: SOUL.md
+reasoning:
+  strategy: direct
+model: auto
+tools: []
+trust_tier: t0

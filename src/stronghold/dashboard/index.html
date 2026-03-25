@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stronghold — The Great Hall</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --stone-dark: #1a1a2e;
+    --stone-mid: #16213e;
+    --stone-light: #1e2d4a;
+    --iron: #4a4a5a;
+    --iron-light: #6b6b7b;
+    --gold: #e2a529;
+    --gold-dim: #c9a227;
+    --gold-bright: #f4c430;
+    --parchment: #f5f0e1;
+    --parchment-dim: #e8dcc8;
+    --blood: #8b2500;
+    --emerald: #2d6a4f;
+    --silver: #c0c0c0;
+    --bronze: #cd7f32;
+  }
+  body { background: linear-gradient(135deg, var(--stone-dark) 0%, var(--stone-mid) 100%); color: #d4d0c8; font-family: 'JetBrains Mono', monospace; min-height: 100vh; }
+  h1,h2,h3,h4 { font-family: 'Playfair Display', Georgia, serif; color: var(--gold); }
+
+  /* Sidebar */
+  .sidebar { background: linear-gradient(180deg, #0d1321 0%, #1a1a2e 100%); border-right: 2px solid var(--iron); width: 240px; height: 100vh; overflow-y: auto; overflow-x: hidden; position: sticky; top: 0; }
+  .sidebar-item { padding: 12px 20px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 10px; color: #8b8b9b; font-size: 0.85rem; }
+  .sidebar-item:hover { background: rgba(226,165,41,0.08); color: var(--gold-dim); border-left-color: var(--gold-dim); }
+  .sidebar-item.active { background: rgba(226,165,41,0.12); color: var(--gold); border-left-color: var(--gold); }
+  .sidebar-icon { font-size: 1.1rem; width: 24px; text-align: center; }
+
+  /* Cards */
+  .card { background: var(--stone-light); border: 1px solid var(--iron); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .card-header { border-bottom: 1px solid var(--iron); padding: 16px 20px; }
+  .card-body { padding: 20px; }
+
+  /* Parchment panel */
+  .parchment { background: linear-gradient(135deg, var(--parchment) 0%, var(--parchment-dim) 100%); color: #2d2a26; border-radius: 6px; border: 1px solid #c4b896; }
+
+  /* Badges — heraldic shields */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 4px; font-size: 0.7rem; font-weight: 500; letter-spacing: 0.5px; }
+  .badge-t0 { background: linear-gradient(135deg, #b8860b, #daa520); color: #1a1a2e; } /* Gold crown */
+  .badge-t1 { background: linear-gradient(135deg, #8b8b8b, var(--silver)); color: #1a1a2e; } /* Silver */
+  .badge-t2 { background: linear-gradient(135deg, #8b6914, var(--bronze)); color: #1a1a2e; } /* Bronze */
+  .badge-t3 { background: var(--iron); color: #ccc; } /* Iron */
+  .badge-skull { background: #2d0000; color: #ff4444; } /* Skull */
+  .badge-agent { background: rgba(226,165,41,0.15); color: var(--gold); border: 1px solid var(--gold-dim); }
+  .badge-intent { background: rgba(45,106,79,0.2); color: #6fcf97; border: 1px solid var(--emerald); }
+  .badge-model { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid #3b82f6; }
+  .badge-blocked { background: rgba(139,37,0,0.2); color: #ff6b6b; border: 1px solid var(--blood); }
+
+  /* Stats */
+  .stat-value { font-size: 2rem; font-weight: 700; font-family: 'Playfair Display', serif; }
+  .stat-label { font-size: 0.75rem; color: var(--iron-light); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Chat area */
+  .chat-input { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); }
+  .chat-input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 0 2px rgba(226,165,41,0.2); }
+  .msg { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Form */
+  select, textarea, input[type=text] { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); border-radius: 6px; padding: 8px 12px; }
+  select:focus, textarea:focus, input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 0 2px rgba(226,165,41,0.2); }
+  .btn-gold { background: linear-gradient(135deg, var(--gold-dim), var(--gold)); color: #1a1a2e; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 10px 24px; transition: all 0.2s; }
+  .btn-gold:hover { background: linear-gradient(135deg, var(--gold), var(--gold-bright)); box-shadow: 0 0 12px rgba(226,165,41,0.3); }
+  .btn-iron { background: var(--iron); color: #ccc; cursor: pointer; border-radius: 6px; padding: 8px 16px; }
+  .btn-iron:hover { background: var(--iron-light); }
+
+  /* Crest */
+  .crest { font-size: 2rem; text-shadow: 0 0 20px rgba(226,165,41,0.4); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--stone-dark); }
+  ::-webkit-scrollbar-thumb { background: var(--iron); border-radius: 4px; }
+
+  /* Form collapse */
+  .form-collapsed .form-fields { max-height: 0; overflow: hidden; opacity: 0; transition: all 0.4s ease; }
+  .form-expanded .form-fields { max-height: 600px; opacity: 1; transition: all 0.4s ease; }
+  .form-summary { display: none; font-size: 0.85rem; color: var(--iron-light); }
+  .form-collapsed .form-summary { display: block; }
+
+  /* Mobile hamburger */
+  .mobile-menu-btn { display: none; }
+
+  /* ── Mobile ── */
+  @media (max-width: 768px) {
+    body { display: block; }
+    .sidebar {
+      position: fixed; top: 0; left: -260px; z-index: 1000;
+      width: 260px; height: 100vh; height: 100dvh;
+      transition: left 0.3s ease;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); z-index: 999;
+    }
+    .sidebar-overlay.open { display: block; }
+    .mobile-menu-btn {
+      display: flex; align-items: center; gap: 8px;
+      background: none; border: none; color: var(--gold); cursor: pointer;
+      font-size: 1.5rem; padding: 0;
+    }
+    main { width: 100%; }
+    /* Reduce padding */
+    .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .py-6 { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    .pb-8 { padding-bottom: 1rem !important; }
+    /* Stats: 2 cols */
+    .stat-value { font-size: 1.4rem; }
+    .stat-label { font-size: 0.6rem; }
+    /* Chat bubbles full width */
+    .msg .max-w-\[80\%\] { max-width: 95% !important; }
+    /* Inputs 16px to prevent iOS zoom */
+    select, textarea, input[type=text], .chat-input { font-size: 16px !important; }
+  }
+</style>
+<script src="/dashboard/auth.js"></script>
+</head>
+<body class="flex">
+
+<!-- Mobile sidebar overlay -->
+<div class="sidebar-overlay" id="sidebar-overlay" role="button" onclick="closeSidebar()"></div>
+
+<!-- Sidebar — Castle Turrets -->
+<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
+  <div class="p-5 border-b border-[var(--iron)]">
+    <div class="flex items-center gap-3">
+      <span class="crest tower-crest">&#x1F3F0;</span>
+      <div>
+        <h1 class="text-lg leading-tight">Stronghold</h1>
+        <p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex-1 py-4" onclick="closeSidebar()">
+    <a href="/greathall" class="sidebar-item active">
+      <span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall
+    </a>
+    <a href="/dashboard/agents" class="sidebar-item">
+      <span class="sidebar-icon">&#x2694;</span> Knights
+    </a>
+    <a href="/dashboard/skills" class="sidebar-item">
+      <span class="sidebar-icon">&#x1F6E1;</span> Armory
+    </a>
+    <a href="/dashboard/mcp" class="sidebar-item">
+      <span style="width:24px;text-align:center">&#x1F525;</span> Forge
+    </a>
+    <a href="/dashboard/security" class="sidebar-item">
+      <span class="sidebar-icon">&#x1F5FC;</span> Watchtower
+    </a>
+    <a href="/dashboard/outcomes" class="sidebar-item">
+      <span class="sidebar-icon">&#x1F4B0;</span> Treasury
+    </a>
+    <a href="/dashboard/quota" class="sidebar-item">
+      <span class="sidebar-icon">&#x2696;</span> Ledger
+    </a>
+    <a href="/prompts" class="sidebar-item">
+      <span class="sidebar-icon">&#x1F4DC;</span> Scrolls
+    </a>
+  </div>
+
+  <div class="py-2 border-t border-[var(--iron)]">
+    <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
+  </div>
+
+  <!-- Mission History -->
+  <div class="border-t border-[var(--iron)] flex-1 overflow-hidden flex flex-col">
+    <div class="p-3 text-xs font-bold text-[var(--gold-dim)] uppercase tracking-wider">Previous Missions</div>
+    <div id="mission-history" class="flex-1 overflow-y-auto px-2 pb-2 space-y-1" style="max-height: 200px;"></div>
+  </div>
+
+  <div class="p-4 border-t border-[var(--iron)] text-xs text-[var(--iron-light)]">
+    <div class="flex justify-between items-center">
+      <span>v0.1.0</span>
+      <a href="/logout" onclick="strongholdLogout();return false" style="color:var(--iron-light);text-decoration:none;transition:color 0.2s" class="sh-logout">Logout</a>
+    </div>
+    <div id="health-status">Checking...</div>
+  </div>
+</nav>
+
+<!-- Main Content — The Great Hall -->
+<main class="flex-1 overflow-auto">
+  <!-- Header -->
+  <header class="px-8 py-6 border-b border-[var(--iron)]">
+    <div class="flex items-center gap-3">
+      <button class="mobile-menu-btn" onclick="openSidebar()">&#x2630;</button>
+      <div>
+        <h2 class="text-2xl">The Great Hall</h2>
+        <p class="text-sm text-[var(--iron-light)] mt-1 hidden sm:block">Command center for your agent fortress</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Stats Row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 px-8 py-6">
+    <div class="card card-body text-center">
+      <div class="stat-value text-[var(--gold)]" id="stat-agents">—</div>
+      <div class="stat-label">Active Knights</div>
+    </div>
+    <div class="card card-body text-center">
+      <div class="stat-value text-[var(--emerald)]" id="stat-health">—</div>
+      <div class="stat-label">Fortress Health</div>
+    </div>
+    <div class="card card-body text-center">
+      <div class="stat-value text-[#60a5fa]" id="stat-models">—</div>
+      <div class="stat-label">Available Models</div>
+    </div>
+    <div class="card card-body text-center">
+      <div class="stat-value text-[var(--blood)]" id="stat-blocked">0</div>
+      <div class="stat-label">Threats Blocked</div>
+    </div>
+  </div>
+
+  <!-- War Room (Chat) -->
+  <div class="px-8 pb-8">
+    <div class="card">
+      <div class="card-header flex items-center justify-between">
+        <h3 class="text-lg">&#x2694; War Room</h3>
+        <span class="badge badge-agent" id="form-toggle" style="cursor:pointer" onclick="toggleForm()">Configure Mission</span>
+      </div>
+
+      <!-- Mission Config Form -->
+      <div id="mission-form" class="card-body form-expanded border-b border-[var(--iron)]">
+        <div class="form-fields">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
+            <div>
+              <label class="text-xs text-[var(--iron-light)] mb-1 block">Mode</label>
+              <select id="mode" class="w-full text-sm">
+                <option value="persistent">Persistent (asks before acting)</option>
+                <option value="quick">Quick (best effort)</option>
+                <option value="supervised">Supervised (human-in-loop)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-[var(--iron-light)] mb-1 block">Intent</label>
+              <select id="intent" class="w-full text-sm">
+                <option value="">Auto-detect</option>
+                <option value="code">Code</option>
+                <option value="search">Search</option>
+                <option value="creative">Creative</option>
+                <option value="automation">Automation</option>
+                <option value="reasoning">Reasoning</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-[var(--iron-light)] mb-1 block">Repo/Context</label>
+              <input type="text" id="repo" class="w-full text-sm" placeholder="Optional workspace path">
+            </div>
+          </div>
+          <div class="mb-4">
+            <label class="text-xs text-[var(--iron-light)] mb-1 block">Mission Objective</label>
+            <textarea id="goal" class="w-full text-sm" rows="3" placeholder="What needs to be accomplished?"></textarea>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn-gold text-sm" onclick="submitMission()">&#x2694; Deploy</button>
+            <button class="btn-iron text-sm" onclick="toggleForm()">Collapse</button>
+          </div>
+        </div>
+        <div class="form-summary p-2" onclick="toggleForm()" style="cursor:pointer">
+          <span class="text-[var(--gold)]">&#x25B6;</span> Click to configure a new mission
+        </div>
+      </div>
+
+      <!-- Conversation -->
+      <div id="conversation" class="card-body space-y-4 max-h-[500px] overflow-y-auto" style="min-height: 100px;">
+        <div class="text-center text-sm text-[var(--iron-light)] py-8">
+          <div class="crest mb-2" style="font-size:3rem">&#x1F3F0;</div>
+          <p>The fortress awaits your command.</p>
+          <p class="text-xs mt-1">Configure a mission above, or type below.</p>
+        </div>
+      </div>
+
+      <!-- Quick Input -->
+      <div class="card-body border-t border-[var(--iron)] flex gap-2">
+        <input type="text" id="followup" class="chat-input flex-1 text-sm px-4 py-3 rounded-lg" placeholder="Send a follow-up command..." onkeydown="if(event.key==='Enter')sendFollowup()">
+        <button class="btn-gold text-sm px-6" onclick="sendFollowup()">Send</button>
+        <button class="btn-iron text-sm px-4" onclick="startNewMission()" title="Start a new mission (new session)">&#x2694; New</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '';
+let sessionId = 'sh-' + crypto.randomUUID().split('-')[0];
+let chatHistory = [];
+
+// User identity badge is handled globally by auth.js
+
+async function fetchStats() {
+  try {
+    var healthResp = await fetch(API + '/health');
+    var health = await healthResp.json();
+    var agents = await fetch(API + '/v1/stronghold/agents', {headers: authHeaders()}).then(function(r){return r.json()}).catch(function(){return []});
+    var models = await fetch(API + '/v1/models', {headers: authHeaders()}).then(function(r){return r.json()}).catch(function(){return {data:[]}});
+    document.getElementById('stat-health').textContent = health.status === 'ok' ? '100%' : '??';
+    document.getElementById('health-status').textContent = health.status === 'ok' ? '\u25cf Fortress Online' : '\u25cb Offline';
+    document.getElementById('health-status').style.color = health.status === 'ok' ? '#4ade80' : '#ff6b6b';
+    document.getElementById('stat-agents').textContent = Array.isArray(agents) ? agents.length : '?';
+    document.getElementById('stat-models').textContent = models.data ? models.data.length : '?';
+  } catch(e) {
+    document.getElementById('health-status').textContent = '\u25cb Unreachable';
+    document.getElementById('health-status').style.color = '#ff6b6b';
+  }
+}
+
+function toggleForm() {
+  const form = document.getElementById('mission-form');
+  form.classList.toggle('form-collapsed');
+  form.classList.toggle('form-expanded');
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function showSecurityAlert(err) {
+  var strike = err.strike || {};
+  var flags = err.flags || [];
+  var num = strike.number || '?';
+  var max = strike.max || 3;
+  var level = strike.scrutiny_level || 'elevated';
+  var locked = strike.locked_until || '';
+  var disabled = strike.account_disabled || false;
+
+  // Severity colors
+  var severity = num >= 3 || disabled ? 'critical' : num >= 2 ? 'locked' : 'warning';
+  var bgColor = severity === 'critical' ? 'rgba(139,37,0,0.25)' : severity === 'locked' ? 'rgba(251,191,36,0.15)' : 'rgba(226,165,41,0.12)';
+  var borderColor = severity === 'critical' ? '#ff4444' : severity === 'locked' ? '#fbbf24' : 'var(--gold)';
+  var iconColor = severity === 'critical' ? '#ff4444' : severity === 'locked' ? '#fbbf24' : 'var(--gold)';
+
+  var conv = document.getElementById('conversation');
+  if (conv.querySelector('.crest')) conv.innerHTML = '';
+
+  var alert = document.createElement('div');
+  alert.className = 'msg';
+  alert.style.cssText = 'animation:fadeIn 0.3s ease';
+
+  var banner = document.createElement('div');
+  banner.style.cssText = 'background:'+bgColor+';border:2px solid '+borderColor+';border-radius:12px;padding:24px 28px;margin:8px 0;';
+
+  // Header row: icon + title
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:16px;';
+  var icon = document.createElement('div');
+  icon.style.cssText = 'font-size:2.5rem;line-height:1;';
+  icon.textContent = severity === 'critical' ? '\u{1F6D1}' : severity === 'locked' ? '\u{1F512}' : '\u{26A0}\u{FE0F}';
+  var titleBlock = document.createElement('div');
+  var title = document.createElement('div');
+  title.style.cssText = 'font-family:Playfair Display,serif;font-size:1.4rem;font-weight:700;color:'+iconColor+';';
+  title.textContent = disabled ? 'Account Disabled' : severity === 'locked' ? 'Account Locked' : 'Security Warning';
+  var subtitle = document.createElement('div');
+  subtitle.style.cssText = 'font-size:0.8rem;color:var(--iron-light);margin-top:2px;';
+  subtitle.textContent = 'Strike ' + num + ' of ' + max + ' \u2014 ' + level;
+  titleBlock.appendChild(title);
+  titleBlock.appendChild(subtitle);
+  hdr.appendChild(icon);
+  hdr.appendChild(titleBlock);
+  banner.appendChild(hdr);
+
+  // Message
+  var msg = document.createElement('div');
+  msg.style.cssText = 'font-size:0.9rem;line-height:1.6;color:var(--parchment);margin-bottom:16px;';
+  msg.textContent = err.message || 'Your request was blocked by the security system.';
+  banner.appendChild(msg);
+
+  // Flags
+  if (flags.length > 0) {
+    var flagBox = document.createElement('div');
+    flagBox.style.cssText = 'background:rgba(0,0,0,0.2);border-radius:6px;padding:10px 14px;margin-bottom:16px;';
+    var flagLabel = document.createElement('div');
+    flagLabel.style.cssText = 'font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--iron-light);margin-bottom:6px;';
+    flagLabel.textContent = 'Detected Flags';
+    flagBox.appendChild(flagLabel);
+    flags.forEach(function(f) {
+      var chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-block;padding:3px 10px;margin:2px 4px 2px 0;border-radius:4px;font-size:0.7rem;background:rgba(139,37,0,0.3);color:#ff6b6b;';
+      chip.textContent = f;
+      flagBox.appendChild(chip);
+    });
+    banner.appendChild(flagBox);
+  }
+
+  // Lockout info
+  if (locked) {
+    var lockInfo = document.createElement('div');
+    lockInfo.style.cssText = 'font-size:0.8rem;color:#fbbf24;margin-bottom:12px;';
+    lockInfo.textContent = '\u{1F512} Locked until ' + locked.slice(0,19).replace('T',' ') + ' UTC';
+    banner.appendChild(lockInfo);
+  }
+
+  // Strike meter
+  var meter = document.createElement('div');
+  meter.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:16px;';
+  var meterLabel = document.createElement('span');
+  meterLabel.style.cssText = 'font-size:0.7rem;color:var(--iron-light);';
+  meterLabel.textContent = 'Strikes:';
+  meter.appendChild(meterLabel);
+  for (var i = 1; i <= max; i++) {
+    var dot = document.createElement('div');
+    dot.style.cssText = 'width:32px;height:8px;border-radius:4px;' + (i <= num ? 'background:'+iconColor+';' : 'background:rgba(74,74,90,0.4);');
+    meter.appendChild(dot);
+  }
+  banner.appendChild(meter);
+
+  // Escalation info
+  var esc = document.createElement('div');
+  esc.style.cssText = 'font-size:0.7rem;color:var(--iron-light);line-height:1.5;border-top:1px solid rgba(74,74,90,0.3);padding-top:12px;';
+  esc.innerHTML = '<strong style="color:var(--parchment)">Escalation ladder:</strong> '
+    + 'Strike 1 = elevated scrutiny &bull; '
+    + 'Strike 2 = 8-hour lockout &bull; '
+    + 'Strike 3 = account disabled<br>'
+    + 'If you believe this is an error, submit an appeal to your administrator.';
+  banner.appendChild(esc);
+
+  alert.appendChild(banner);
+  conv.appendChild(alert);
+  conv.scrollTop = conv.scrollHeight;
+}
+
+function addMessage(role, content, meta = {}) {
+  const conv = document.getElementById('conversation');
+  // Remove welcome message
+  if (conv.querySelector('.crest')) conv.innerHTML = '';
+
+  const div = document.createElement('div');
+  div.className = 'msg';
+  const isUser = role === 'user';
+
+  const row = document.createElement('div');
+  row.className = 'flex gap-3' + (isUser ? ' justify-end' : '');
+  const bubble = document.createElement('div');
+  bubble.className = (isUser ? 'parchment' : 'card') + ' p-4 max-w-[80%] text-sm';
+  bubble.style.whiteSpace = 'pre-wrap';
+
+  const header = document.createElement('div');
+  header.className = 'flex items-center gap-2 mb-2';
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'font-bold ' + (isUser ? 'text-[#5a4a2a]' : 'text-[var(--gold)]');
+  nameSpan.textContent = isUser ? 'You' : '\u{1F3F0} Stronghold';
+  header.appendChild(nameSpan);
+  if (meta.agent) { const b = document.createElement('span'); b.className = 'badge badge-agent'; b.textContent = meta.agent; header.appendChild(b); }
+  if (meta.intent) { const b = document.createElement('span'); b.className = 'badge badge-intent'; b.textContent = meta.intent; header.appendChild(b); }
+  if (meta.model) { const b = document.createElement('span'); b.className = 'badge badge-model'; b.textContent = meta.model; header.appendChild(b); }
+
+  const body = document.createElement('div');
+  body.textContent = content;
+
+  bubble.appendChild(header);
+  bubble.appendChild(body);
+  row.appendChild(bubble);
+  div.appendChild(row);
+  conv.appendChild(div);
+  conv.scrollTop = conv.scrollHeight;
+}
+
+async function submitMission() {
+  const goal = document.getElementById('goal').value.trim();
+  if (!goal) return;
+
+  addMessage('user', goal);
+  chatHistory.push({role: 'user', content: goal});
+
+  const mode = document.getElementById('mode').value;
+  const intent = document.getElementById('intent').value;
+  toggleForm();
+
+  // Show spinner
+  const spinner = document.createElement('div');
+  spinner.id = 'spinner';
+  spinner.className = 'text-center py-4 text-[var(--gold-dim)] text-sm';
+  spinner.innerHTML = '&#x2694; Deploying agent<span class="animate-pulse">...</span>';
+  document.getElementById('conversation').appendChild(spinner);
+
+  try {
+    const resp = await fetch(API + '/v1/stronghold/request/stream', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        goal, execution_mode: mode, intent_hint: intent,
+        session_id: sessionId, details: '',
+      }),
+    });
+
+    document.getElementById('spinner')?.remove();
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({error: {message: 'Request failed'}}));
+      if (err.error && err.error.code === 'BLOCKED_BY_GATE') {
+        showSecurityAlert(err.error);
+      } else {
+        addMessage('assistant', 'Error: ' + (err.error?.message || resp.status), {});
+      }
+      return;
+    }
+
+    // SSE streaming
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+    let meta = {};
+    let errorMessage = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === 'status') {
+            document.getElementById('spinner')?.remove();
+            const s = document.createElement('div');
+            s.id = 'spinner';
+            s.className = 'text-center py-2 text-[var(--iron-light)] text-xs';
+            s.textContent = parsed.message;
+            document.getElementById('conversation').appendChild(s);
+          } else if (parsed.type === 'error') {
+            document.getElementById('spinner')?.remove();
+            errorMessage = parsed.message || 'Mission failed';
+          } else if (parsed.type === 'done') {
+            document.getElementById('spinner')?.remove();
+            fullContent = parsed.content || '';
+            meta = parsed._routing || {};
+          }
+        } catch(e) {}
+      }
+    }
+
+    if (errorMessage) {
+      addMessage('assistant', 'Error: ' + errorMessage, {});
+      return;
+    }
+
+    if (fullContent) {
+      addMessage('assistant', fullContent, {
+        agent: meta.agent, intent: meta.intent?.task_type, model: meta.model
+      });
+      chatHistory.push({role: 'assistant', content: fullContent});
+      saveMission();
+    }
+  } catch(e) {
+    document.getElementById('spinner')?.remove();
+    addMessage('assistant', 'Connection error: unable to reach server', {});
+  }
+}
+
+async function sendFollowup() {
+  const input = document.getElementById('followup');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  addMessage('user', text);
+  chatHistory.push({role: 'user', content: text});
+
+  try {
+    const resp = await fetch(API + '/v1/chat/completions', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model: 'auto',
+        messages: chatHistory,
+        session_id: sessionId,
+      }),
+    });
+    const data = await resp.json();
+    if (data.error && data.error.code === 'BLOCKED_BY_GATE') {
+      showSecurityAlert(data.error);
+      return;
+    }
+    const content = data.choices?.[0]?.message?.content || 'No response';
+    const routing = data._routing || {};
+    addMessage('assistant', content, {
+      agent: routing.agent, intent: routing.intent?.task_type, model: routing.model
+    });
+    chatHistory.push({role: 'assistant', content});
+    saveMission();
+  } catch(e) {
+    addMessage('assistant', 'Connection error: unable to reach server', {});
+  }
+}
+
+// ── Mission History (localStorage) ────────────────────────
+function saveMission() {
+  if (chatHistory.length < 2) return;
+  var firstMsg = chatHistory.find(function(m) { return m.role === 'user'; });
+  var preview = firstMsg ? firstMsg.content.slice(0, 60) : 'Mission';
+  var missions = JSON.parse(localStorage.getItem('sh_missions') || '[]');
+  var existing = missions.findIndex(function(m) { return m.id === sessionId; });
+  var entry = {id: sessionId, preview: preview, history: chatHistory, ts: Date.now()};
+  if (existing >= 0) missions[existing] = entry;
+  else missions.unshift(entry);
+  if (missions.length > 20) missions = missions.slice(0, 20);
+  localStorage.setItem('sh_missions', JSON.stringify(missions));
+  renderMissionHistory();
+}
+
+function renderMissionHistory() {
+  var el = document.getElementById('mission-history');
+  if (!el) return;
+  el.innerHTML = '';
+  var missions = JSON.parse(localStorage.getItem('sh_missions') || '[]');
+  if (missions.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'text-xs text-[var(--iron-light)] px-2 py-2';
+    empty.textContent = 'No missions yet';
+    el.appendChild(empty);
+    return;
+  }
+  missions.forEach(function(m) {
+    var btn = document.createElement('button');
+    btn.className = 'w-full text-left text-xs px-2 py-2 rounded hover:bg-[rgba(226,165,41,0.1)] transition-colors';
+    btn.style.color = m.id === sessionId ? 'var(--gold)' : 'var(--iron-light)';
+    btn.style.borderLeft = m.id === sessionId ? '2px solid var(--gold)' : '2px solid transparent';
+    var label = document.createElement('div');
+    label.className = 'truncate';
+    label.textContent = m.preview || 'Mission';
+    var time = document.createElement('div');
+    time.className = 'text-[10px] opacity-50 mt-0.5';
+    time.textContent = new Date(m.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    btn.appendChild(label);
+    btn.appendChild(time);
+    btn.addEventListener('click', function() { resumeMission(m.id); });
+    el.appendChild(btn);
+  });
+}
+
+async function resumeMission(missionId) {
+  var missions = JSON.parse(localStorage.getItem('sh_missions') || '[]');
+  var mission = missions.find(function(m) { return m.id === missionId; });
+  if (!mission) return;
+  sessionId = mission.id;
+
+  // Lazy-load from server if this is a server-only session with no local history
+  if ((!mission.history || mission.history.length === 0) && mission.server) {
+    try {
+      var resp = await fetch('/v1/stronghold/sessions/' + encodeURIComponent(missionId), {headers: authHeaders()});
+      if (resp.ok) {
+        var data = await resp.json();
+        mission.history = (data.messages || []).map(function(m) { return {role: m.role, content: m.content}; });
+        var firstUser = mission.history.find(function(m) { return m.role === 'user'; });
+        if (firstUser) mission.preview = firstUser.content.slice(0, 60);
+        var idx = missions.findIndex(function(m2) { return m2.id === missionId; });
+        if (idx >= 0) missions[idx] = mission;
+        localStorage.setItem('sh_missions', JSON.stringify(missions));
+      }
+    } catch(e) {}
+  }
+
+  chatHistory = mission.history || [];
+  var conv = document.getElementById('conversation');
+  conv.innerHTML = '';
+  chatHistory.forEach(function(msg) {
+    addMessage(msg.role, msg.content, {});
+  });
+  var form = document.getElementById('mission-form');
+  form.classList.add('form-collapsed');
+  form.classList.remove('form-expanded');
+  renderMissionHistory();
+}
+
+function startNewMission() {
+  sessionId = 'sh-' + crypto.randomUUID().split('-')[0];
+  chatHistory = [];
+  const conv = document.getElementById('conversation');
+  conv.innerHTML = '';
+  const welcome = document.createElement('div');
+  welcome.className = 'text-center text-sm text-[var(--iron-light)] py-8';
+  welcome.innerHTML = '<div class="crest mb-2" style="font-size:3rem">&#x1F3F0;</div>'
+    + '<p>New mission. The fortress awaits your command.</p>'
+    + '<p class="text-xs mt-1">Configure a mission above, or type below.</p>';
+  conv.appendChild(welcome);
+  // Re-expand the mission form
+  const form = document.getElementById('mission-form');
+  form.classList.remove('form-collapsed');
+  form.classList.add('form-expanded');
+  // Clear inputs
+  document.getElementById('goal').value = '';
+  document.getElementById('followup').value = '';
+  document.getElementById('intent').value = '';
+}
+
+// Mobile sidebar
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
+// Load server-side sessions into mission history
+async function loadServerMissions() {
+  try {
+    var resp = await fetch('/v1/stronghold/sessions', {headers: authHeaders()});
+    if (!resp.ok) return;
+    var sessions = await resp.json();
+    if (!Array.isArray(sessions) || sessions.length === 0) return;
+
+    var localMissions = JSON.parse(localStorage.getItem('sh_missions') || '[]');
+    var localIds = {};
+    localMissions.forEach(function(m) { localIds[m.id] = true; });
+
+    var newEntries = [];
+    sessions.forEach(function(s) {
+      if (localIds[s.session_id]) return;
+      newEntries.push({
+        id: s.session_id,
+        preview: (s.message_count || 0) + ' messages',
+        history: [],
+        ts: (s.last_activity || 0) * 1000 || Date.now(),
+        server: true,
+      });
+    });
+
+    if (newEntries.length === 0) return;
+    var combined = localMissions.concat(newEntries);
+    combined.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+    combined = combined.slice(0, 30);
+    localStorage.setItem('sh_missions', JSON.stringify(combined));
+    renderMissionHistory();
+  } catch(e) {}
+}
+
+// Boot
+fetchStats();
+renderMissionHistory();
+loadServerMissions();
+setInterval(function() { fetchStats(); }, 30000);
+</script>
+</body>
+</html>

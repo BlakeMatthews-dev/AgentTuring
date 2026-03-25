@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stronghold — The Scrolls</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --stone-dark:#1a1a2e; --stone-mid:#16213e; --stone-light:#1e2d4a; --iron:#4a4a5a; --iron-light:#6b6b7b; --gold:#e2a529; --gold-dim:#c9a227; --parchment:#f5f0e1; --blood:#8b2500; --emerald:#2d6a4f; }
+  body { background: linear-gradient(135deg, var(--stone-dark), var(--stone-mid)); color: #d4d0c8; font-family: 'JetBrains Mono', monospace; min-height: 100vh; }
+  h1,h2,h3 { font-family: 'Playfair Display', Georgia, serif; color: var(--gold); }
+  .sidebar { background: linear-gradient(180deg, #0d1321, #1a1a2e); border-right: 2px solid var(--iron); width: 240px; min-height: 100vh; }
+  .sidebar-item { padding: 12px 20px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 10px; color: #8b8b9b; font-size: 0.85rem; text-decoration: none; }
+  .sidebar-item:hover { background: rgba(226,165,41,0.08); color: var(--gold-dim); border-left-color: var(--gold-dim); }
+  .sidebar-item.active { background: rgba(226,165,41,0.12); color: var(--gold); border-left-color: var(--gold); }
+  .card { background: var(--stone-light); border: 1px solid var(--iron); border-radius: 8px; }
+  select, textarea, input { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); font-family: 'JetBrains Mono', monospace; }
+  select:focus, textarea:focus, input:focus { border-color: var(--gold-dim); outline: none; }
+  .btn-primary { background: linear-gradient(135deg, var(--gold-dim), var(--gold)); color: #1a1a2e; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary:hover { box-shadow: 0 0 12px rgba(226,165,41,0.3); }
+  .btn-secondary { background: var(--iron); color: #d4d0c8; cursor: pointer; border: none; }
+  .btn-secondary:hover { background: var(--iron-light); }
+  .btn-green { background: var(--emerald); color: #f5f0e1; cursor: pointer; border: none; }
+  .btn-green:hover { background: #357a5a; }
+  .btn-amber { background: #d97706; color: white; cursor: pointer; border: none; }
+  .btn-amber:hover { background: #b45309; }
+  .btn-red { background: var(--blood); color: #f5f0e1; cursor: pointer; border: none; }
+  .btn-red:hover { background: #a63000; }
+  .label { font-size: 0.75rem; color: var(--iron-light); margin-bottom: 0.25rem; display: block; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.65rem; }
+  .badge-blue { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .badge-green { background: rgba(45,106,79,0.3); color: #4ade80; }
+  .badge-amber { background: rgba(217,119,6,0.2); color: #fbbf24; }
+  .badge-red { background: rgba(139,37,0,0.3); color: #f87171; }
+  .prompt-row { border-bottom: 1px solid rgba(74,74,90,0.3); cursor: pointer; transition: background 0.15s; }
+  .prompt-row:hover { background: rgba(226,165,41,0.06); }
+  .diff-container { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--iron); border-radius: 8px; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+  @media (max-width: 768px) {
+    .diff-container { grid-template-columns: 1fr; }
+    .diff-left, .diff-right { max-height: 300px; }
+  }
+  .diff-header { background: rgba(74,74,90,0.4); padding: 8px 12px; font-weight: 600; font-size: 0.75rem; }
+  .diff-left, .diff-right { min-height: 200px; max-height: 500px; overflow-y: auto; }
+  .diff-line { padding: 2px 8px; white-space: pre-wrap; word-break: break-all; min-height: 1.4em; }
+  .diff-line-num { display: inline-block; width: 30px; color: var(--iron-light); text-align: right; margin-right: 8px; user-select: none; }
+  .diff-add { background: rgba(34,197,94,0.12); color: #4ade80; }
+  .diff-remove { background: rgba(248,113,113,0.12); color: #f87171; }
+  .diff-context { color: var(--iron-light); }
+  .diff-empty { background: var(--stone-light); }
+  .approval-card { border: 1px solid var(--iron); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+  .sidebar-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; }
+  .sidebar-overlay.open { display:block; }
+  .mobile-menu-btn { display: none; background: none; border: none; color: var(--gold); font-size: 1.5rem; cursor: pointer; }
+  @media (max-width: 768px) {
+    .sidebar { position:fixed; top:0; left:-260px; z-index:1000; width:260px; height:100vh; transition:left 0.3s; }
+    .sidebar.open { left:0; }
+    .mobile-menu-btn { display:block; }
+  }
+</style>
+<script src="/dashboard/auth.js"></script>
+</head>
+<body class="flex">
+<div class="sidebar-overlay" id="sidebar-overlay" role="button" onclick="closeSidebar()"></div>
+<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
+  <div class="p-5 border-b border-[var(--iron)]"><div class="flex items-center gap-3"><span class="tower-crest" style="font-size:2rem;text-shadow:0 0 20px rgba(226,165,41,0.4)">&#x1F3F0;</span><div><h1 class="text-lg leading-tight">Stronghold</h1><p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p></div></div></div>
+  <div class="flex-1 py-4">
+    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall</a>
+    <a href="/dashboard/agents" class="sidebar-item"><span style="width:24px;text-align:center">&#x2694;</span> Knights</a>
+    <a href="/dashboard/skills" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F6E1;</span> Armory</a>
+    <a href="/dashboard/mcp" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F525;</span> Forge</a>
+    <a href="/dashboard/security" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F5FC;</span> Watchtower</a>
+    <a href="/dashboard/outcomes" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4B0;</span> Treasury</a>
+    <a href="/dashboard/quota" class="sidebar-item"><span style="width:24px;text-align:center">&#x2696;</span> Ledger</a>
+    <a href="/prompts" class="sidebar-item active"><span style="width:24px;text-align:center">&#x1F4DC;</span> Scrolls</a>
+  </div>
+  <div class="py-2 border-t border-[var(--iron)]">
+    <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
+  </div>
+  <div class="p-4 border-t border-[var(--iron)] text-xs text-[var(--iron-light)]">
+    <div class="flex justify-between items-center"><span>v0.1.0</span><a href="/logout" onclick="strongholdLogout();return false" style="color:var(--iron-light);text-decoration:none;transition:color 0.2s" class="sh-logout">Logout</a></div>
+  </div>
+</nav>
+<main class="flex-1 overflow-auto">
+  <header class="px-8 py-6 border-b border-[var(--iron)] flex items-center justify-between">
+    <div><div class="flex items-center gap-3"><button class="mobile-menu-btn" onclick="openSidebar()">&#x2630;</button><h2 class="text-2xl">&#x1F4DC; The Scrolls</h2></div><p class="text-sm text-[var(--iron-light)] mt-1">Versioned prompts, agent souls, and tool definitions</p></div>
+    <button onclick="showCreate()" class="btn-primary px-3 py-1.5 rounded-lg text-sm">&#x2692; New Scroll</button>
+  </header>
+<div class="px-8 py-6">
+
+  <!-- Prompt List -->
+  <div id="prompt-list" class="card mb-4">
+    <div class="p-4 text-sm text-[var(--iron-light)] sh-loading">&#x1F4DC; Unrolling the scrolls...</div>
+  </div>
+
+  <!-- Prompt Detail / Editor -->
+  <div id="prompt-detail" class="card p-6 mb-4 hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="detail-name" class="text-lg font-medium"></h2>
+      <div class="flex gap-2">
+        <button onclick="showList()" class="btn-secondary px-3 py-1 rounded-lg text-sm">Back</button>
+        <button onclick="savePrompt()" class="btn-primary px-3 py-1 rounded-lg text-sm">Save New Version</button>
+      </div>
+    </div>
+    <div class="mb-3">
+      <label class="label">Label</label>
+      <select id="detail-label" class="rounded-lg p-2 text-sm w-48" onchange="loadPromptVersion()">
+        <option value="production">production</option>
+        <option value="staging">staging</option>
+        <option value="latest">latest</option>
+      </select>
+      <button onclick="promoteToProduction()" class="btn-green px-3 py-1 rounded-lg text-sm ml-2">Promote to Production</button>
+      <button onclick="requestApproval()" class="btn-amber px-3 py-1 rounded-lg text-sm ml-1">Request Approval</button>
+    </div>
+    <div class="mb-3">
+      <label class="label">Content</label>
+      <textarea id="detail-content" rows="12" class="w-full rounded-lg p-3 text-sm font-mono"></textarea>
+    </div>
+    <div>
+      <label class="label">Config (JSON)</label>
+      <textarea id="detail-config" rows="3" class="w-full rounded-lg p-3 text-sm font-mono">{}</textarea>
+    </div>
+
+    <!-- Version History + Diff -->
+    <div class="mt-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-medium text-[var(--parchment)]">Version History</h3>
+        <div class="flex gap-2 items-center">
+          <label class="text-xs text-[var(--iron-light)]">Compare:</label>
+          <select id="diff-from" class="rounded p-1 text-xs w-20"></select>
+          <span class="text-xs text-[var(--iron)]">vs</span>
+          <select id="diff-to" class="rounded p-1 text-xs w-20"></select>
+          <button onclick="showDiff()" class="btn-primary px-2 py-1 rounded text-xs">Diff</button>
+        </div>
+      </div>
+      <div id="version-list" class="text-xs text-[var(--iron-light)] mb-3"></div>
+    </div>
+
+    <!-- Diff Viewer -->
+    <div id="diff-panel" class="hidden mt-3">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-medium text-[var(--parchment)]" id="diff-title">Diff</h3>
+        <button onclick="hideDiff()" class="btn-secondary px-2 py-1 rounded text-xs">Close Diff</button>
+      </div>
+      <div class="diff-container" id="diff-viewer">
+        <div class="diff-header" id="diff-header-left">Old</div>
+        <div class="diff-header" id="diff-header-right">New</div>
+        <div class="diff-left" id="diff-left"></div>
+        <div class="diff-right" id="diff-right"></div>
+      </div>
+    </div>
+
+    <!-- Approval Requests -->
+    <div class="mt-4">
+      <h3 class="text-sm font-medium text-[var(--parchment)] mb-2">Approval Requests</h3>
+      <div id="approval-list" class="text-xs text-[var(--iron-light)]"></div>
+    </div>
+  </div>
+
+  <!-- Create New -->
+  <div id="prompt-create" class="card p-6 mb-4 hidden">
+    <h2 class="text-lg font-medium mb-4">Create New Prompt</h2>
+    <div class="mb-3">
+      <label class="label">Name</label>
+      <input type="text" id="create-name" class="w-full rounded-lg p-2 text-sm" placeholder="e.g., agent.my-agent.soul">
+    </div>
+    <div class="mb-3">
+      <label class="label">Content</label>
+      <textarea id="create-content" rows="8" class="w-full rounded-lg p-3 text-sm font-mono" placeholder="Prompt content..."></textarea>
+    </div>
+    <div class="mb-3">
+      <label class="label">Label</label>
+      <select id="create-label" class="rounded-lg p-2 text-sm w-48">
+        <option value="production">production</option>
+        <option value="staging">staging</option>
+      </select>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="createPrompt()" class="btn-primary px-4 py-2 rounded-lg text-sm">Create</button>
+      <button onclick="showList()" class="btn-secondary px-4 py-2 rounded-lg text-sm">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var API = window.location.origin;
+function getHeaders() {
+  return authHeaders();
+}
+var currentPrompt = '';
+var currentVersions = [];
+
+function showList() {
+  document.getElementById('prompt-list').classList.remove('hidden');
+  document.getElementById('prompt-detail').classList.add('hidden');
+  document.getElementById('prompt-create').classList.add('hidden');
+  loadPrompts();
+}
+function showDetail(name) {
+  currentPrompt = name;
+  document.getElementById('prompt-list').classList.add('hidden');
+  document.getElementById('prompt-detail').classList.remove('hidden');
+  document.getElementById('prompt-create').classList.add('hidden');
+  document.getElementById('detail-name').textContent = name;
+  hideDiff();
+  loadPromptVersion();
+  loadVersionHistory();
+}
+function showCreate() {
+  document.getElementById('prompt-list').classList.add('hidden');
+  document.getElementById('prompt-detail').classList.add('hidden');
+  document.getElementById('prompt-create').classList.remove('hidden');
+}
+
+async function loadPrompts() {
+  var resp = await fetch(API + '/v1/stronghold/prompts', {headers: getHeaders()});
+  var data = await resp.json();
+  var el = document.getElementById('prompt-list');
+  el.textContent = '';
+  if (!data.prompts || !data.prompts.length) {
+    var empty = document.createElement('div');
+    empty.className = 'p-4';
+    empty.innerHTML = strongholdEmptyState('&#x1F4DC;', 'The scroll rack is empty', 'No prompts have been inscribed. Create your first scroll to define agent behaviors and tool definitions.');
+    el.appendChild(empty);
+    return;
+  }
+  for (var i = 0; i < data.prompts.length; i++) {
+    var p = data.prompts[i];
+    var row = document.createElement('div');
+    row.className = 'prompt-row p-3 flex items-center justify-between';
+    row.addEventListener('click', (function(name) { return function() { showDetail(name); }; })(p.name));
+
+    var left = document.createElement('div');
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'text-sm font-medium';
+    nameSpan.textContent = p.name;
+    left.appendChild(nameSpan);
+
+    var verBadge = document.createElement('span');
+    verBadge.className = 'badge badge-blue ml-2';
+    verBadge.textContent = 'v' + p.latest_version;
+    left.appendChild(verBadge);
+
+    var labels = p.labels || {};
+    for (var lbl in labels) {
+      var lb = document.createElement('span');
+      lb.className = 'badge badge-green ml-1';
+      lb.textContent = lbl + ' v' + labels[lbl];
+      left.appendChild(lb);
+    }
+
+    var preview = document.createElement('span');
+    preview.className = 'text-xs text-[var(--iron)]';
+    preview.textContent = p.content_preview || '';
+
+    row.appendChild(left);
+    row.appendChild(preview);
+    el.appendChild(row);
+  }
+}
+
+async function loadPromptVersion() {
+  var label = document.getElementById('detail-label').value;
+  var resp = await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '?label=' + label, {headers: getHeaders()});
+  if (resp.ok) {
+    var data = await resp.json();
+    document.getElementById('detail-content').value = data.content;
+    document.getElementById('detail-config').value = JSON.stringify(data.config || {}, null, 2);
+  }
+}
+
+async function loadVersionHistory() {
+  var resp = await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '/versions', {headers: getHeaders()});
+  if (!resp.ok) return;
+  var data = await resp.json();
+  currentVersions = data.versions || [];
+  var el = document.getElementById('version-list');
+  el.textContent = '';
+
+  // Populate diff selectors
+  var diffFrom = document.getElementById('diff-from');
+  var diffTo = document.getElementById('diff-to');
+  diffFrom.textContent = '';
+  diffTo.textContent = '';
+
+  for (var i = 0; i < currentVersions.length; i++) {
+    var v = currentVersions[i];
+
+    // Version list entry
+    var div = document.createElement('div');
+    div.className = 'py-1 flex items-center gap-2';
+    var verText = document.createElement('span');
+    verText.textContent = 'v' + v.version;
+    verText.className = 'font-medium';
+    div.appendChild(verText);
+
+    for (var j = 0; j < (v.labels || []).length; j++) {
+      var badge = document.createElement('span');
+      badge.className = 'badge badge-green';
+      badge.textContent = v.labels[j];
+      div.appendChild(badge);
+    }
+
+    var previewSpan = document.createElement('span');
+    previewSpan.className = 'text-[var(--iron)]';
+    previewSpan.textContent = (v.content_preview || '').slice(0, 60);
+    div.appendChild(previewSpan);
+    el.appendChild(div);
+
+    // Diff selector options
+    var optFrom = document.createElement('option');
+    optFrom.value = v.version;
+    optFrom.textContent = 'v' + v.version;
+    diffFrom.appendChild(optFrom);
+
+    var optTo = document.createElement('option');
+    optTo.value = v.version;
+    optTo.textContent = 'v' + v.version;
+    diffTo.appendChild(optTo);
+  }
+
+  // Default: compare second-to-last vs last
+  if (currentVersions.length >= 2) {
+    diffFrom.value = currentVersions[currentVersions.length - 2].version;
+    diffTo.value = currentVersions[currentVersions.length - 1].version;
+  }
+}
+
+/* ── Diff Viewer ──────────────────────────────── */
+function hideDiff() {
+  document.getElementById('diff-panel').classList.add('hidden');
+}
+
+async function showDiff() {
+  var fromVer = document.getElementById('diff-from').value;
+  var toVer = document.getElementById('diff-to').value;
+  if (!fromVer || !toVer) return;
+  if (fromVer === toVer) { alert('Select different versions to compare'); return; }
+
+  var resp = await fetch(
+    API + '/v1/stronghold/prompts/' + currentPrompt + '/diff?from_version=' + fromVer + '&to_version=' + toVer,
+    {headers: getHeaders()}
+  );
+  if (!resp.ok) { alert('Failed to load diff'); return; }
+  var data = await resp.json();
+  var diffLines = data.diff || [];
+
+  document.getElementById('diff-panel').classList.remove('hidden');
+  document.getElementById('diff-title').textContent = 'Diff: v' + fromVer + ' vs v' + toVer;
+  document.getElementById('diff-header-left').textContent = 'v' + fromVer + ' (old)';
+  document.getElementById('diff-header-right').textContent = 'v' + toVer + ' (new)';
+
+  var leftCol = document.getElementById('diff-left');
+  var rightCol = document.getElementById('diff-right');
+  leftCol.textContent = '';
+  rightCol.textContent = '';
+
+  for (var i = 0; i < diffLines.length; i++) {
+    var d = diffLines[i];
+    var leftLine = document.createElement('div');
+    var rightLine = document.createElement('div');
+    leftLine.className = 'diff-line';
+    rightLine.className = 'diff-line';
+
+    if (d.op === 'remove') {
+      leftLine.className += ' diff-remove';
+      var lnum = document.createElement('span');
+      lnum.className = 'diff-line-num';
+      lnum.textContent = d.old_lineno || '';
+      leftLine.appendChild(lnum);
+      leftLine.appendChild(document.createTextNode('- ' + d.content));
+      rightLine.className += ' diff-empty';
+    } else if (d.op === 'add') {
+      leftLine.className += ' diff-empty';
+      rightLine.className += ' diff-add';
+      var rnum = document.createElement('span');
+      rnum.className = 'diff-line-num';
+      rnum.textContent = d.new_lineno || '';
+      rightLine.appendChild(rnum);
+      rightLine.appendChild(document.createTextNode('+ ' + d.content));
+    } else {
+      leftLine.className += ' diff-context';
+      rightLine.className += ' diff-context';
+      var lnumC = document.createElement('span');
+      lnumC.className = 'diff-line-num';
+      lnumC.textContent = d.old_lineno || '';
+      leftLine.appendChild(lnumC);
+      leftLine.appendChild(document.createTextNode('  ' + d.content));
+      var rnumC = document.createElement('span');
+      rnumC.className = 'diff-line-num';
+      rnumC.textContent = d.new_lineno || '';
+      rightLine.appendChild(rnumC);
+      rightLine.appendChild(document.createTextNode('  ' + d.content));
+    }
+
+    leftCol.appendChild(leftLine);
+    rightCol.appendChild(rightLine);
+  }
+
+  if (diffLines.length === 0) {
+    var noChange = document.createElement('div');
+    noChange.className = 'diff-line diff-context';
+    noChange.textContent = 'No differences found';
+    leftCol.appendChild(noChange);
+    rightCol.appendChild(noChange.cloneNode(true));
+  }
+}
+
+/* ── Approval Workflow ────────────────────────── */
+async function requestApproval() {
+  var label = document.getElementById('detail-label').value;
+  // Find the version for current label
+  var version = 0;
+  for (var i = 0; i < currentVersions.length; i++) {
+    var v = currentVersions[i];
+    if ((v.labels || []).indexOf(label) !== -1) {
+      version = v.version;
+      break;
+    }
+  }
+  if (!version && currentVersions.length > 0) {
+    version = currentVersions[currentVersions.length - 1].version;
+  }
+  var notes = prompt('Notes for approval request (optional):') || '';
+
+  var resp = await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '/request-approval', {
+    method: 'POST', headers: getHeaders(),
+    body: JSON.stringify({version: version, notes: notes}),
+  });
+  if (resp.ok) {
+    alert('Approval requested for v' + version);
+    loadVersionHistory();
+  } else {
+    var data = await resp.json();
+    alert('Failed: ' + (data.detail || resp.statusText));
+  }
+}
+
+async function approveVersion(version) {
+  var resp = await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '/approve', {
+    method: 'POST', headers: getHeaders(),
+    body: JSON.stringify({version: version}),
+  });
+  if (resp.ok) {
+    alert('Version ' + version + ' approved and promoted to production');
+    loadVersionHistory();
+    loadPromptVersion();
+  } else {
+    var data = await resp.json();
+    alert('Failed: ' + (data.detail || resp.statusText));
+  }
+}
+
+async function rejectVersion(version) {
+  var reason = prompt('Reason for rejection:') || '';
+  var resp = await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '/reject', {
+    method: 'POST', headers: getHeaders(),
+    body: JSON.stringify({version: version, reason: reason}),
+  });
+  if (resp.ok) {
+    alert('Version ' + version + ' rejected');
+    loadVersionHistory();
+  } else {
+    var data = await resp.json();
+    alert('Failed: ' + (data.detail || resp.statusText));
+  }
+}
+
+/* ── CRUD ─────────────────────────────────────── */
+async function savePrompt() {
+  var content = document.getElementById('detail-content').value;
+  var label = document.getElementById('detail-label').value;
+  var config = {};
+  try { config = JSON.parse(document.getElementById('detail-config').value); } catch(e) {}
+  await fetch(API + '/v1/stronghold/prompts/' + currentPrompt, {
+    method: 'PUT', headers: getHeaders(), body: JSON.stringify({content: content, label: label, config: config})
+  });
+  loadVersionHistory();
+  loadPromptVersion();
+}
+
+async function promoteToProduction() {
+  var fromLabel = document.getElementById('detail-label').value;
+  if (fromLabel === 'production') { alert('Already production'); return; }
+  await fetch(API + '/v1/stronghold/prompts/' + currentPrompt + '/promote', {
+    method: 'POST', headers: getHeaders(), body: JSON.stringify({from_label: fromLabel, to_label: 'production'})
+  });
+  loadVersionHistory();
+}
+
+async function createPrompt() {
+  var name = document.getElementById('create-name').value.trim();
+  var content = document.getElementById('create-content').value;
+  var label = document.getElementById('create-label').value;
+  if (!name || !content) return;
+  await fetch(API + '/v1/stronghold/prompts/' + name, {
+    method: 'PUT', headers: getHeaders(), body: JSON.stringify({content: content, label: label})
+  });
+  showList();
+}
+
+loadPrompts();
+
+function openSidebar() { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
+</script>
+</div>
+</main>
+</body>
+</html>

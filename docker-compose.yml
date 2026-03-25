@@ -1,0 +1,180 @@
+# Stronghold development stack
+# Usage: cp .env.example .env && edit .env && docker compose up -d
+#
+# Architecture (dual-path):
+#   OpenWebUI → Pipelines → Stronghold → LiteLLM → LLM   (governed path)
+#   OpenWebUI → LiteLLM → LLM                             (direct path)
+
+services:
+  stronghold:
+    build: .
+    privileged: true  # Required for Kind K8s cluster access (MCP deployer)
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8100:8100"
+    env_file: .env
+    volumes:
+      - ./.kubeconfig-docker:/home/stronghold/.kube/config:ro
+    environment:
+      - DATABASE_URL=postgresql://stronghold:stronghold@postgres:5432/stronghold
+      - LITELLM_URL=http://litellm:4000
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
+      - KUBECONFIG=/home/stronghold/.kube/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+    networks:
+      - stronghold
+      - kind
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    privileged: true  # Required for pgvector extension setup
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=stronghold
+      - POSTGRES_PASSWORD=stronghold
+      - POSTGRES_DB=stronghold
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stronghold"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    ports:
+      - "6006:6006"
+    environment:
+      - PHOENIX_SQL_DATABASE_URL=sqlite:////data/phoenix.db
+    volumes:
+      - phoenixdata:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    security_opt:
+      - apparmor:unconfined
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+      - ./litellm_openapi.json:/app/github-openapi.json
+    env_file: .env
+    command: ["--config", "/app/config.yaml"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+  # ── OpenWebUI + Pipelines (dual-path) ────────────────────────────────
+  #
+  # Pipelines container runs the Stronghold governance pipeline.
+  # OpenWebUI connects to BOTH:
+  #   1. Pipelines (port 9099) — governed path through Stronghold
+  #   2. LiteLLM (port 4000)  — direct path (no governance)
+  #
+  # Users see both governed and direct models in the model picker.
+
+  pipelines:
+    image: ghcr.io/open-webui/pipelines:main
+    restart: unless-stopped
+    ports:
+      - "9099:9099"
+    volumes:
+      - ./integrations/openwebui/stronghold_pipeline.py:/app/pipelines/stronghold_pipeline.py
+    environment:
+      - STRONGHOLD_URL=http://stronghold:8100
+      - STRONGHOLD_API_KEY=${ROUTER_API_KEY}
+    depends_on:
+      - stronghold
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9099/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    networks:
+      - stronghold
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      # Direct LiteLLM connection (ungoverned models)
+      - OPENAI_API_BASE_URL=http://litellm:4000
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
+      # Pipelines connection (Stronghold-governed agents)
+      - PIPELINES_URLS=http://pipelines:9099
+      # Disable OpenWebUI's built-in auth for dev (uses Stronghold auth)
+      - WEBUI_AUTH=false
+      - ENABLE_SIGNUP=true
+    depends_on:
+      - pipelines
+      - litellm
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+volumes:
+  pgdata:
+  phoenixdata:
+  openwebui-data:
+
+networks:
+  stronghold:
+    driver: bridge
+  kind:
+    external: true

@@ -1,0 +1,14 @@
+spec_version: "0.1.0"
+name: artificer-debugger
+version: 1.0.0
+description: Diagnoses test and check failures.
+soul: SOUL.md
+reasoning:
+  strategy: react
+  max_rounds: 5
+model: auto
+tools:
+  - file_ops
+  - shell
+  - run_pytest
+trust_tier: t0

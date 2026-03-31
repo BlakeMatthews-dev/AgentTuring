@@ -605,7 +605,7 @@ class TestCreateAgentsFilesystem:
 
     async def test_seeds_from_real_agents_directory(self) -> None:
         """Smoke test: seed from the actual agents/ directory in the repo."""
-        real_agents_dir = Path("/root/github/stronghold/agents")
+        real_agents_dir = Path(__file__).resolve().parents[2] / "agents"
         if not real_agents_dir.is_dir():
             pytest.skip("Real agents/ directory not available")
 

@@ -11,8 +11,6 @@ on:
   push:
     branches-ignore:
       - main
-      - develop
-      - 'feature/**'
   pull_request:
     branches:
       - 'feature/**'

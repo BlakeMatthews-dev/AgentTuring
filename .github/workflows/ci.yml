@@ -70,8 +70,6 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://stronghold:stronghold@localhost:5432/stronghold
-      ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
-      LITELLM_URL: http://localhost:4000
 
     steps:
       - uses: actions/checkout@v4
@@ -92,18 +90,22 @@ jobs:
             psql "$DATABASE_URL" -f "$f"
           done
 
-      # Tier 1: push to working branch — tests only, no coverage
-      - name: "Tier 1: Tests (working branch push)"
+      # Tier 1: push to working branch — unit tests only, no coverage
+      # Skips integration tests that need full app context (TestClient + DB seeding)
+      - name: "Tier 1: Unit tests (working branch push)"
         if: github.event_name == 'push'
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
             --ignore=tests/performance \
+            --ignore=tests/integration \
             -m "not perf and not e2e"
 
       # Tier 2: PR to feature/* — 85% coverage gate
       - name: "Tier 2: Tests + 85% coverage (PR to feature)"
         if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'feature/')
+        env:
+          ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
@@ -117,6 +119,8 @@ jobs:
       # Tier 3: PR to develop — integration + e2e tests, no hard coverage gate
       - name: "Tier 3: Full test suite (PR to develop)"
         if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        env:
+          ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/performance \

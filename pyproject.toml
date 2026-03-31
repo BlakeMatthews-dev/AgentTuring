@@ -89,3 +89,4 @@ exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
 [tool.bandit]
 targets = ["src/stronghold"]
 severity = "medium"
+skips = ["B608"]

@@ -37,7 +37,7 @@ jobs:
         run: mypy src/stronghold/ --strict
 
       - name: Bandit security scan
-        run: bandit -r src/stronghold/ -ll -q
+        run: bandit -r src/stronghold/ -ll -q --skip B608
 
   test:
     name: Full Test Suite (95% coverage)

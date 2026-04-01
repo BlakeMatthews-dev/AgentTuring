@@ -83,13 +83,12 @@ async def assign_issue(request: Request) -> JSONResponse:
 
 
 async def _dispatch_mason(issue: Any) -> None:
-    """Background task: route issue to Mason via Conduit."""
+    """Background task: Frank plans, then Mason builds."""
     from stronghold.types.auth import SYSTEM_AUTH
 
     queue = _queue()
     issue_num = issue.issue_number
     queue.start(issue_num)
-    queue.add_log(issue_num, "Dispatching to Mason agent")
 
     try:
         container = _state.get("container")
@@ -97,15 +96,14 @@ async def _dispatch_mason(issue: Any) -> None:
             queue.fail(issue_num, error="container not available")
             return
 
-        # Status callback that writes to the queue log
-        async def _log_status(msg: str) -> None:
+        async def _log(msg: str) -> None:
             queue.add_log(issue_num, msg)
 
-        # Create workspace before dispatching so Mason has a path
+        # Create workspace
         from stronghold.tools.workspace import WorkspaceManager
 
         ws = WorkspaceManager()
-        queue.add_log(issue_num, "Creating workspace and cloning repo")
+        await _log("Creating workspace")
         ws_result = await ws.execute(
             {
                 "action": "create",
@@ -115,7 +113,6 @@ async def _dispatch_mason(issue: Any) -> None:
             }
         )
         if not ws_result.success:
-            queue.add_log(issue_num, f"Workspace failed: {ws_result.error}")
             queue.fail(issue_num, error=f"workspace: {ws_result.error}")
             return
 
@@ -124,30 +121,41 @@ async def _dispatch_mason(issue: Any) -> None:
         ws_data = _json.loads(ws_result.content)
         ws_path = ws_data["path"]
         branch = ws_data["branch"]
-        queue.add_log(issue_num, f"Workspace ready: {branch} at {ws_path}")
+        await _log(f"Workspace: {branch}")
 
-        result = await container.route_request(
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Implement GitHub issue #{issue_num}: {issue.title}\n"
-                        f"Repository: {issue.owner}/{issue.repo}\n"
-                        f"Branch: {branch}\n"
-                        f"Workspace: {ws_path}\n\n"
-                        f"The workspace is already set up with a git worktree. "
-                        f"All file_ops and shell commands should use "
-                        f'workspace="{ws_path}".\n\n'
-                        f"Follow your 8-phase evidence-driven TDD pipeline."
-                    ),
-                }
-            ],
-            auth=SYSTEM_AUTH,
-            intent_hint="code_gen",
-            status_callback=_log_status,
+        base_msg = (
+            f"Implement GitHub issue #{issue_num}: {issue.title}\n"
+            f"Repository: {issue.owner}/{issue.repo}\n"
+            f"Branch: {branch}\n"
+            f"Workspace: {ws_path}"
         )
-        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        queue.add_log(issue_num, f"Completed ({len(content)} chars response)")
+
+        # ── Phase 1: Frank (Architect) ──
+        await _log("--- FRANK (Architect) ---")
+        frank = container.agents.get("frank")
+        if frank:
+            await frank.handle(
+                [{"role": "user", "content": base_msg}],
+                SYSTEM_AUTH,
+                status_callback=_log,
+            )
+            await _log("Frank complete — tests committed")
+        else:
+            await _log("Frank agent not loaded — skipping to Mason")
+
+        # ── Phase 2: Mason (Builder) ──
+        await _log("--- MASON (Builder) ---")
+        mason = container.agents.get("mason")
+        if mason:
+            result = await mason.handle(
+                [{"role": "user", "content": base_msg}],
+                SYSTEM_AUTH,
+                status_callback=_log,
+            )
+            await _log(f"Mason complete: {result.content[:100]}")
+        else:
+            await _log("Mason agent not loaded")
+
         queue.complete(issue_num)
     except Exception as e:
         queue.add_log(issue_num, f"Failed: {e}")

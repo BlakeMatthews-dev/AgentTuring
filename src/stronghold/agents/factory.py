@@ -215,7 +215,15 @@ def _register_custom_strategies() -> None:
     except ImportError:
         pass
 
-    # Mason strategy (evidence-driven TDD pipeline)
+    # Frank strategy (architect — planning + tests)
+    try:
+        from stronghold.agents.frank.strategy import FrankStrategy  # noqa: PLC0415
+
+        register_strategy("frank", FrankStrategy)
+    except ImportError:
+        pass
+
+    # Mason strategy (builder — implementation)
     try:
         from stronghold.agents.mason.strategy import MasonStrategy  # noqa: PLC0415
 

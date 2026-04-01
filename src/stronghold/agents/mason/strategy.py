@@ -271,6 +271,48 @@ class MasonStrategy:
 
         await status("=== MASON (Builder) ===")
 
+        # ── Read issue comments (human feedback, Auditor reviews, prior runs) ──
+        await status("Mason: Reading issue comments")
+        issue_comments = ""
+        if ex:
+            r = await ex(
+                "github",
+                {
+                    "action": "list_pr_comments",
+                    "owner": ctx["owner"],
+                    "repo": ctx["repo"],
+                    "issue_number": n,
+                },
+            )
+            comments_str = str(r)
+            if "Error" not in comments_str[:20]:
+                import json as _json
+
+                try:
+                    comments_list = _json.loads(comments_str)
+                    # Filter to non-Mason comments (human + Auditor feedback)
+                    human_comments = [
+                        c
+                        for c in comments_list
+                        if isinstance(c, dict)
+                        and c.get("user", "") != "Mason"
+                        and not c.get("body", "").startswith("## Architecture")
+                        and not c.get("body", "").startswith("## Acceptance")
+                        and not c.get("body", "").startswith("## Tests")
+                        and not c.get("body", "").startswith("## Ready")
+                        and not c.get("body", "").startswith("## Results")
+                        and not c.get("body", "").startswith("## Cycle")
+                        and not c.get("body", "").startswith("## Edge")
+                    ]
+                    if human_comments:
+                        issue_comments = "\n\n".join(
+                            f"Comment by {c.get('user', '?')}:\n{c.get('body', '')[:500]}"
+                            for c in human_comments[-5:]  # last 5 relevant
+                        )
+                        await status(f"  Found {len(human_comments)} comment(s)")
+                except (ValueError, TypeError):
+                    pass
+
         # ── Step 1: Read tests (we already have them from Frank) ──
         # test_code and test_path are still in scope — no file discovery needed
         await status(f"Mason 1/5: Using tests from {test_path}")
@@ -307,6 +349,12 @@ class MasonStrategy:
                 prompt = (
                     f"Issue #{n}: {title}\n\nTests to pass:\n```python\n{test_code[:4000]}\n```\n\n"
                 )
+                if issue_comments:
+                    prompt += (
+                        f"Reviewer/human comments on this issue:\n"
+                        f"{issue_comments}\n\n"
+                        f"Address this feedback in your implementation.\n\n"
+                    )
                 if existing_source:
                     prompt += f"Existing source (PRESERVE all):\n{existing_source[:4000]}\n\n"
                 if previous_impl and cycle > 1:

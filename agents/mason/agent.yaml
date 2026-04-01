@@ -8,7 +8,7 @@ description: >
   Learns from Auditor review feedback via RLHF.
 soul: SOUL.md
 reasoning:
-  strategy: plan_execute
+  strategy: mason
   max_subtasks: 15
   review_after_each: true
   phases:

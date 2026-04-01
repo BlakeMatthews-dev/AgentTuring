@@ -149,6 +149,7 @@ def _build_identity_from_manifest(manifest: dict[str, Any]) -> AgentIdentity:
         max_tool_rounds=reasoning.get("max_subtasks", reasoning.get("max_rounds", 3)),
         reasoning_strategy=reasoning.get("strategy", "direct"),
         memory_config=manifest.get("memory", {}),
+        phases=tuple(reasoning.get("phases", ())),
     )
 
 
@@ -211,6 +212,14 @@ def _register_custom_strategies() -> None:
 
         register_strategy("plan_execute", ArtificerStrategy)
         register_strategy("artificer", ArtificerStrategy)
+    except ImportError:
+        pass
+
+    # Mason strategy (evidence-driven TDD pipeline)
+    try:
+        from stronghold.agents.mason.strategy import MasonStrategy  # noqa: PLC0415
+
+        register_strategy("mason", MasonStrategy)
     except ImportError:
         pass
 

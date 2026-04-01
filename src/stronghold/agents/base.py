@@ -319,6 +319,7 @@ class Agent:
             strategy_kwargs["sentinel"] = self._sentinel
         if status_callback:
             strategy_kwargs["status_callback"] = status_callback
+        strategy_kwargs["identity"] = self.identity
 
         try:
             if trace:

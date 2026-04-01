@@ -35,6 +35,7 @@ class AgentIdentity:
     sub_agents: tuple[str, ...] = ()
     reasoning_strategy: str = "direct"
     memory_config: dict[str, Any] = field(default_factory=dict)
+    phases: tuple[dict[str, Any], ...] = ()
     org_id: str = ""
 
     # Trust & review tracking

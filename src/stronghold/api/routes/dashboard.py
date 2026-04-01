@@ -167,6 +167,14 @@ async def dungeon_dashboard(request: Request) -> HTMLResponse:
     return _serve_page("dungeon.html")
 
 
+@router.get("/dashboard/mason")
+async def mason_dashboard(request: Request) -> HTMLResponse:
+    """The Workshop — Mason autonomous agent management (admin)."""
+    if not await _check_auth(request):
+        return _LOGIN_REDIRECT
+    return _serve_page("mason.html")
+
+
 @router.get("/dashboard/org")
 async def org_dashboard(request: Request) -> HTMLResponse:
     """The Throne Room — organization administration dashboard."""

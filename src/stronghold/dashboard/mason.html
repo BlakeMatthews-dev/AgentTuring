@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stronghold — The Workshop</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --stone-dark:#1a1a2e; --stone-mid:#16213e; --stone-light:#1e2d4a; --iron:#4a4a5a; --iron-light:#6b6b7b; --gold:#e2a529; --gold-dim:#c9a227; --gold-bright:#f4c430; --parchment:#f5f0e1; --blood:#8b2500; --emerald:#2d6a4f; }
+  body { background: linear-gradient(135deg, var(--stone-dark), var(--stone-mid)); color: #d4d0c8; font-family: 'JetBrains Mono', monospace; min-height: 100vh; }
+  h1,h2,h3 { font-family: 'Playfair Display', Georgia, serif; color: var(--gold); }
+  .sidebar { background: linear-gradient(180deg, #0d1321, #1a1a2e); border-right: 2px solid var(--iron); width: 240px; min-height: 100vh; }
+  .sidebar-item { padding: 12px 20px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; display: flex; align-items: center; gap: 10px; color: #8b8b9b; font-size: 0.85rem; text-decoration: none; }
+  .sidebar-item:hover { background: rgba(226,165,41,0.08); color: var(--gold-dim); border-left-color: var(--gold-dim); }
+  .sidebar-item.active { background: rgba(226,165,41,0.12); color: var(--gold); border-left-color: var(--gold); }
+  .card { background: var(--stone-light); border: 1px solid var(--iron); border-radius: 8px; }
+  .stat-value { font-size: 2.5rem; font-weight: 700; font-family: 'Playfair Display', serif; }
+  .stat-label { font-size: 0.7rem; color: var(--iron-light); text-transform: uppercase; letter-spacing: 1px; }
+  .badge-queued { background: rgba(96,165,250,0.2); color: #60a5fa; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; }
+  .badge-progress { background: rgba(226,165,41,0.2); color: var(--gold); padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; }
+  .badge-done { background: rgba(45,106,79,0.2); color: #4ade80; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; }
+  .badge-failed { background: rgba(139,37,0,0.2); color: #ff6b6b; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; }
+  .btn-gold { background: linear-gradient(135deg, var(--gold-dim), var(--gold)); color: #1a1a2e; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 10px 24px; transition: all 0.2s; border: none; }
+  .btn-gold:hover { background: linear-gradient(135deg, var(--gold), var(--gold-bright)); box-shadow: 0 0 12px rgba(226,165,41,0.3); }
+  .btn-iron { background: var(--iron); color: #ccc; cursor: pointer; border-radius: 6px; padding: 8px 16px; border: none; transition: all 0.2s; }
+  .btn-iron:hover { background: var(--iron-light); }
+  select, input[type=text], input[type=number] { background: var(--stone-dark); border: 1px solid var(--iron); color: var(--parchment); border-radius: 6px; padding: 8px 12px; }
+  select:focus, input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 0 2px rgba(226,165,41,0.2); }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: var(--stone-dark); } ::-webkit-scrollbar-thumb { background: var(--iron); border-radius: 4px; }
+  .mobile-menu-btn { display: none; }
+  @media (max-width: 768px) {
+    body { display: block; }
+    .sidebar { position: fixed; top: 0; left: -260px; z-index: 1000; width: 260px; height: 100vh; transition: left 0.3s ease; box-shadow: 4px 0 20px rgba(0,0,0,0.5); }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+    .sidebar-overlay.open { display: block; }
+    .mobile-menu-btn { display: flex; align-items: center; gap: 8px; background: none; border: none; color: var(--gold); cursor: pointer; font-size: 1.5rem; padding: 0; }
+    main { width: 100%; }
+    .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .stat-value { font-size: 1.4rem; }
+    select, input { font-size: 16px !important; }
+  }
+</style>
+<script src="/dashboard/auth.js"></script>
+</head>
+<body class="flex">
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
+  <div class="p-5 border-b border-[var(--iron)]"><div class="flex items-center gap-3"><span style="font-size:2rem;text-shadow:0 0 20px rgba(226,165,41,0.4)">&#x1F3F0;</span><div><h1 class="text-lg leading-tight">Stronghold</h1><p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p></div></div></div>
+  <div class="flex-1 py-4">
+    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall</a>
+    <a href="/dashboard/agents" class="sidebar-item"><span style="width:24px;text-align:center">&#x2694;</span> Knights</a>
+    <a href="/dashboard/skills" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F6E1;</span> Armory</a>
+    <a href="/dashboard/mcp" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F525;</span> Forge</a>
+    <a href="/dashboard/security" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F5FC;</span> Watchtower</a>
+    <a href="/dashboard/outcomes" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4B0;</span> Treasury</a>
+    <a href="/dashboard/quota" class="sidebar-item"><span style="width:24px;text-align:center">&#x2696;</span> Ledger</a>
+    <a href="/prompts" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4DC;</span> Scrolls</a>
+  </div>
+  <div class="py-2 border-t border-[var(--iron)]">
+    <div class="px-5 py-2 text-xs text-[var(--iron-light)] uppercase tracking-wider">Admin</div>
+    <a href="/dashboard/mason" class="sidebar-item active"><span style="width:24px;text-align:center">&#x1F9F1;</span> Workshop</a>
+  </div>
+  <div class="py-2 border-t border-[var(--iron)]">
+    <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
+  </div>
+  <div class="p-4 border-t border-[var(--iron)] text-xs text-[var(--iron-light)]">
+    <div class="flex justify-between items-center"><span>v0.1.0</span><a href="/logout" onclick="strongholdLogout();return false" style="color:var(--iron-light);text-decoration:none" class="sh-logout">Logout</a></div>
+  </div>
+</nav>
+<main class="flex-1 overflow-auto">
+  <header class="px-8 py-6 border-b border-[var(--iron)]">
+    <div class="flex items-center gap-3">
+      <button class="mobile-menu-btn" onclick="openSidebar()">&#x2630;</button>
+      <h2 class="text-2xl">&#x1F9F1; The Workshop</h2>
+    </div>
+    <p class="text-sm text-[var(--iron-light)] mt-1">Mason autonomous agent — issue queue, PR reviews, and learning progress</p>
+  </header>
+
+  <!-- Status Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 px-8 py-6">
+    <div class="card p-5 text-center">
+      <div class="stat-value text-[var(--gold)]" id="stat-total">--</div>
+      <div class="stat-label">Total Issues</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="stat-value" style="color:#60a5fa" id="stat-queued">--</div>
+      <div class="stat-label">Queued</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="stat-value text-[var(--emerald)]" id="stat-completed">--</div>
+      <div class="stat-label">Completed</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="stat-value text-[var(--blood)]" id="stat-failed">--</div>
+      <div class="stat-label">Failed</div>
+    </div>
+  </div>
+
+  <!-- Current Work -->
+  <div class="px-8 pb-4">
+    <div class="card p-6">
+      <h3 class="text-lg mb-3">Current Work</h3>
+      <div id="current-work" class="text-sm text-[var(--iron-light)]">No active work</div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 px-8 pb-4">
+    <!-- Assign Issue -->
+    <div class="card p-6">
+      <h3 class="text-lg mb-4">Assign Issue</h3>
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <input type="number" id="assign-issue" placeholder="Issue #" class="flex-1" min="1">
+          <input type="text" id="assign-owner" placeholder="Owner" class="w-28" value="">
+          <input type="text" id="assign-repo" placeholder="Repo" class="w-28" value="">
+        </div>
+        <input type="text" id="assign-title" placeholder="Issue title (optional)" class="w-full">
+        <button class="btn-gold w-full" onclick="assignIssue()">Assign to Mason</button>
+      </div>
+      <div id="assign-result" class="mt-3 text-sm hidden"></div>
+    </div>
+
+    <!-- Review PR -->
+    <div class="card p-6">
+      <h3 class="text-lg mb-4">Review &amp; Improve PR</h3>
+      <p class="text-xs text-[var(--iron-light)] mb-3">Mason reads the diff, comments, and learnings, then pushes improvements</p>
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <input type="number" id="review-pr" placeholder="PR #" class="flex-1" min="1">
+          <input type="text" id="review-owner" placeholder="Owner" class="w-28" value="">
+          <input type="text" id="review-repo" placeholder="Repo" class="w-28" value="">
+        </div>
+        <button class="btn-gold w-full" onclick="reviewPR()">Request Second Opinion</button>
+      </div>
+      <div id="review-result" class="mt-3 text-sm hidden"></div>
+    </div>
+  </div>
+
+  <!-- Queue -->
+  <div class="px-8 pb-8">
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg">Issue Queue</h3>
+        <button class="btn-iron text-xs" onclick="loadAll()">Refresh</button>
+      </div>
+      <div id="queue-list" class="space-y-2">
+        <div class="text-sm text-[var(--iron-light)]">Loading...</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+function openSidebar(){document.getElementById('sidebar').classList.add('open');document.getElementById('sidebar-overlay').classList.add('open')}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebar-overlay').classList.remove('open')}
+
+async function loadStatus() {
+  try {
+    const resp = await fetch('/v1/stronghold/mason/status', {headers: authHeaders()});
+    const data = await resp.json();
+    document.getElementById('stat-total').textContent = data.total || 0;
+    const c = data.counts || {};
+    document.getElementById('stat-queued').textContent = (c.queued || 0) + (c.in_progress || 0);
+    document.getElementById('stat-completed').textContent = c.completed || 0;
+    document.getElementById('stat-failed').textContent = c.failed || 0;
+
+    const cur = data.current;
+    const el = document.getElementById('current-work');
+    if (cur) {
+      el.innerHTML = `<span class="badge-progress">IN PROGRESS</span> Issue #${cur.issue_number}: ${cur.title || 'untitled'} <span class="text-xs text-[var(--iron-light)]">(started ${cur.started_at || ''})</span>`;
+    } else {
+      el.textContent = 'No active work — Mason is idle';
+    }
+  } catch(e) { console.error('Status load failed:', e); }
+}
+
+async function loadQueue() {
+  try {
+    const resp = await fetch('/v1/stronghold/mason/queue', {headers: authHeaders()});
+    const data = await resp.json();
+    const el = document.getElementById('queue-list');
+    if (!data.issues || data.issues.length === 0) {
+      el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Queue is empty</div>';
+      return;
+    }
+    el.innerHTML = data.issues.map(i => {
+      const badge = i.status === 'queued' ? 'badge-queued' :
+                    i.status === 'in_progress' ? 'badge-progress' :
+                    i.status === 'completed' ? 'badge-done' : 'badge-failed';
+      const pr = i.pr_number ? ` &rarr; PR #${i.pr_number}` : '';
+      return `<div class="flex items-center justify-between p-3 rounded" style="background:var(--stone-dark)">
+        <div><span class="text-[var(--gold)]">#${i.issue_number}</span> ${i.title || 'untitled'}${pr}</div>
+        <span class="${badge}">${i.status}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('Queue load failed:', e); }
+}
+
+async function assignIssue() {
+  const num = parseInt(document.getElementById('assign-issue').value);
+  if (!num) return;
+  const body = {
+    issue_number: num,
+    title: document.getElementById('assign-title').value,
+    owner: document.getElementById('assign-owner').value,
+    repo: document.getElementById('assign-repo').value,
+  };
+  try {
+    const resp = await fetch('/v1/stronghold/mason/assign', {
+      method: 'POST', headers: {...authHeaders(), 'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    const el = document.getElementById('assign-result');
+    el.classList.remove('hidden');
+    el.style.color = resp.ok ? 'var(--emerald)' : 'var(--blood)';
+    el.textContent = resp.ok ? `Assigned! Queue position: ${data.queue_position}` : (data.error || 'Failed');
+    loadAll();
+  } catch(e) { console.error('Assign failed:', e); }
+}
+
+async function reviewPR() {
+  const num = parseInt(document.getElementById('review-pr').value);
+  if (!num) return;
+  const body = {
+    pr_number: num,
+    owner: document.getElementById('review-owner').value,
+    repo: document.getElementById('review-repo').value,
+  };
+  try {
+    const resp = await fetch('/v1/stronghold/mason/review-pr', {
+      method: 'POST', headers: {...authHeaders(), 'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    const el = document.getElementById('review-result');
+    el.classList.remove('hidden');
+    el.style.color = resp.ok ? 'var(--emerald)' : 'var(--blood)';
+    el.textContent = resp.ok ? `Queued for review (mode: ${data.mode})` : (data.error || 'Failed');
+  } catch(e) { console.error('Review failed:', e); }
+}
+
+function loadAll() { loadStatus(); loadQueue(); }
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>

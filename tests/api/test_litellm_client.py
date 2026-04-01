@@ -5,9 +5,10 @@ Uses httpx mock to simulate LiteLLM proxy responses and failures.
 
 from __future__ import annotations
 
-import pytest
 import httpx
-from unittest.mock import AsyncMock, patch, MagicMock
+import pytest
+import respx
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from stronghold.api.litellm_client import LiteLLMClient
 
@@ -288,35 +289,26 @@ class TestAllModelsFail:
 
 
 class TestNonRetryableErrors:
-    @pytest.mark.asyncio
-    async def test_400_raises_immediately(self) -> None:
+    @respx.mock
+    async def test_400_is_retryable(self) -> None:
+        """400 is retryable because LiteLLM uses it for cooldown responses."""
         client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            resp = MagicMock()
-            resp.status_code = 400
-            resp.request = MagicMock()
-            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-                "400",
-                request=resp.request,
-                response=resp,
+        # Both models return 400 — should try both then raise
+        route = respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(400, json={"error": "cooldown"}),
+        )
+        # Also mock /v1/models to return empty (no further fallbacks)
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []}),
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "model-a",
+                fallback_models=["model-b"],
             )
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await client.complete(
-                    [{"role": "user", "content": "hello"}],
-                    "model-a",
-                    fallback_models=["model-b"],
-                )
-            # Should only have been called once (no fallback for 400)
-            assert mock_client.post.call_count == 1
+        # Should have tried both models (400 is retryable)
+        assert route.call_count == 2
 
     @pytest.mark.asyncio
     async def test_401_raises_immediately(self) -> None:

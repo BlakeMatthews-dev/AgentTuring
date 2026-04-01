@@ -37,12 +37,16 @@ class LiteLLMClient:
         metadata: dict[str, Any] | None = None,
         fallback_models: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Non-streaming completion with automatic model fallback on 429/5xx."""
+        """Non-streaming completion with exhaustive model fallback.
+
+        On 429/5xx/400 (cooldown): cycles through explicit fallbacks,
+        then fetches ALL available models from LiteLLM and tries each.
+        """
         models_to_try = [model]
         if fallback_models:
             models_to_try.extend(fallback_models)
         elif hasattr(self, "_fallback_models") and self._fallback_models:
-            models_to_try.extend(self._fallback_models)  # set dynamically by container
+            models_to_try.extend(self._fallback_models)
 
         body: dict[str, Any] = {"messages": messages}
         if tools:
@@ -61,52 +65,93 @@ class LiteLLMClient:
             "Content-Type": "application/json",
         }
 
+        tried: set[str] = set()
         last_error: Exception | None = None
 
-        for i, try_model in enumerate(models_to_try):
-            body["model"] = try_model
+        # Phase 1: try explicit models
+        for try_model in models_to_try:
+            result = await self._try_model(try_model, body, headers)
+            tried.add(try_model)
+            if isinstance(result, dict):
+                return result
+            last_error = result
 
-            try:
-                async with httpx.AsyncClient(timeout=180.0) as client:
-                    resp = await client.post(
-                        f"{self._base_url}/v1/chat/completions",
-                        json=body,
-                        headers=headers,
-                    )
-
-                if resp.status_code == 200:  # noqa: PLR2004
-                    return resp.json()  # type: ignore[no-any-return]
-
-                if resp.status_code in (429, 500, 502, 503):
-                    logger.warning(
-                        "Model %s returned %d, trying next (%d/%d)",
-                        try_model,
-                        resp.status_code,
-                        i + 1,
-                        len(models_to_try),
-                    )
-                    # Brief pause before trying next model
-                    await asyncio.sleep(1)
-                    last_error = httpx.HTTPStatusError(
-                        f"{resp.status_code}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                    continue
-
-                # Other errors (400, 401, etc.) — don't retry
-                resp.raise_for_status()
-
-            except httpx.ConnectError as e:
-                logger.warning("Connection error for %s: %s", try_model, e)
-                last_error = e
+        # Phase 2: fetch all available models and try each
+        available = await self._fetch_available_models(headers)
+        for try_model in available:
+            if try_model in tried:
                 continue
+            result = await self._try_model(try_model, body, headers)
+            tried.add(try_model)
+            if isinstance(result, dict):
+                logger.info("Fallback succeeded on model %s (tried %d)", try_model, len(tried))
+                return result
+            last_error = result
 
-        # All models failed
+        # All models exhausted
+        logger.warning("All %d models exhausted", len(tried))
         if last_error:
             raise last_error
-        msg = "No models available"
+        msg = f"No models available (tried {len(tried)})"
         raise RuntimeError(msg)
+
+    async def _try_model(
+        self,
+        model: str,
+        body: dict[str, Any],
+        headers: dict[str, str],
+    ) -> dict[str, Any] | Exception:
+        """Try a single model. Returns response dict on success, Exception on failure."""
+        body["model"] = model
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                resp = await client.post(
+                    f"{self._base_url}/v1/chat/completions",
+                    json=body,
+                    headers=headers,
+                )
+
+            if resp.status_code == 200:  # noqa: PLR2004
+                return resp.json()  # type: ignore[no-any-return]
+
+            # Retryable: 429, 400 (LiteLLM cooldown), 5xx
+            if resp.status_code in (400, 429, 500, 502, 503):
+                logger.debug("Model %s returned %d, skipping", model, resp.status_code)
+                await asyncio.sleep(0.2)
+                return httpx.HTTPStatusError(
+                    f"{resp.status_code}",
+                    request=resp.request,
+                    response=resp,
+                )
+
+            # Non-retryable (401, 403, 422, etc.)
+            resp.raise_for_status()
+
+        except httpx.ConnectError as e:
+            logger.debug("Connection error for %s: %s", model, e)
+            return e
+
+        return RuntimeError(f"Unexpected state for model {model}")
+
+    async def _fetch_available_models(
+        self,
+        headers: dict[str, str],
+    ) -> list[str]:
+        """Fetch all model IDs from LiteLLM /v1/models endpoint."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{self._base_url}/v1/models",
+                    headers=headers,
+                )
+            if resp.status_code == 200:  # noqa: PLR2004
+                data = resp.json()
+                models = [m["id"] for m in data.get("data", [])]
+                logger.info("Fetched %d available models for fallback", len(models))
+                return models
+        except Exception:
+            logger.warning("Failed to fetch model list for fallback")
+        return []
 
     async def stream(
         self,

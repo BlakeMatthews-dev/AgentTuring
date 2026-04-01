@@ -1,13 +1,11 @@
-"""Mason (Builder) strategy: implement code to pass committed tests.
+"""Mason strategy: Frank (Architect) then Mason (Builder) in one execution.
 
-Mason receives a workspace with tests already committed by Frank
-(the Architect). Mason's job:
-  1. Read the tests
-  2. Write implementation code
-  3. Run tests — loop until GREEN
-  4. Run quality gates — loop until clean
-  5. Verify acceptance criteria are met
-  6. Push and create PR
+Same process, same workspace, same variables. Frank's prompts run first
+to plan and write tests, then Mason's prompts run to implement.
+No handoff, no file discovery — the test path from Frank flows directly
+to Mason as a variable.
+
+Each step is a save point (committed + documented on the issue).
 """
 
 from __future__ import annotations
@@ -43,7 +41,7 @@ async def _heartbeat(status: StatusCallback) -> None:
 
 
 class MasonStrategy:
-    """Builder strategy — write code, loop until tests pass."""
+    """Single strategy — Frank plans, Mason builds, same execution."""
 
     async def reason(
         self,
@@ -64,23 +62,59 @@ class MasonStrategy:
 
         ctx = _parse_context(messages)
         if not ctx["ws_path"] or not ctx["issue_num"]:
-            return ReasoningResult(response="Missing workspace or issue.", done=True)
+            return ReasoningResult(
+                response="Missing workspace or issue.",
+                done=True,
+            )
 
         n = ctx["issue_num"]
         ws = ctx["ws_path"]
+        title = ctx["title"]
+
+        # ── Shared helpers ──
 
         async def ask(prompt: str) -> str:
             hb = asyncio.create_task(_heartbeat(status))
             try:
-                r = await llm.complete([{"role": "user", "content": prompt}], model)
+                r = await llm.complete(
+                    [{"role": "user", "content": prompt}],
+                    model,
+                )
             finally:
                 hb.cancel()
             return r.get("choices", [{}])[0].get("message", {}).get("content", "")
 
+        async def review(output: str, question: str) -> tuple[bool, str]:
+            r = await ask(
+                f"Review:\n\n{output[:3000]}\n\n{question}\n\n"
+                f"Answer ONLY 'PASS' or 'FAIL: <reason>'."
+            )
+            return r.strip().upper().startswith("PASS"), r.strip()
+
+        async def comment(body: str) -> None:
+            if ex:
+                await ex(
+                    "github",
+                    {
+                        "action": "post_pr_comment",
+                        "owner": ctx["owner"],
+                        "repo": ctx["repo"],
+                        "issue_number": n,
+                        "body": body,
+                    },
+                )
+
         async def read_file(path: str) -> str:
             if not ex:
                 return ""
-            r = await ex("file_ops", {"action": "read", "path": path, "workspace": ws})
+            r = await ex(
+                "file_ops",
+                {
+                    "action": "read",
+                    "path": path,
+                    "workspace": ws,
+                },
+            )
             s = str(r)
             return "" if "Error" in s[:20] or "not found" in s else s
 
@@ -105,103 +139,195 @@ class MasonStrategy:
         async def save(msg: str) -> None:
             if not ex:
                 return
-            await ex("workspace", {"action": "commit", "issue_number": n, "message": msg})
-            await ex("workspace", {"action": "push", "issue_number": n})
-
-        async def comment(body: str) -> None:
-            if ex:
-                await ex(
-                    "github",
-                    {
-                        "action": "post_pr_comment",
-                        "owner": ctx["owner"],
-                        "repo": ctx["repo"],
-                        "issue_number": n,
-                        "body": body,
-                    },
-                )
-
-        # ═══ STEP 1: Read tests ═══
-        await status("Step 1: Reading committed tests")
-
-        # Find test files in the workspace
-        find_cmd = (
-            "find tests/ -name 'test_*.py' -newer .git/HEAD "
-            "2>/dev/null || find tests/ -name 'test_*.py' 2>/dev/null"
-        )
-        test_files_raw = await run_cmd(find_cmd)
-        test_files = [f.strip() for f in test_files_raw.split("\n") if f.strip().endswith(".py")][
-            :5
-        ]
-
-        test_content = ""
-        for tf in test_files:
-            content = await read_file(tf)
-            if content:
-                test_content += f"\n=== {tf} ===\n{content[:3000]}\n"
-
-        if not test_content:
-            await status("No test files found — running Frank first")
-            return ReasoningResult(
-                response="No test files found. Run Frank (Architect) first.",
-                done=True,
+            await ex(
+                "workspace",
+                {
+                    "action": "commit",
+                    "issue_number": n,
+                    "message": msg,
+                },
+            )
+            await ex(
+                "workspace",
+                {
+                    "action": "push",
+                    "issue_number": n,
+                },
             )
 
-        await status(f"Read {len(test_files)} test file(s)")
+        # ════════════════════════════════════════════════
+        # FRANK (Architect) — planning and tests
+        # ════════════════════════════════════════════════
+
+        await status("=== FRANK (Architect) ===")
+
+        # ── Step 1: Architecture Plan ──
+        await status("Frank 1/5: Architecture plan")
+        plan = ""
+        for _ in range(3):
+            plan = await ask(
+                f"GitHub issue #{n}: {title}\n\n"
+                f"Architecture plan (under 300 words):\n"
+                f"- What files/modules change\n"
+                f"- How it fits Stronghold's architecture\n"
+                f"- Protocols, types needed\n"
+                f"- Testing approach\n"
+                f"Be specific about file paths."
+            )
+            ok, fb = await review(
+                plan,
+                "Complete? Specific paths? Implementable?",
+            )
+            if ok:
+                break
+            await status(f"  Review: {fb[:60]}")
+
+        await comment(f"## Architecture Plan\n\n{plan}\n\n---\n*Frank*")
+        await status("Frank 1/5 done")
+
+        # ── Step 2: Acceptance Criteria (Gherkin) ──
+        await status("Frank 2/5: Acceptance criteria")
+        criteria = ""
+        for _ in range(3):
+            criteria = await ask(
+                f"Issue #{n}: {title}\n\nPlan:\n{plan}\n\n"
+                f"Write acceptance criteria in Gherkin:\n\n"
+                f"Feature: ...\n  Scenario: ...\n"
+                f"    Given ...\n    When ...\n    Then ...\n\n"
+                f"At least 5 scenarios. Cover happy path, errors, "
+                f"edge cases, multi-tenant."
+            )
+            ok, fb = await review(
+                criteria,
+                "All Gherkin? 5+ scenarios? Testable? Covers errors + security + multi-tenant?",
+            )
+            if ok:
+                break
+            await status(f"  Review: {fb[:60]}")
+
+        await comment(f"## Acceptance Criteria\n\n```gherkin\n{criteria}\n```\n\n---\n*Frank*")
+        await status("Frank 2/5 done")
+
+        # ── Step 3: Evidence-driven tests ──
+        await status("Frank 3/5: Writing tests")
+        fakes = await read_file("tests/fakes.py")
+        fakes_ctx = f"\ntests/fakes.py (excerpt):\n{fakes[:1500]}\n" if fakes else ""
+
+        test_code = await ask(
+            f"Issue #{n}: {title}\n\n"
+            f"Criteria:\n```gherkin\n{criteria}\n```\n\n"
+            f"{fakes_ctx}\n"
+            f"Write pytest tests validating EACH scenario.\n"
+            f"- Real classes, NEVER unittest.mock\n"
+            f"- Fakes from tests/fakes.py\n"
+            f"- Tests should FAIL initially (TDD)\n"
+            f"- Include 'from __future__ import annotations'\n\n"
+            f"Output ONLY Python code. No fences. Start with imports."
+        )
+        test_code = _strip_fences(test_code)
+        test_path = _infer_test_path(plan, title)
+
+        await write_file(test_path, test_code)
+        await save(f"frank: tests for #{n}")
+        await comment(
+            f"## Tests\n\nFile: `{test_path}`\n\n"
+            f"```python\n{test_code[:2000]}\n```\n"
+            f"---\n*Frank (committed)*"
+        )
+        await status(f"Frank 3/5 done — {test_path}")
+
+        # ── Step 4: Edge case tests ──
+        await status("Frank 4/5: Edge cases")
+        edge_code = await ask(
+            f"Issue #{n}: {title}\n\n"
+            f"Add edge case tests:\n"
+            f"- Empty/null inputs, boundaries\n"
+            f"- Adversarial inputs\n"
+            f"- Multi-tenant isolation\n"
+            f"- Error recovery\n\n"
+            f"Output ONLY Python test functions. No imports."
+        )
+        edge_code = _strip_fences(edge_code)
+        if "def test_" in edge_code:
+            existing = await read_file(test_path)
+            combined = existing.rstrip() + "\n\n\n# --- Edge cases ---\n\n" + edge_code
+            await write_file(test_path, combined)
+            await save(f"frank: edge cases for #{n}")
+            await status("Frank 4/5 done — edge cases committed")
+        else:
+            await status("Frank 4/5 — no edge cases generated")
+
+        # ── Step 5: Frank posts handoff ──
+        await comment(
+            f"## Ready for Implementation\n\n"
+            f"Tests: `{test_path}`\n"
+            f"Criteria: see Gherkin above\n\n---\n*Frank done*"
+        )
+        await status("Frank 5/5 done")
+
+        # ════════════════════════════════════════════════
+        # MASON (Builder) — implementation
+        # ════════════════════════════════════════════════
+
+        await status("=== MASON (Builder) ===")
+
+        # ── Step 1: Read tests (we already have them from Frank) ──
+        # test_code and test_path are still in scope — no file discovery needed
+        await status(f"Mason 1/5: Using tests from {test_path}")
 
         # Read existing source files that tests import
-        impl_files: list[str] = []
-        for match in re.finditer(r"from stronghold\.(\S+) import", test_content):
-            mod_path = match.group(1).replace(".", "/") + ".py"
-            impl_files.append(f"src/stronghold/{mod_path}")
-        impl_files = list(dict.fromkeys(impl_files))[:10]
-
         existing_source = ""
-        for fp in impl_files:
+        for match in re.finditer(
+            r"from stronghold\.(\S+) import",
+            test_code,
+        ):
+            mod = match.group(1).replace(".", "/") + ".py"
+            fp = f"src/stronghold/{mod}"
             content = await read_file(fp)
             if content:
                 existing_source += f"\n=== EXISTING: {fp} ===\n{content[:3000]}\n"
 
-        # ═══ STEP 2: Write implementation (loop until tests pass) ═══
+        # ── Step 2+3: Write impl, run tests, loop ──
         max_attempts = 3
         test_output = ""
         passed = False
+        files_written = 0
 
         for attempt in range(1, max_attempts + 1):
-            await status(f"Step 2: Writing implementation (attempt {attempt}/{max_attempts})")
+            await status(f"Mason 2/5: Implementation (attempt {attempt})")
 
-            prompt = f"Issue #{n}: {ctx['title']}\n\nTests to pass:\n{test_content[:4000]}\n\n"
+            prompt = (
+                f"Issue #{n}: {title}\n\nTests to pass:\n```python\n{test_code[:4000]}\n```\n\n"
+            )
             if existing_source:
-                prompt += (
-                    f"Existing source files (PRESERVE all existing code):\n"
-                    f"{existing_source[:4000]}\n\n"
-                )
+                prompt += f"Existing source (PRESERVE all code):\n{existing_source[:4000]}\n\n"
             if attempt > 1 and test_output:
-                prompt += f"Previous test run FAILED:\n```\n{test_output[:1500]}\n```\n\n"
-
+                prompt += f"Previous run FAILED:\n```\n{test_output[:1500]}\n```\n\n"
             prompt += (
-                "Write implementation to make the tests pass.\n"
-                "For EACH file, output:\n"
+                "Write implementation. For EACH file:\n"
                 "=== FILE: path/to/file.py ===\n"
-                "(complete file content preserving ALL existing code)\n"
+                "(complete content preserving existing code)\n"
                 "=== END ===\n\n"
-                "Output ONLY file blocks. No explanations."
+                "Output ONLY file blocks."
             )
 
             impl = await ask(prompt)
-            files_written = await _write_file_blocks(impl, ws, ex, tool_history, status)
+            written = await _write_file_blocks(
+                impl,
+                ws,
+                ex,
+                tool_history,
+                status,
+            )
+            files_written += written
 
-            if files_written == 0 and attempt == 1:
-                await status("No files generated — retrying")
-                continue
-
-            if files_written > 0:
-                await save(f"mason: implement #{n} (attempt {attempt}, {files_written} files)")
+            if written > 0:
+                await save(f"mason: impl #{n} (attempt {attempt}, {written} files)")
 
             # Run tests
-            await status(f"Step 3: Running tests (attempt {attempt})")
+            await status(f"Mason 3/5: Running tests (attempt {attempt})")
             test_output = await run_cmd(
-                f"python -m pytest {' '.join(test_files)} -v --tb=short 2>&1 | tail -40"
+                f"python -m pytest {test_path} -v --tb=short 2>&1 | tail -30"
             )
             passed = '"passed": true' in test_output
             color = "GREEN" if passed else "RED"
@@ -210,61 +336,42 @@ class MasonStrategy:
             if passed:
                 break
 
-        # ═══ STEP 4: Quality gates ═══
-        await status("Step 4: Quality gates")
-        gates_clean = True
-        for gate_name, gate_cmd in [
-            ("ruff check", "ruff check src/stronghold/ 2>&1 | tail -10"),
-            ("mypy", "mypy src/stronghold/ --strict 2>&1 | tail -10"),
-        ]:
-            await status(f"  Running {gate_name}")
-            result = await run_cmd(gate_cmd)
-            gate_passed = '"passed": true' in result or "Success" in result
-            if not gate_passed:
-                gates_clean = False
-                await status(f"  {gate_name}: issues found")
+        # ── Step 4: Quality gates ──
+        await status("Mason 4/5: Quality gates")
+        for gate in ["ruff check src/stronghold/", "mypy src/stronghold/ --strict"]:
+            gate_name = gate.split()[0]
+            await status(f"  {gate_name}")
+            await run_cmd(f"{gate} 2>&1 | tail -10")
 
-        if gates_clean:
-            await status("Step 4 complete — all gates clean")
-
-        # ═══ STEP 5: Acceptance criteria check ═══
-        await status("Step 5: Verifying acceptance criteria")
-
-        # Read the issue comments to find Frank's Gherkin criteria
-        criteria_check = await ask(
-            f"The tests for issue #{n} are {'PASSING' if passed else 'FAILING'}.\n\n"
+        # ── Step 5: Acceptance criteria check ──
+        await status("Mason 5/5: Checking acceptance criteria")
+        criteria_verdict = await ask(
+            f"Tests are {'PASSING' if passed else 'FAILING'}.\n\n"
             f"Test output:\n```\n{test_output[:1500]}\n```\n\n"
-            f"Based on this test output, are ALL acceptance criteria met?\n"
-            f"Answer 'YES' or 'NO: <which criteria are not met>'."
+            f"Acceptance criteria:\n```gherkin\n{criteria}\n```\n\n"
+            f"Is EACH criterion met? Answer 'YES' or 'NO: <which>'."
         )
-        criteria_met = criteria_check.strip().upper().startswith("YES")
-        await status(f"  Acceptance criteria: {'MET' if criteria_met else 'NOT MET'}")
+        criteria_met = criteria_verdict.strip().upper().startswith("YES")
+        await status(f"  Criteria: {'MET' if criteria_met else 'NOT MET'}")
 
-        if not criteria_met and passed:
-            await status("  Tests pass but criteria not met — needs more work")
-
-        # ═══ STEP 6: Final push + document ═══
-        await status("Step 6: Final push")
-        if not passed:
-            await save(f"mason: WIP #{n} (tests RED)")
-
+        # ── Post results ──
         color = "GREEN" if passed else "RED"
         await comment(
-            f"## Mason (Builder) Complete\n\n"
+            f"## Results\n\n"
             f"- Tests: **{color}**\n"
-            f"- Quality gates: {'clean' if gates_clean else 'issues found'}\n"
-            f"- Acceptance criteria: {'MET' if criteria_met else 'NOT MET'}\n"
+            f"- Criteria: {'MET' if criteria_met else 'NOT MET'}\n"
+            f"- Files: {files_written}\n"
             f"- Attempts: {attempt}\n\n"
             f"```\n{test_output[:1000]}\n```\n\n"
             f"---\n*Mason (Builder)*"
         )
-        await status("Mason complete")
+        await status("=== Pipeline complete ===")
 
         return ReasoningResult(
             response=(
-                f"Mason {'completed' if passed else 'attempted'} issue #{n}. "
-                f"Tests: {color}. Gates: {'clean' if gates_clean else 'dirty'}. "
-                f"Criteria: {'met' if criteria_met else 'not met'}."
+                f"Issue #{n}: Tests {color}, "
+                f"criteria {'met' if criteria_met else 'not met'}, "
+                f"{files_written} files."
             ),
             done=True,
             tool_history=tool_history,
@@ -272,7 +379,13 @@ class MasonStrategy:
 
 
 def _parse_context(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    ctx: dict[str, Any] = {"ws_path": "", "issue_num": 0, "owner": "", "repo": "", "title": ""}
+    ctx: dict[str, Any] = {
+        "ws_path": "",
+        "issue_num": 0,
+        "owner": "",
+        "repo": "",
+        "title": "",
+    }
     for m in messages:
         c = str(m.get("content", ""))
         for line in c.split("\n"):
@@ -288,10 +401,27 @@ def _parse_context(messages: list[dict[str, Any]]) -> dict[str, Any]:
                 match = re.search(r"#(\d+)", s)
                 if match:
                     ctx["issue_num"] = int(match.group(1))
-                title_match = re.search(r"#\d+:?\s*(.*)", s)
-                if title_match:
-                    ctx["title"] = title_match.group(1).strip()
+                t = re.search(r"#\d+:?\s*(.*)", s)
+                if t:
+                    ctx["title"] = t.group(1).strip()
     return ctx
+
+
+def _strip_fences(code: str) -> str:
+    lines = code.strip().split("\n")
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines)
+
+
+def _infer_test_path(plan: str, title: str) -> str:
+    match = re.search(r"tests/\S+\.py", plan)
+    if match:
+        return match.group(0)
+    slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:40]
+    return f"tests/test_{slug}.py"
 
 
 async def _write_file_blocks(
@@ -311,7 +441,7 @@ async def _write_file_blocks(
         code_lines: list[str] = []
         in_code = False
         for line in lines[1:]:
-            if line.strip() == "=== END ===" or line.startswith("=== FILE:"):
+            if line.strip() == "=== END ===" or (line.startswith("=== FILE:") and in_code):
                 break
             if line.strip().startswith("```") and not in_code:
                 in_code = True

@@ -123,39 +123,22 @@ async def _dispatch_mason(issue: Any) -> None:
         branch = ws_data["branch"]
         await _log(f"Workspace: {branch}")
 
-        base_msg = (
-            f"Implement GitHub issue #{issue_num}: {issue.title}\n"
-            f"Repository: {issue.owner}/{issue.repo}\n"
-            f"Branch: {branch}\n"
-            f"Workspace: {ws_path}"
+        await container.route_request(
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Implement GitHub issue #{issue_num}: {issue.title}\n"
+                        f"Repository: {issue.owner}/{issue.repo}\n"
+                        f"Branch: {branch}\n"
+                        f"Workspace: {ws_path}"
+                    ),
+                }
+            ],
+            auth=SYSTEM_AUTH,
+            intent_hint="code_gen",
+            status_callback=_log,
         )
-
-        # ── Phase 1: Frank (Architect) ──
-        await _log("--- FRANK (Architect) ---")
-        frank = container.agents.get("frank")
-        if frank:
-            await frank.handle(
-                [{"role": "user", "content": base_msg}],
-                SYSTEM_AUTH,
-                status_callback=_log,
-            )
-            await _log("Frank complete — tests committed")
-        else:
-            await _log("Frank agent not loaded — skipping to Mason")
-
-        # ── Phase 2: Mason (Builder) ──
-        await _log("--- MASON (Builder) ---")
-        mason = container.agents.get("mason")
-        if mason:
-            result = await mason.handle(
-                [{"role": "user", "content": base_msg}],
-                SYSTEM_AUTH,
-                status_callback=_log,
-            )
-            await _log(f"Mason complete: {result.content[:100]}")
-        else:
-            await _log("Mason agent not loaded")
-
         queue.complete(issue_num)
     except Exception as e:
         queue.add_log(issue_num, f"Failed: {e}")

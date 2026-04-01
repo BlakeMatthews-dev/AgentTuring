@@ -87,22 +87,26 @@ async def _dispatch_mason(issue: Any) -> None:
     from stronghold.types.auth import SYSTEM_AUTH
 
     queue = _queue()
-    queue.start(issue.issue_number)
-    print(f"[MASON] Dispatching issue #{issue.issue_number}: {issue.title}", flush=True)
+    issue_num = issue.issue_number
+    queue.start(issue_num)
+    queue.add_log(issue_num, "Dispatching to Mason agent")
 
     try:
         container = _state.get("container")
         if not container:
-            print("[MASON] ERROR: No container reference", flush=True)
-            queue.fail(issue.issue_number, error="container not available")
+            queue.fail(issue_num, error="container not available")
             return
+
+        # Status callback that writes to the queue log
+        async def _log_status(msg: str) -> None:
+            queue.add_log(issue_num, msg)
 
         result = await container.route_request(
             messages=[
                 {
                     "role": "user",
                     "content": (
-                        f"Implement GitHub issue #{issue.issue_number}: {issue.title}\n"
+                        f"Implement GitHub issue #{issue_num}: {issue.title}\n"
                         f"Repository: {issue.owner}/{issue.repo}\n"
                         f"Use the workspace tool to create a worktree, then follow "
                         f"your 8-phase evidence-driven TDD pipeline.\n"
@@ -112,22 +116,14 @@ async def _dispatch_mason(issue: Any) -> None:
             ],
             auth=SYSTEM_AUTH,
             intent_hint="code_gen",
+            status_callback=_log_status,
         )
-        # Log what happened
-        import json as _json
-
-        print(f"[MASON] Result keys: {list(result.keys())}", flush=True)
-        routing = result.get("routing", {})
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        print(
-            f"[MASON] agent={routing.get('agent', '?')} | "
-            f"response={content[:300]}",
-            flush=True,
-        )
-        queue.complete(issue.issue_number)
+        queue.add_log(issue_num, f"Completed ({len(content)} chars response)")
+        queue.complete(issue_num)
     except Exception as e:
-        queue.fail(issue.issue_number, error=str(e))
-        print(f"[MASON] FAILED #{issue.issue_number}: {e}", flush=True)
+        queue.add_log(issue_num, f"Failed: {e}")
+        queue.fail(issue_num, error=str(e))
 
 
 @router.post("/v1/stronghold/mason/review-pr")

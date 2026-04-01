@@ -337,11 +337,24 @@ function showDetail(idx) {
   if (i.pr_number) {
     rows.push(`<div class="flex justify-between"><span class="text-[var(--iron-light)]">PR</span><a href="https://github.com/${i.owner}/${i.repo}/pull/${i.pr_number}" target="_blank" style="color:var(--gold)">#${i.pr_number}</a></div>`);
   }
+  // Work log
+  const log = i.log || [];
+  if (log.length > 0) {
+    const logHtml = log.map(e => {
+      const t = new Date(e.time).toLocaleTimeString();
+      return `<div class="flex gap-3 text-xs"><span class="text-[var(--iron-light)] flex-shrink-0">${t}</span><span>${e.message}</span></div>`;
+    }).join('');
+    rows.push(`<div class="mt-3"><div class="text-xs text-[var(--iron-light)] mb-2 uppercase tracking-wider">Work Log</div><div class="space-y-1 p-3 rounded max-h-[250px] overflow-y-auto" style="background:var(--stone-dark)">${logHtml}</div></div>`);
+  }
   if (i.error) {
     rows.push(`<div class="mt-3 p-3 rounded" style="background:rgba(139,37,0,0.15); border:1px solid var(--blood)"><div class="text-xs text-[var(--iron-light)] mb-1">Error</div><div class="text-sm" style="color:#ff6b6b; word-break:break-all">${i.error}</div></div>`);
   }
   if (i.status === 'failed') {
     rows.push(`<div class="mt-3"><button class="btn-gold w-full" onclick="retryIssue(${i.issue_number}, '${(i.title||'').replace(/'/g,"\\'")}')">Retry</button></div>`);
+  }
+  if (i.status === 'in_progress') {
+    rows.push(`<div class="mt-2 text-xs text-[var(--iron-light)]">Auto-refreshing...</div>`);
+    setTimeout(() => { loadQueue(); showDetail(idx); }, 5000);
   }
   document.getElementById('detail-body').innerHTML = rows.join('');
   document.getElementById('detail-modal').style.display = 'flex';

@@ -25,6 +25,14 @@ class IssueStatus(StrEnum):
 
 
 @dataclass
+class LogEntry:
+    """A single entry in Mason's work log."""
+
+    message: str
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass
 class QueuedIssue:
     """An issue assigned to Mason."""
 
@@ -35,6 +43,7 @@ class QueuedIssue:
     status: IssueStatus = IssueStatus.QUEUED
     pr_number: int | None = None
     error: str = ""
+    log: list[LogEntry] = field(default_factory=list)
     assigned_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -90,6 +99,12 @@ class InMemoryMasonQueue:
             issue.status = IssueStatus.IN_PROGRESS
             issue.started_at = datetime.now(UTC)
 
+    def add_log(self, issue_number: int, message: str) -> None:
+        """Append a log entry to an issue's work log."""
+        issue = self._issues.get(issue_number)
+        if issue:
+            issue.log.append(LogEntry(message=message))
+
     def complete(self, issue_number: int, *, pr_number: int | None = None) -> None:
         """Mark an issue as completed."""
         issue = self._issues.get(issue_number)
@@ -126,6 +141,10 @@ class InMemoryMasonQueue:
                 "status": i.status,
                 "pr_number": i.pr_number,
                 "error": i.error,
+                "log": [
+                    {"message": e.message, "time": e.timestamp.isoformat()}
+                    for e in i.log
+                ],
                 "assigned_at": i.assigned_at.isoformat(),
                 "started_at": i.started_at.isoformat() if i.started_at else None,
                 "completed_at": i.completed_at.isoformat() if i.completed_at else None,

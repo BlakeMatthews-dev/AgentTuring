@@ -131,11 +131,9 @@ class WorkspaceManager:
             ["git", "worktree", "add", str(worktree_dir), "-b", branch, "origin/main"],
             cwd=repo_dir,
         )
-        # Install the package in the worktree for test execution
-        self._run(
-            ["pip", "install", "-e", ".[dev]", "--quiet"],
-            cwd=worktree_dir,
-        )
+        # Don't pip install in the worktree — it would overwrite the running
+        # container's stronghold package. Tests run against the worktree's
+        # source via PYTHONPATH or by running pytest from the worktree dir.
         logger.info("Created worktree %s on branch %s", worktree_dir, branch)
         return {
             "status": "created",

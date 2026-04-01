@@ -98,42 +98,43 @@
     </div>
   </div>
 
-  <!-- Current Work -->
+  <!-- Repo Config + Current Work -->
   <div class="px-8 pb-4">
     <div class="card p-6">
-      <h3 class="text-lg mb-3">Current Work</h3>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg">Repository</h3>
+        <div class="flex gap-2 items-center">
+          <input type="text" id="cfg-owner" placeholder="Owner" class="w-36" value="Agent-StrongHold">
+          <span class="text-[var(--iron-light)]">/</span>
+          <input type="text" id="cfg-repo" placeholder="Repo" class="w-36" value="stronghold">
+          <button class="btn-gold text-sm" onclick="loadAll()">Load</button>
+        </div>
+      </div>
       <div id="current-work" class="text-sm text-[var(--iron-light)]">No active work</div>
     </div>
   </div>
 
-  <!-- Actions -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 px-8 pb-4">
-    <!-- Assign Issue -->
+  <!-- GitHub Issues -->
+  <div class="px-8 pb-4">
     <div class="card p-6">
-      <h3 class="text-lg mb-4">Assign Issue</h3>
-      <div class="space-y-3">
-        <div class="flex gap-2">
-          <input type="number" id="assign-issue" placeholder="Issue #" class="flex-1" min="1">
-          <input type="text" id="assign-owner" placeholder="Owner" class="w-28" value="">
-          <input type="text" id="assign-repo" placeholder="Repo" class="w-28" value="">
-        </div>
-        <input type="text" id="assign-title" placeholder="Issue title (optional)" class="w-full">
-        <button class="btn-gold w-full" onclick="assignIssue()">Assign to Mason</button>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg">Open Issues</h3>
+        <button class="btn-iron text-xs" onclick="loadIssues()">Refresh</button>
       </div>
-      <div id="assign-result" class="mt-3 text-sm hidden"></div>
+      <div id="issues-list" class="space-y-1 max-h-[400px] overflow-y-auto">
+        <div class="text-sm text-[var(--iron-light)]">Loading issues from GitHub...</div>
+      </div>
     </div>
+  </div>
 
-    <!-- Review PR -->
+  <!-- Review PR -->
+  <div class="px-8 pb-4">
     <div class="card p-6">
       <h3 class="text-lg mb-4">Review &amp; Improve PR</h3>
       <p class="text-xs text-[var(--iron-light)] mb-3">Mason reads the diff, comments, and learnings, then pushes improvements</p>
-      <div class="space-y-3">
-        <div class="flex gap-2">
-          <input type="number" id="review-pr" placeholder="PR #" class="flex-1" min="1">
-          <input type="text" id="review-owner" placeholder="Owner" class="w-28" value="">
-          <input type="text" id="review-repo" placeholder="Repo" class="w-28" value="">
-        </div>
-        <button class="btn-gold w-full" onclick="reviewPR()">Request Second Opinion</button>
+      <div class="flex gap-2">
+        <input type="number" id="review-pr" placeholder="PR #" class="flex-1" min="1">
+        <button class="btn-gold" onclick="reviewPR()">Second Opinion</button>
       </div>
       <div id="review-result" class="mt-3 text-sm hidden"></div>
     </div>
@@ -185,6 +186,9 @@
 function openSidebar(){document.getElementById('sidebar').classList.add('open');document.getElementById('sidebar-overlay').classList.add('open')}
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebar-overlay').classList.remove('open')}
 
+function getOwner() { return document.getElementById('cfg-owner').value; }
+function getRepo() { return document.getElementById('cfg-repo').value; }
+
 async function loadStatus() {
   try {
     const resp = await fetch('/v1/stronghold/mason/status', {headers: authHeaders()});
@@ -194,15 +198,43 @@ async function loadStatus() {
     document.getElementById('stat-queued').textContent = (c.queued || 0) + (c.in_progress || 0);
     document.getElementById('stat-completed').textContent = c.completed || 0;
     document.getElementById('stat-failed').textContent = c.failed || 0;
-
     const cur = data.current;
     const el = document.getElementById('current-work');
     if (cur) {
-      el.innerHTML = `<span class="badge-progress">IN PROGRESS</span> Issue #${cur.issue_number}: ${cur.title || 'untitled'} <span class="text-xs text-[var(--iron-light)]">(started ${cur.started_at || ''})</span>`;
+      el.innerHTML = `<span class="badge-progress">IN PROGRESS</span> Issue #${cur.issue_number}: ${cur.title || 'untitled'}`;
     } else {
-      el.textContent = 'No active work — Mason is idle';
+      el.textContent = 'Mason is idle';
     }
   } catch(e) { console.error('Status load failed:', e); }
+}
+
+async function loadIssues() {
+  const el = document.getElementById('issues-list');
+  const owner = getOwner(), repo = getRepo();
+  if (!owner || !repo) { el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Set owner/repo above</div>'; return; }
+  el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Loading...</div>';
+  try {
+    const resp = await fetch(`/v1/stronghold/mason/issues?owner=${owner}&repo=${repo}`, {headers: authHeaders()});
+    const data = await resp.json();
+    if (data.error) { el.innerHTML = `<div class="text-sm" style="color:var(--blood)">${data.error}</div>`; return; }
+    const issues = data.issues || [];
+    if (issues.length === 0) { el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No open issues</div>'; return; }
+    el.innerHTML = issues.map(i => {
+      const labels = (i.labels || []).map(l =>
+        `<span class="${l === 'good first issue' ? 'badge-done' : 'badge-queued'}">${l}</span>`
+      ).join(' ');
+      const assignee = i.assignee ? `<span class="text-xs text-[var(--iron-light)]">${i.assignee}</span>` : '';
+      return `<div class="flex items-center justify-between p-3 rounded" style="background:var(--stone-dark)">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm"><span class="text-[var(--gold)]">#${i.number}</span> ${i.title}</div>
+          <div class="flex gap-1 mt-1 flex-wrap">${labels} ${assignee}</div>
+        </div>
+        <button class="btn-gold text-xs ml-3 flex-shrink-0" onclick="assignIssue(${i.number}, '${i.title.replace(/'/g, "\\'")}')">Assign</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div class="text-sm" style="color:var(--blood)">Failed to load: ${e.message}</div>`;
+  }
 }
 
 async function loadQueue() {
@@ -227,138 +259,80 @@ async function loadQueue() {
   } catch(e) { console.error('Queue load failed:', e); }
 }
 
-async function assignIssue() {
-  const num = parseInt(document.getElementById('assign-issue').value);
-  if (!num) return;
-  const body = {
-    issue_number: num,
-    title: document.getElementById('assign-title').value,
-    owner: document.getElementById('assign-owner').value,
-    repo: document.getElementById('assign-repo').value,
-  };
+async function assignIssue(num, title) {
+  const owner = getOwner(), repo = getRepo();
   try {
     const resp = await fetch('/v1/stronghold/mason/assign', {
       method: 'POST', headers: {...authHeaders(), 'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
+      body: JSON.stringify({issue_number: num, title: title || '', owner, repo}),
     });
     const data = await resp.json();
-    const el = document.getElementById('assign-result');
-    el.classList.remove('hidden');
-    el.style.color = resp.ok ? 'var(--emerald)' : 'var(--blood)';
-    el.textContent = resp.ok ? `Assigned! Queue position: ${data.queue_position}` : (data.error || 'Failed');
-    loadAll();
+    if (resp.ok) { loadQueue(); loadStatus(); }
   } catch(e) { console.error('Assign failed:', e); }
 }
 
 async function reviewPR() {
   const num = parseInt(document.getElementById('review-pr').value);
   if (!num) return;
-  const body = {
-    pr_number: num,
-    owner: document.getElementById('review-owner').value,
-    repo: document.getElementById('review-repo').value,
-  };
+  const el = document.getElementById('review-result');
   try {
     const resp = await fetch('/v1/stronghold/mason/review-pr', {
       method: 'POST', headers: {...authHeaders(), 'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
+      body: JSON.stringify({pr_number: num, owner: getOwner(), repo: getRepo()}),
     });
     const data = await resp.json();
-    const el = document.getElementById('review-result');
     el.classList.remove('hidden');
     el.style.color = resp.ok ? 'var(--emerald)' : 'var(--blood)';
-    el.textContent = resp.ok ? `Queued for review (mode: ${data.mode})` : (data.error || 'Failed');
-  } catch(e) { console.error('Review failed:', e); }
+    el.textContent = resp.ok ? `Queued for review` : (data.error || 'Failed');
+  } catch(e) { el.classList.remove('hidden'); el.style.color='var(--blood)'; el.textContent=e.message; }
 }
 
 let scanData = [];
-
 async function runScan() {
   const el = document.getElementById('scan-status');
-  el.textContent = 'Scanning codebase...';
+  el.textContent = 'Scanning...';
   try {
     const resp = await fetch('/v1/stronghold/mason/scan', {headers: authHeaders()});
     const data = await resp.json();
     scanData = data.suggestions || [];
     document.getElementById('scan-results').classList.remove('hidden');
-    document.getElementById('scan-count').textContent = `${scanData.length} candidates found`;
+    document.getElementById('scan-count').textContent = `${scanData.length} candidates`;
     const list = document.getElementById('scan-list');
-    if (scanData.length === 0) {
-      list.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No issues found — codebase is clean</div>';
-      el.textContent = '';
-      return;
-    }
+    if (scanData.length === 0) { list.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Codebase is clean</div>'; el.textContent=''; return; }
     list.innerHTML = scanData.map((s, i) => {
-      const catBadge = s.category === 'missing_fake' ? 'badge-queued' :
-                       s.category === 'untested_module' ? 'badge-progress' :
-                       s.category === 'todo_fixme' ? 'badge-failed' : 'badge-done';
+      const catBadge = s.category === 'missing_fake' ? 'badge-queued' : s.category === 'untested_module' ? 'badge-progress' : s.category === 'todo_fixme' ? 'badge-failed' : 'badge-done';
       return `<label class="flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-[var(--stone-dark)]" style="background:rgba(0,0,0,0.15)">
         <input type="checkbox" class="scan-check mt-1" data-idx="${i}" onchange="updateCreateBtn()">
         <div class="flex-1">
           <div class="text-sm">${s.title}</div>
-          <div class="flex gap-2 mt-1">
-            <span class="${catBadge}">${s.category}</span>
-            <span class="text-xs text-[var(--iron-light)]">${s.scope}</span>
-          </div>
+          <div class="flex gap-2 mt-1"><span class="${catBadge}">${s.category}</span><span class="text-xs text-[var(--iron-light)]">${s.scope}</span></div>
           <div class="text-xs text-[var(--iron-light)] mt-1">${s.what_youll_learn}</div>
         </div>
       </label>`;
     }).join('');
     el.textContent = '';
-  } catch(e) {
-    el.textContent = 'Scan failed: ' + e.message;
-    el.style.color = 'var(--blood)';
-  }
+  } catch(e) { el.textContent='Scan failed: '+e.message; el.style.color='var(--blood)'; }
 }
-
-function toggleAll() {
-  const checks = document.querySelectorAll('.scan-check');
-  const allChecked = [...checks].every(c => c.checked);
-  checks.forEach(c => c.checked = !allChecked);
-  updateCreateBtn();
-}
-
-function updateCreateBtn() {
-  const checked = document.querySelectorAll('.scan-check:checked').length;
-  const btn = document.getElementById('btn-create');
-  btn.disabled = checked === 0;
-  btn.textContent = checked > 0 ? `Create ${checked} Issue${checked > 1 ? 's' : ''} on GitHub` : 'Create Selected on GitHub';
-}
-
+function toggleAll() { const c=document.querySelectorAll('.scan-check'); const all=[...c].every(x=>x.checked); c.forEach(x=>x.checked=!all); updateCreateBtn(); }
+function updateCreateBtn() { const n=document.querySelectorAll('.scan-check:checked').length; const b=document.getElementById('btn-create'); b.disabled=n===0; b.textContent=n>0?`Create ${n} on GitHub`:'Create Selected'; }
 async function createSelected() {
-  const owner = document.getElementById('scan-owner').value;
-  const repo = document.getElementById('scan-repo').value;
-  if (!owner || !repo) {
-    document.getElementById('scan-status').textContent = 'Enter owner and repo first';
-    document.getElementById('scan-status').style.color = 'var(--blood)';
-    return;
-  }
-  const indices = [...document.querySelectorAll('.scan-check:checked')].map(c => parseInt(c.dataset.idx));
-  const el = document.getElementById('scan-status');
-  el.textContent = `Creating ${indices.length} issues...`;
-  el.style.color = 'var(--gold)';
+  const owner=getOwner(), repo=getRepo();
+  if (!owner||!repo) { document.getElementById('scan-status').textContent='Set owner/repo first'; return; }
+  const indices=[...document.querySelectorAll('.scan-check:checked')].map(c=>parseInt(c.dataset.idx));
+  const el=document.getElementById('scan-status');
+  el.textContent=`Creating ${indices.length} issues...`; el.style.color='var(--gold)';
   try {
-    const resp = await fetch('/v1/stronghold/mason/scan/create', {
-      method: 'POST',
-      headers: {...authHeaders(), 'Content-Type': 'application/json'},
-      body: JSON.stringify({indices, owner, repo}),
-    });
-    const data = await resp.json();
-    el.style.color = 'var(--emerald)';
-    el.textContent = `Created ${data.created} issues` + (data.errors?.length ? ` (${data.errors.length} errors)` : '');
-    if (data.errors?.length) {
-      el.textContent += ': ' + data.errors[0];
-      el.style.color = 'var(--blood)';
-    }
-  } catch(e) {
-    el.textContent = 'Create failed: ' + e.message;
-    el.style.color = 'var(--blood)';
-  }
+    const resp=await fetch('/v1/stronghold/mason/scan/create',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:JSON.stringify({indices,owner,repo})});
+    const data=await resp.json();
+    el.style.color='var(--emerald)'; el.textContent=`Created ${data.created} issues`;
+    if(data.errors?.length){el.style.color='var(--blood)';el.textContent+=': '+data.errors[0];}
+    loadIssues();
+  } catch(e) { el.textContent='Failed: '+e.message; el.style.color='var(--blood)'; }
 }
 
-function loadAll() { loadStatus(); loadQueue(); }
+function loadAll() { loadStatus(); loadIssues(); loadQueue(); }
 loadAll();
-setInterval(loadAll, 10000);
+setInterval(loadAll, 30000);
 </script>
 </body>
 </html>

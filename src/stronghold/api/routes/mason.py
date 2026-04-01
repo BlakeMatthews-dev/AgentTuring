@@ -136,6 +136,33 @@ async def get_status() -> JSONResponse:
     return JSONResponse(_queue().status())
 
 
+@router.get("/v1/stronghold/mason/issues")
+async def list_github_issues(request: Request) -> JSONResponse:
+    """Fetch open issues from GitHub for the configured repo."""
+    from stronghold.tools.github import GitHubToolExecutor
+
+    owner = request.query_params.get("owner", "")
+    repo = request.query_params.get("repo", "")
+    if not owner or not repo:
+        return JSONResponse(
+            {"error": "owner and repo query params required"}, status_code=400
+        )
+
+    github = GitHubToolExecutor()
+    result = await github.execute({
+        "action": "list_issues",
+        "owner": owner,
+        "repo": repo,
+        "state": request.query_params.get("state", "open"),
+    })
+    if not result.success:
+        return JSONResponse({"error": result.error}, status_code=502)
+
+    import json as _json
+
+    return JSONResponse({"issues": _json.loads(result.content)})
+
+
 @router.get("/v1/stronghold/mason/scan")
 async def scan_codebase() -> JSONResponse:
     """Scan codebase for good-first-issue opportunities.

@@ -1,171 +1,238 @@
 """Mason management API + GitHub webhook receiver.
 
 Endpoints:
-- POST /v1/stronghold/mason/assign — assign an issue to Mason
-- GET  /v1/stronghold/mason/queue  — list queued issues
-- GET  /v1/stronghold/mason/status — current execution status
-- POST /v1/stronghold/webhooks/github — GitHub webhook receiver
+- POST /v1/stronghold/mason/assign      — assign an issue to Mason
+- POST /v1/stronghold/mason/review-pr   — request Mason review + improve a PR
+- GET  /v1/stronghold/mason/queue       — list queued issues
+- GET  /v1/stronghold/mason/status      — current execution status
+- POST /v1/stronghold/webhooks/github   — GitHub webhook receiver
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from starlette.responses import JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
-    from starlette.requests import Request
-
     from stronghold.agents.mason.queue import InMemoryMasonQueue
     from stronghold.events import Reactor
 
 logger = logging.getLogger("stronghold.api.mason")
 
+router = APIRouter(tags=["mason"])
 
-def create_mason_routes(
+
+def configure_mason_router(
     queue: InMemoryMasonQueue,
     reactor: Reactor,
-) -> list[tuple[str, str, Any]]:
-    """Create Mason management route handlers.
+) -> None:
+    """Bind the Mason queue and reactor to the router's endpoints."""
+    _state["queue"] = queue
+    _state["reactor"] = reactor
 
-    Returns list of (path, method, handler) tuples for registration.
-    """
 
-    async def assign_issue(request: Request) -> JSONResponse:
-        """Assign an issue to Mason's queue."""
-        body = await request.json()
-        issue_number = body.get("issue_number")
-        if not issue_number:
-            return JSONResponse({"error": "issue_number is required"}, status_code=400)
+# Module-level state — set by configure_mason_router at startup
+_state: dict[str, Any] = {}
 
-        issue = queue.assign(
-            issue_number=issue_number,
-            title=body.get("title", ""),
-            owner=body.get("owner", ""),
-            repo=body.get("repo", ""),
+
+def _queue() -> InMemoryMasonQueue:
+    return _state["queue"]  # type: ignore[return-value]
+
+
+def _reactor() -> Reactor:
+    return _state["reactor"]  # type: ignore[return-value]
+
+
+@router.post("/v1/stronghold/mason/assign")
+async def assign_issue(request: Request) -> JSONResponse:
+    """Assign a GitHub issue to Mason's queue."""
+    body = await request.json()
+    issue_number = body.get("issue_number")
+    if not issue_number:
+        return JSONResponse({"error": "issue_number is required"}, status_code=400)
+
+    queue = _queue()
+    issue = queue.assign(
+        issue_number=issue_number,
+        title=body.get("title", ""),
+        owner=body.get("owner", ""),
+        repo=body.get("repo", ""),
+    )
+
+    from stronghold.types.reactor import Event
+
+    _reactor().emit(
+        Event(
+            name="mason.issue_assigned",
+            data={
+                "issue_number": issue.issue_number,
+                "title": issue.title,
+                "owner": issue.owner,
+                "repo": issue.repo,
+            },
         )
+    )
 
-        # Emit event so the Reactor watcher picks it up
-        from stronghold.types.reactor import Event as EventType
+    return JSONResponse(
+        {
+            "status": "assigned",
+            "issue_number": issue.issue_number,
+            "queue_position": sum(1 for i in queue.list_all() if i["status"] == "queued"),
+        }
+    )
 
-        reactor.emit(
-            EventType(
+
+@router.post("/v1/stronghold/mason/review-pr")
+async def review_pr(request: Request) -> JSONResponse:
+    """Request Mason to review and improve an existing PR.
+
+    Mason reads the diff, existing comments, and its stored learnings,
+    then pushes improvements addressing the feedback.
+    """
+    body = await request.json()
+    pr_number = body.get("pr_number")
+    if not pr_number:
+        return JSONResponse({"error": "pr_number is required"}, status_code=400)
+
+    from stronghold.types.reactor import Event
+
+    _reactor().emit(
+        Event(
+            name="mason.pr_review_requested",
+            data={
+                "pr_number": pr_number,
+                "owner": body.get("owner", ""),
+                "repo": body.get("repo", ""),
+                "mode": "review_and_improve",
+            },
+        )
+    )
+
+    return JSONResponse(
+        {
+            "status": "queued",
+            "pr_number": pr_number,
+            "mode": "review_and_improve",
+        }
+    )
+
+
+@router.get("/v1/stronghold/mason/queue")
+async def get_queue() -> JSONResponse:
+    """List all issues in Mason's queue."""
+    return JSONResponse({"issues": _queue().list_all()})
+
+
+@router.get("/v1/stronghold/mason/status")
+async def get_status() -> JSONResponse:
+    """Get Mason's current execution status."""
+    return JSONResponse(_queue().status())
+
+
+@router.post("/v1/stronghold/webhooks/github")
+async def github_webhook(request: Request) -> JSONResponse:
+    """Receive GitHub webhook events.
+
+    Verifies HMAC-SHA256 signature, then emits Reactor events
+    for relevant GitHub actions.
+    """
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+    if secret:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        body_bytes = await request.body()
+        if not _verify_signature(body_bytes, secret, signature):
+            return JSONResponse({"error": "Invalid signature"}, status_code=401)
+        payload: dict[str, Any] = json.loads(body_bytes)
+    else:
+        payload = await request.json()
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+    action = payload.get("action", "")
+
+    from stronghold.types.reactor import Event
+
+    # Issue assigned -> queue for Mason
+    if event_type == "issues" and action == "assigned":
+        issue = payload.get("issue", {})
+        repo = payload.get("repository", {})
+        queue = _queue()
+        queued = queue.assign(
+            issue_number=issue.get("number", 0),
+            title=issue.get("title", ""),
+            owner=repo.get("owner", {}).get("login", ""),
+            repo=repo.get("name", ""),
+        )
+        _reactor().emit(
+            Event(
                 name="mason.issue_assigned",
                 data={
-                    "issue_number": issue.issue_number,
-                    "title": issue.title,
+                    "issue_number": queued.issue_number,
+                    "title": queued.title,
+                    "source": "github_webhook",
+                },
+            )
+        )
+        logger.info("Webhook: issue #%d assigned to Mason", queued.issue_number)
+
+    # PR opened -> trigger Auditor review
+    elif event_type == "pull_request" and action == "opened":
+        pr = payload.get("pull_request", {})
+        _reactor().emit(
+            Event(
+                name="pr.opened",
+                data={
+                    "pr_number": pr.get("number", 0),
+                    "title": pr.get("title", ""),
+                    "author": pr.get("user", {}).get("login", ""),
+                    "source": "github_webhook",
+                },
+            )
+        )
+        logger.info("Webhook: PR #%d opened", pr.get("number", 0))
+
+    # PR review comment -> RLHF feedback extraction
+    elif event_type == "pull_request_review" and action == "submitted":
+        pr = payload.get("pull_request", {})
+        review = payload.get("review", {})
+        _reactor().emit(
+            Event(
+                name="pr.reviewed",
+                data={
+                    "pr_number": pr.get("number", 0),
+                    "review_state": review.get("state", ""),
+                    "reviewer": review.get("user", {}).get("login", ""),
+                    "body": review.get("body", ""),
+                    "source": "github_webhook",
                 },
             )
         )
 
-        return JSONResponse(
-            {
-                "status": "assigned",
-                "issue_number": issue.issue_number,
-                "queue_position": sum(1 for i in queue.list_all() if i["status"] == "queued"),
-            }
-        )
-
-    async def get_queue(request: Request) -> JSONResponse:
-        """List all issues in the queue."""
-        return JSONResponse({"issues": queue.list_all()})
-
-    async def get_status(request: Request) -> JSONResponse:
-        """Get Mason's current execution status."""
-        return JSONResponse(queue.status())
-
-    async def github_webhook(request: Request) -> JSONResponse:
-        """Receive GitHub webhook events.
-
-        Verifies HMAC-SHA256 signature, then emits Reactor events
-        for relevant GitHub actions (issue assigned, PR opened, etc.).
-        """
-        # Verify webhook signature
-        secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
-        if secret:
-            signature = request.headers.get("X-Hub-Signature-256", "")
-            body_bytes = await request.body()
-            if not _verify_signature(body_bytes, secret, signature):
-                return JSONResponse({"error": "Invalid signature"}, status_code=401)
-            payload = _parse_json(body_bytes)
-        else:
-            payload = await request.json()
-
-        event_type = request.headers.get("X-GitHub-Event", "")
-        action = payload.get("action", "")
-
-        from stronghold.types.reactor import Event as EventType
-
-        # Issue assigned → queue for Mason
-        if event_type == "issues" and action == "assigned":
-            issue = payload.get("issue", {})
-            repo = payload.get("repository", {})
-            queued = queue.assign(
-                issue_number=issue.get("number", 0),
-                title=issue.get("title", ""),
-                owner=repo.get("owner", {}).get("login", ""),
-                repo=repo.get("name", ""),
-            )
-            reactor.emit(
-                EventType(
-                    name="mason.issue_assigned",
+    # Issue comment -> Mason can learn from human feedback
+    elif event_type == "issue_comment" and action == "created":
+        comment = payload.get("comment", {})
+        issue = payload.get("issue", {})
+        # Only process comments on PRs (issues with pull_request key)
+        if "pull_request" in issue:
+            _reactor().emit(
+                Event(
+                    name="pr.commented",
                     data={
-                        "issue_number": queued.issue_number,
-                        "title": queued.title,
-                        "source": "github_webhook",
-                    },
-                )
-            )
-            logger.info(
-                "Webhook: issue #%d assigned to Mason",
-                queued.issue_number,
-            )
-
-        # PR opened → trigger Auditor review
-        elif event_type == "pull_request" and action == "opened":
-            pr = payload.get("pull_request", {})
-            reactor.emit(
-                EventType(
-                    name="pr.opened",
-                    data={
-                        "pr_number": pr.get("number", 0),
-                        "title": pr.get("title", ""),
-                        "author": pr.get("user", {}).get("login", ""),
-                        "source": "github_webhook",
-                    },
-                )
-            )
-            logger.info("Webhook: PR #%d opened", pr.get("number", 0))
-
-        # PR review submitted → trigger RLHF feedback
-        elif event_type == "pull_request_review" and action == "submitted":
-            pr = payload.get("pull_request", {})
-            review = payload.get("review", {})
-            reactor.emit(
-                EventType(
-                    name="pr.reviewed",
-                    data={
-                        "pr_number": pr.get("number", 0),
-                        "review_state": review.get("state", ""),
-                        "reviewer": review.get("user", {}).get("login", ""),
-                        "body": review.get("body", ""),
+                        "pr_number": issue.get("number", 0),
+                        "commenter": comment.get("user", {}).get("login", ""),
+                        "body": comment.get("body", ""),
                         "source": "github_webhook",
                     },
                 )
             )
 
-        return JSONResponse({"status": "ok"})
-
-    return [
-        ("/v1/stronghold/mason/assign", "POST", assign_issue),
-        ("/v1/stronghold/mason/queue", "GET", get_queue),
-        ("/v1/stronghold/mason/status", "GET", get_status),
-        ("/v1/stronghold/webhooks/github", "POST", github_webhook),
-    ]
+    return JSONResponse({"status": "ok"})
 
 
 def _verify_signature(body: bytes, secret: str, signature: str) -> bool:
@@ -178,10 +245,3 @@ def _verify_signature(body: bytes, secret: str, signature: str) -> bool:
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(f"sha256={expected}", signature)
-
-
-def _parse_json(body: bytes) -> dict[str, Any]:
-    """Parse JSON body bytes."""
-    import json
-
-    return json.loads(body)  # type: ignore[no-any-return]

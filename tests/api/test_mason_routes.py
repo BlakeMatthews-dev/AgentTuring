@@ -7,29 +7,22 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 
-from starlette.testclient import TestClient
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from stronghold.agents.mason.queue import InMemoryMasonQueue
-from stronghold.api.routes.mason import _verify_signature, create_mason_routes
+from stronghold.api.routes.mason import _verify_signature, configure_mason_router, router
 from stronghold.events import Reactor
 
 
 def _build_app() -> tuple[TestClient, InMemoryMasonQueue, Reactor]:
-    """Build a minimal Starlette app with Mason routes."""
-    from starlette.applications import Starlette
-    from starlette.routing import Route
-
+    """Build a minimal FastAPI app with Mason routes."""
     queue = InMemoryMasonQueue()
     reactor = Reactor()
-    routes_spec = create_mason_routes(queue, reactor)
-
-    starlette_routes = []
-    for path, method, handler in routes_spec:
-        starlette_routes.append(Route(path, handler, methods=[method]))
-
-    app = Starlette(routes=starlette_routes)
+    configure_mason_router(queue, reactor)
+    app = FastAPI()
+    app.include_router(router)
     client = TestClient(app)
     return client, queue, reactor
 
@@ -57,12 +50,12 @@ class TestAssignEndpoint:
 
     def test_emits_reactor_event(self) -> None:
         client, _, reactor = _build_app()
-        events: list[str] = []
-        # Register a listener to verify event emission
         from stronghold.types.reactor import TriggerMode, TriggerSpec
 
+        fired: list[str] = []
+
         async def _capture(event: object) -> dict[str, object]:
-            events.append("fired")
+            fired.append("mason.issue_assigned")
             return {}
 
         reactor.register(
@@ -77,8 +70,29 @@ class TestAssignEndpoint:
             "/v1/stronghold/mason/assign",
             json={"issue_number": 42},
         )
-        # Event was emitted (may not have fired yet in sync context)
-        # but the emit call should not error
+        # Event was emitted (async dispatch — may not have fired yet)
+
+
+class TestReviewPREndpoint:
+    """POST /v1/stronghold/mason/review-pr."""
+
+    def test_queues_review(self) -> None:
+        client, _, _ = _build_app()
+        resp = client.post(
+            "/v1/stronghold/mason/review-pr",
+            json={"pr_number": 99, "owner": "org", "repo": "stronghold"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "queued"
+        assert resp.json()["mode"] == "review_and_improve"
+
+    def test_missing_pr_number(self) -> None:
+        client, _, _ = _build_app()
+        resp = client.post(
+            "/v1/stronghold/mason/review-pr",
+            json={"owner": "org"},
+        )
+        assert resp.status_code == 400
 
 
 class TestQueueEndpoint:
@@ -146,6 +160,26 @@ class TestGitHubWebhook:
             "/v1/stronghold/webhooks/github",
             json=payload,
             headers={"X-GitHub-Event": "pull_request"},
+        )
+        assert resp.status_code == 200
+
+    def test_pr_comment_emits_event(self) -> None:
+        client, _, _ = _build_app()
+        payload = {
+            "action": "created",
+            "comment": {
+                "user": {"login": "reviewer"},
+                "body": "[MOCK_USAGE] Fix this",
+            },
+            "issue": {
+                "number": 99,
+                "pull_request": {"url": "..."},
+            },
+        }
+        resp = client.post(
+            "/v1/stronghold/webhooks/github",
+            json=payload,
+            headers={"X-GitHub-Event": "issue_comment"},
         )
         assert resp.status_code == 200
 

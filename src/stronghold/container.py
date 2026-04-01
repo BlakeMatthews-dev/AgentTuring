@@ -312,6 +312,12 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
+    # Register GitHub tool
+    from stronghold.tools.github import GITHUB_TOOL_DEF, GitHubToolExecutor  # noqa: PLC0415
+
+    github_tool = GitHubToolExecutor()
+    tool_registry.register(GITHUB_TOOL_DEF, github_tool.execute)
+
     # Create the LLM client — the ONLY connection to LiteLLM
     llm = LiteLLMClient(
         base_url=config.litellm_url,
@@ -440,5 +446,13 @@ async def create_container(config: StrongholdConfig) -> Container:
     from stronghold.triggers import register_core_triggers  # noqa: PLC0415
 
     register_core_triggers(container)
+
+    # Mason queue + API wiring
+    from stronghold.agents.mason.queue import InMemoryMasonQueue  # noqa: PLC0415
+    from stronghold.api.routes.mason import configure_mason_router  # noqa: PLC0415
+
+    mason_queue = InMemoryMasonQueue()
+    configure_mason_router(mason_queue, reactor)
+    container.mason_queue = mason_queue  # type: ignore[attr-defined]
 
     return container

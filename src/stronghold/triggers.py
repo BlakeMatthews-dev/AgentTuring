@@ -193,4 +193,107 @@ def register_core_triggers(container: Container) -> None:
         _rlhf_feedback,
     )
 
+    # 9. Mason dispatch — start work when issues are assigned
+    async def _mason_dispatch(event: Event) -> dict[str, Any]:
+        """Dispatch assigned issues to Mason via the Conduit pipeline."""
+        issue_number = event.data.get("issue_number", 0)
+        title = event.data.get("title", "")
+        owner = event.data.get("owner", "")
+        repo = event.data.get("repo", "")
+
+        if not issue_number:
+            return {"skipped": True}
+
+        # Mark as in-progress
+        if hasattr(container, "mason_queue"):
+            container.mason_queue.start(issue_number)  # type: ignore[attr-defined]
+
+        # Route through Conduit as a synthetic request
+        from stronghold.types.auth import SYSTEM_AUTH  # noqa: PLC0415
+
+        try:
+            await container.route_request(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Implement GitHub issue #{issue_number}: {title}\n"
+                            f"Repository: {owner}/{repo}\n"
+                            f"Read the issue details, then follow your 8-phase "
+                            f"evidence-driven TDD pipeline."
+                        ),
+                    }
+                ],
+                auth=SYSTEM_AUTH,
+                intent_hint="code_gen",
+            )
+            # Mark complete
+            if hasattr(container, "mason_queue"):
+                container.mason_queue.complete(issue_number)  # type: ignore[attr-defined]
+            logger.info("Mason completed issue #%d", issue_number)
+            return {"issue_number": issue_number, "status": "completed"}
+        except Exception as e:
+            if hasattr(container, "mason_queue"):
+                container.mason_queue.fail(  # type: ignore[attr-defined]
+                    issue_number,
+                    error=str(e),
+                )
+            logger.warning("Mason failed issue #%d: %s", issue_number, e)
+            return {"issue_number": issue_number, "status": "failed", "error": str(e)}
+
+    reactor.register(
+        TriggerSpec(
+            name="mason_dispatch",
+            mode=TriggerMode.EVENT,
+            event_pattern=r"mason\.issue_assigned",
+        ),
+        _mason_dispatch,
+    )
+
+    # 10. Mason PR review — review and improve an existing PR
+    async def _mason_pr_review(event: Event) -> dict[str, Any]:
+        """Dispatch PR review-and-improve requests to Mason."""
+        pr_number = event.data.get("pr_number", 0)
+        owner = event.data.get("owner", "")
+        repo = event.data.get("repo", "")
+
+        if not pr_number:
+            return {"skipped": True}
+
+        from stronghold.types.auth import SYSTEM_AUTH  # noqa: PLC0415
+
+        try:
+            await container.route_request(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Review and improve PR #{pr_number} in {owner}/{repo}.\n\n"
+                            f"1. Fetch the PR diff and existing comments\n"
+                            f"2. Read your stored learnings for common issues\n"
+                            f"3. Identify improvements based on comments and "
+                            f"project standards\n"
+                            f"4. Apply improvements and push\n"
+                            f"5. Run all quality gates before pushing"
+                        ),
+                    }
+                ],
+                auth=SYSTEM_AUTH,
+                intent_hint="code_gen",
+            )
+            logger.info("Mason completed PR review #%d", pr_number)
+            return {"pr_number": pr_number, "status": "completed"}
+        except Exception as e:
+            logger.warning("Mason PR review #%d failed: %s", pr_number, e)
+            return {"pr_number": pr_number, "status": "failed", "error": str(e)}
+
+    reactor.register(
+        TriggerSpec(
+            name="mason_pr_review",
+            mode=TriggerMode.EVENT,
+            event_pattern=r"mason\.pr_review_requested",
+        ),
+        _mason_pr_review,
+    )
+
     logger.info("Registered %d core triggers", len(reactor._triggers))

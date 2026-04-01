@@ -41,6 +41,9 @@
     .stat-value { font-size: 1.4rem; }
     select, input { font-size: 16px !important; }
   }
+  .tab-btn { padding: 6px 16px; border-radius: 4px; border: 1px solid var(--iron); background: transparent; color: var(--iron-light); cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+  .tab-btn:hover { color: var(--gold-dim); border-color: var(--gold-dim); }
+  .tab-btn.active { background: rgba(226,165,41,0.15); color: var(--gold); border-color: var(--gold); }
 </style>
 <script src="/dashboard/auth.js"></script>
 </head>
@@ -193,6 +196,56 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 function getOwner() { return document.getElementById('cfg-owner').value; }
 function getRepo() { return document.getElementById('cfg-repo').value; }
 
+let allItems = [];
+let currentTab = 'issues';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  applyFilters();
+}
+
+function applyFilters() {
+  const labelFilter = document.getElementById('label-filter').value;
+  const sortBy = document.getElementById('sort-by').value;
+  let filtered = allItems.filter(i => {
+    if (currentTab === 'issues' && i.is_pr) return false;
+    if (currentTab === 'prs' && !i.is_pr) return false;
+    if (labelFilter && !(i.labels || []).includes(labelFilter)) return false;
+    return true;
+  });
+  if (sortBy === 'newest') filtered.sort((a, b) => b.number - a.number);
+  else if (sortBy === 'oldest') filtered.sort((a, b) => a.number - b.number);
+  else filtered.sort((a, b) => a.number - b.number);
+  renderItems(filtered);
+}
+
+function renderItems(items) {
+  const el = document.getElementById('issues-list');
+  document.getElementById('item-count').textContent = `${items.length} items`;
+  if (items.length === 0) { el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No items match filters</div>'; return; }
+  el.innerHTML = items.map(i => {
+    const labels = (i.labels || []).map(l => `<span class="${l==='good first issue'?'badge-done':'badge-queued'}">${l}</span>`).join(' ');
+    const type = i.is_pr ? '<span class="badge-progress">PR</span>' : '';
+    const assignee = i.assignee ? `<span class="text-xs text-[var(--iron-light)]">${i.assignee}</span>` : '';
+    const btn = i.is_pr
+      ? `<button class="btn-iron text-xs ml-3 flex-shrink-0" onclick="reviewPRDirect(${i.number})">Review</button>`
+      : `<button class="btn-gold text-xs ml-3 flex-shrink-0" onclick="assignIssue(${i.number},'${i.title.replace(/'/g,"\\'")}')">Assign</button>`;
+    return `<div class="flex items-center justify-between p-3 rounded" style="background:var(--stone-dark)">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm">${type} <span class="text-[var(--gold)]">#${i.number}</span> ${i.title}</div>
+        <div class="flex gap-1 mt-1 flex-wrap">${labels} ${assignee}</div>
+      </div>
+      ${btn}
+    </div>`;
+  }).join('');
+}
+
+function reviewPRDirect(num) {
+  document.getElementById('review-pr').value = num;
+  reviewPR();
+}
+
 async function loadStatus() {
   try {
     const resp = await fetch('/v1/stronghold/mason/status', {headers: authHeaders()});
@@ -216,28 +269,19 @@ async function loadIssues() {
   const el = document.getElementById('issues-list');
   const owner = getOwner(), repo = getRepo();
   if (!owner || !repo) { el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Set owner/repo above</div>'; return; }
-  el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Loading...</div>';
+  el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">Loading from GitHub...</div>';
   try {
     const resp = await fetch(`/v1/stronghold/mason/issues?owner=${owner}&repo=${repo}`, {headers: authHeaders()});
     const data = await resp.json();
     if (data.error) { el.innerHTML = `<div class="text-sm" style="color:var(--blood)">${data.error}</div>`; return; }
-    const issues = data.issues || [];
-    if (issues.length === 0) { el.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No open issues</div>'; return; }
-    el.innerHTML = issues.map(i => {
-      const labels = (i.labels || []).map(l =>
-        `<span class="${l === 'good first issue' ? 'badge-done' : 'badge-queued'}">${l}</span>`
-      ).join(' ');
-      const assignee = i.assignee ? `<span class="text-xs text-[var(--iron-light)]">${i.assignee}</span>` : '';
-      return `<div class="flex items-center justify-between p-3 rounded" style="background:var(--stone-dark)">
-        <div class="flex-1 min-w-0">
-          <div class="text-sm"><span class="text-[var(--gold)]">#${i.number}</span> ${i.title}</div>
-          <div class="flex gap-1 mt-1 flex-wrap">${labels} ${assignee}</div>
-        </div>
-        <button class="btn-gold text-xs ml-3 flex-shrink-0" onclick="assignIssue(${i.number}, '${i.title.replace(/'/g, "\\'")}')">Assign</button>
-      </div>`;
-    }).join('');
+    allItems = data.items || [];
+    // Populate label filter
+    const labelSelect = document.getElementById('label-filter');
+    const labels = data.labels || [];
+    labelSelect.innerHTML = '<option value="">All labels</option>' + labels.map(l => `<option value="${l}">${l}</option>`).join('');
+    applyFilters();
   } catch(e) {
-    el.innerHTML = `<div class="text-sm" style="color:var(--blood)">Failed to load: ${e.message}</div>`;
+    el.innerHTML = `<div class="text-sm" style="color:var(--blood)">Failed: ${e.message}</div>`;
   }
 }
 

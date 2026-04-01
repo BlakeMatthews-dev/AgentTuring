@@ -47,3 +47,4 @@
 - MUST-NEVER import concrete implementations in business logic (use protocols)
 - MUST-NEVER access private fields (`_field`) on classes you don't own
 - MUST-NEVER use `Any` in business logic type annotations
+- MUST-NEVER add `Co-Authored-By` trailers to commits

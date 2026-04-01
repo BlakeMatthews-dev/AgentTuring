@@ -83,6 +83,7 @@ Python 3.12+. Install dev dependencies: `pip install -e ".[dev]"`. Tests use `as
 5. **No Direct External Imports** — Never import `litellm`, `langfuse`, `arize` in business logic. Import the protocol; the DI container wires the implementation.
 6. **Every Protocol Needs a Noop/Fake** — Test fakes in `tests/fakes.py` so tests run without external services.
 7. **Security Review Gates** — Phases 3, 7, and 10 have mandatory security review checkpoints per ARCHITECTURE.md §3.6.
+8. **No Co-Authored-By Lines** — Never add `Co-Authored-By` trailers to commits. PRs with these will be deleted.
 
 ---
 

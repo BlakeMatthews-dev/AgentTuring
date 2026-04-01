@@ -163,4 +163,34 @@ def register_core_triggers(container: Container) -> None:
         _canary_check,
     )
 
+    # 8. RLHF feedback loop — process PR review results into learnings
+    async def _rlhf_feedback(event: Event) -> dict[str, Any]:
+        """Extract learnings from an Auditor review and store in Mason's memory."""
+        from stronghold.agents.feedback.extractor import ReviewFeedbackExtractor
+        from stronghold.agents.feedback.loop import FeedbackLoop
+        from stronghold.agents.feedback.tracker import InMemoryViolationTracker
+
+        review_result = event.data.get("review_result")
+        if not review_result:
+            return {"skipped": True}
+
+        # Lazily initialize the feedback loop components
+        if not hasattr(container, "_feedback_loop"):
+            container._feedback_loop = FeedbackLoop(  # type: ignore[attr-defined]
+                extractor=ReviewFeedbackExtractor(),
+                learning_store=container.learning_store,
+                violation_store=InMemoryViolationTracker(),
+            )
+        stored = await container._feedback_loop.process_review(review_result)  # type: ignore[attr-defined]
+        return {"stored_learnings": stored}
+
+    reactor.register(
+        TriggerSpec(
+            name="rlhf_feedback",
+            mode=TriggerMode.EVENT,
+            event_pattern=r"pr\.reviewed",
+        ),
+        _rlhf_feedback,
+    )
+
     logger.info("Registered %d core triggers", len(reactor._triggers))

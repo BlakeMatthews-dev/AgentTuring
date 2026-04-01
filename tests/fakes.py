@@ -240,3 +240,34 @@ class FakeAuthProvider:
             msg = "Missing Authorization header"
             raise ValueError(msg)
         return self.auth_context
+
+
+class FakeViolationStore:
+    """Fake violation store for testing the RLHF feedback loop."""
+
+    def __init__(self) -> None:
+        self.findings: list[tuple[Any, str]] = []
+        self.reviews: list[Any] = []
+
+    def record_finding(self, finding: Any, *, agent_id: str) -> None:
+        self.findings.append((finding, agent_id))
+
+    def record_review(self, result: Any) -> None:
+        self.reviews.append(result)
+
+    def get_metrics(self, agent_id: str) -> Any:
+        from stronghold.types.feedback import ViolationMetrics
+
+        return ViolationMetrics(
+            agent_id=agent_id,
+            total_prs_reviewed=len(self.reviews),
+            total_findings=len(self.findings),
+        )
+
+    def get_top_violations(
+        self,
+        agent_id: str,
+        *,
+        limit: int = 5,
+    ) -> list[tuple[Any, int]]:
+        return []

@@ -105,30 +105,46 @@ class GitHubToolExecutor:
         import httpx  # noqa: PLC0415
 
         owner, repo = args["owner"], args["repo"]
-        params: dict[str, str] = {"state": args.get("state", "open")}
+        params: dict[str, str] = {
+            "state": args.get("state", "open"),
+            "per_page": str(args.get("per_page", 100)),
+        }
         labels = args.get("labels")
         if labels:
             params["labels"] = ",".join(labels)
 
+        all_issues: list[dict[str, Any]] = []
+        page = 1
+        max_pages = int(args.get("max_pages", 5))
+
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                f"{self._base_url}/repos/{owner}/{repo}/issues",
-                headers=self._headers(),
-                params=params,
-            )
-            resp.raise_for_status()
-            issues = resp.json()
-            return [
-                {
-                    "number": i["number"],
-                    "title": i["title"],
-                    "state": i["state"],
-                    "labels": [lb["name"] for lb in i.get("labels", [])],
-                    "assignee": (i.get("assignee") or {}).get("login"),
-                }
-                for i in issues
-                if "pull_request" not in i  # exclude PRs
-            ]
+            while page <= max_pages:
+                params["page"] = str(page)
+                resp = await client.get(
+                    f"{self._base_url}/repos/{owner}/{repo}/issues",
+                    headers=self._headers(),
+                    params=params,
+                )
+                resp.raise_for_status()
+                batch = resp.json()
+                if not batch:
+                    break
+                for i in batch:
+                    is_pr = "pull_request" in i
+                    all_issues.append({
+                        "number": i["number"],
+                        "title": i["title"],
+                        "state": i["state"],
+                        "labels": [lb["name"] for lb in i.get("labels", [])],
+                        "assignee": (i.get("assignee") or {}).get("login"),
+                        "is_pr": is_pr,
+                        "created_at": i.get("created_at", ""),
+                    })
+                if len(batch) < int(params["per_page"]):
+                    break
+                page += 1
+
+        return all_issues
 
     async def _get_issue(self, args: dict[str, Any]) -> dict[str, Any]:
         import httpx  # noqa: PLC0415

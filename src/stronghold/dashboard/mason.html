@@ -114,29 +114,33 @@
     </div>
   </div>
 
-  <!-- GitHub Issues -->
+  <!-- GitHub Issues & PRs -->
   <div class="px-8 pb-4">
     <div class="card p-6">
+      <!-- Tabs -->
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg">Open Issues</h3>
-        <button class="btn-iron text-xs" onclick="loadIssues()">Refresh</button>
+        <div class="flex gap-1">
+          <button class="tab-btn active" data-tab="issues" onclick="switchTab('issues')">Issues</button>
+          <button class="tab-btn" data-tab="prs" onclick="switchTab('prs')">Pull Requests</button>
+          <button class="tab-btn" data-tab="all" onclick="switchTab('all')">All</button>
+        </div>
+        <div class="flex gap-2 items-center">
+          <select id="label-filter" onchange="applyFilters()" class="text-xs" style="max-width:160px">
+            <option value="">All labels</option>
+          </select>
+          <select id="sort-by" onchange="applyFilters()" class="text-xs">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="number">By #</option>
+          </select>
+          <span class="text-xs text-[var(--iron-light)]" id="item-count"></span>
+          <button class="btn-iron text-xs" onclick="loadIssues()">Refresh</button>
+        </div>
       </div>
-      <div id="issues-list" class="space-y-1 max-h-[400px] overflow-y-auto">
-        <div class="text-sm text-[var(--iron-light)]">Loading issues from GitHub...</div>
+      <!-- List -->
+      <div id="issues-list" class="space-y-1 max-h-[500px] overflow-y-auto" style="scrollbar-width:thin">
+        <div class="text-sm text-[var(--iron-light)]">Loading from GitHub...</div>
       </div>
-    </div>
-  </div>
-
-  <!-- Review PR -->
-  <div class="px-8 pb-4">
-    <div class="card p-6">
-      <h3 class="text-lg mb-4">Review &amp; Improve PR</h3>
-      <p class="text-xs text-[var(--iron-light)] mb-3">Mason reads the diff, comments, and learnings, then pushes improvements</p>
-      <div class="flex gap-2">
-        <input type="number" id="review-pr" placeholder="PR #" class="flex-1" min="1">
-        <button class="btn-gold" onclick="reviewPR()">Second Opinion</button>
-      </div>
-      <div id="review-result" class="mt-3 text-sm hidden"></div>
     </div>
   </div>
 

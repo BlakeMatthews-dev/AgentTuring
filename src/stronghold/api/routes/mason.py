@@ -138,7 +138,7 @@ async def get_status() -> JSONResponse:
 
 @router.get("/v1/stronghold/mason/issues")
 async def list_github_issues(request: Request) -> JSONResponse:
-    """Fetch open issues from GitHub for the configured repo."""
+    """Fetch all open issues and PRs from GitHub (paginated, up to 500)."""
     from stronghold.tools.github import GitHubToolExecutor
 
     owner = request.query_params.get("owner", "")
@@ -154,13 +154,26 @@ async def list_github_issues(request: Request) -> JSONResponse:
         "owner": owner,
         "repo": repo,
         "state": request.query_params.get("state", "open"),
+        "per_page": 100,
+        "max_pages": 5,
     })
     if not result.success:
         return JSONResponse({"error": result.error}, status_code=502)
 
     import json as _json
 
-    return JSONResponse({"issues": _json.loads(result.content)})
+    items = _json.loads(result.content)
+    # Collect all unique labels for filter UI
+    all_labels: set[str] = set()
+    for item in items:
+        for label in item.get("labels", []):
+            all_labels.add(label)
+
+    return JSONResponse({
+        "items": items,
+        "total": len(items),
+        "labels": sorted(all_labels),
+    })
 
 
 @router.get("/v1/stronghold/mason/scan")

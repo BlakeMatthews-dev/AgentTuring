@@ -14,6 +14,7 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY src/ src/
 COPY agents/ agents/
+COPY tests/ tests/
 COPY migrations/ migrations/
 COPY config/ config/
 

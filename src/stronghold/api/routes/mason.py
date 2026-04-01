@@ -101,6 +101,31 @@ async def _dispatch_mason(issue: Any) -> None:
         async def _log_status(msg: str) -> None:
             queue.add_log(issue_num, msg)
 
+        # Create workspace before dispatching so Mason has a path
+        from stronghold.tools.workspace import WorkspaceManager
+
+        ws = WorkspaceManager()
+        queue.add_log(issue_num, "Creating workspace and cloning repo")
+        ws_result = await ws.execute(
+            {
+                "action": "create",
+                "issue_number": issue_num,
+                "owner": issue.owner,
+                "repo": issue.repo,
+            }
+        )
+        if not ws_result.success:
+            queue.add_log(issue_num, f"Workspace failed: {ws_result.error}")
+            queue.fail(issue_num, error=f"workspace: {ws_result.error}")
+            return
+
+        import json as _json
+
+        ws_data = _json.loads(ws_result.content)
+        ws_path = ws_data["path"]
+        branch = ws_data["branch"]
+        queue.add_log(issue_num, f"Workspace ready: {branch} at {ws_path}")
+
         result = await container.route_request(
             messages=[
                 {
@@ -108,9 +133,12 @@ async def _dispatch_mason(issue: Any) -> None:
                     "content": (
                         f"Implement GitHub issue #{issue_num}: {issue.title}\n"
                         f"Repository: {issue.owner}/{issue.repo}\n"
-                        f"Use the workspace tool to create a worktree, then follow "
-                        f"your 8-phase evidence-driven TDD pipeline.\n"
-                        f"Use file_ops to read/write files and shell to run tests."
+                        f"Branch: {branch}\n"
+                        f"Workspace: {ws_path}\n\n"
+                        f"The workspace is already set up with a git worktree. "
+                        f"All file_ops and shell commands should use "
+                        f'workspace="{ws_path}".\n\n'
+                        f"Follow your 8-phase evidence-driven TDD pipeline."
                     ),
                 }
             ],

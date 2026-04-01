@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir --prefix=/install .
 
 FROM python:3.12-slim
 
+# Mason needs git to create branches, worktrees, commit, push
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY src/ src/
@@ -17,13 +20,13 @@ COPY agents/ agents/
 COPY tests/ tests/
 COPY migrations/ migrations/
 COPY config/ config/
+COPY pyproject.toml .
 
 # Remove uvloop — it requires socketpair() which fails in unprivileged containers
 RUN pip uninstall -y uvloop 2>/dev/null; true
 
-# Non-root user
-RUN useradd -r -s /bin/false stronghold
-USER stronghold
+# Workspace directory for Mason worktrees
+RUN mkdir -p /workspace && chmod 777 /workspace
 
 EXPOSE 8100
 

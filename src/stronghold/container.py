@@ -312,11 +312,43 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
-    # Register GitHub tool
+    # Register all Mason tools
+    from stronghold.tools.file_ops import FILE_OPS_TOOL_DEF, FileOpsExecutor  # noqa: PLC0415
     from stronghold.tools.github import GITHUB_TOOL_DEF, GitHubToolExecutor  # noqa: PLC0415
+    from stronghold.tools.shell_exec import (  # noqa: PLC0415
+        RUN_BANDIT_DEF,
+        RUN_MYPY_DEF,
+        RUN_PYTEST_DEF,
+        RUN_RUFF_CHECK_DEF,
+        RUN_RUFF_FORMAT_DEF,
+        SHELL_TOOL_DEF,
+        QualityGateExecutor,
+        ShellExecutor,
+    )
+    from stronghold.tools.workspace import WORKSPACE_TOOL_DEF, WorkspaceManager  # noqa: PLC0415
 
     github_tool = GitHubToolExecutor()
     tool_registry.register(GITHUB_TOOL_DEF, github_tool.execute)
+
+    file_ops = FileOpsExecutor()
+    tool_registry.register(FILE_OPS_TOOL_DEF, file_ops.execute)
+
+    shell = ShellExecutor()
+    tool_registry.register(SHELL_TOOL_DEF, shell.execute)
+
+    workspace = WorkspaceManager()
+    tool_registry.register(WORKSPACE_TOOL_DEF, workspace.execute)
+
+    # Quality gate convenience tools
+    qg = QualityGateExecutor(shell)
+    tool_registry.register(RUN_PYTEST_DEF, qg.make_executor("pytest {path} -v"))
+    tool_registry.register(RUN_RUFF_CHECK_DEF, qg.make_executor("ruff check src/stronghold/"))
+    tool_registry.register(
+        RUN_RUFF_FORMAT_DEF,
+        qg.make_executor("ruff format --check src/stronghold/"),
+    )
+    tool_registry.register(RUN_MYPY_DEF, qg.make_executor("mypy src/stronghold/ --strict"))
+    tool_registry.register(RUN_BANDIT_DEF, qg.make_executor("bandit -r src/stronghold/ -ll"))
 
     # Create the LLM client — the ONLY connection to LiteLLM
     llm = LiteLLMClient(
@@ -342,9 +374,14 @@ async def create_container(config: StrongholdConfig) -> Container:
             Path("agents"),
         ]
         agents_dir = next((p for p in candidates if p.is_dir()), candidates[0])
+    # Tool executor: use registered tools first, fall back to HTTP MCP
     dev_tools = HTTPToolExecutor(base_url="http://dev-tools-mcp:8300")
 
-    async def _dev_tool_exec(name: str, args: dict) -> str:  # type: ignore[type-arg]
+    async def _tool_exec(name: str, args: dict) -> str:  # type: ignore[type-arg]
+        # Try registered native tools first
+        if name in tool_registry:
+            return await tool_dispatcher.execute(name, args)
+        # Fall back to HTTP MCP server
         return await dev_tools.call(name, args)
 
     coin_ledger = PgCoinLedger(db_pool, config) if db_pool else NoOpCoinLedger()
@@ -363,7 +400,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         quota_tracker=quota_tracker,
         coin_ledger=coin_ledger,
         tracer=tracer,
-        tool_executor=_dev_tool_exec,
+        tool_executor=_tool_exec,
         sa_engine=sa_engine,
     )
 

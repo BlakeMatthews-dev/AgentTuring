@@ -20,6 +20,7 @@ from stronghold.memory.outcomes import InMemoryOutcomeStore
 from stronghold.prompts.store import InMemoryPromptManager
 from stronghold.quota.tracker import InMemoryQuotaTracker
 from stronghold.router.selector import RouterEngine
+from stronghold.scheduling.store import InMemoryScheduleStore
 from stronghold.security.auth_static import StaticKeyAuthProvider
 from stronghold.security.gate import Gate
 from stronghold.security.rate_limiter import InMemoryRateLimiter
@@ -85,6 +86,7 @@ class Container:
     redis_client: Any = None  # redis.asyncio.Redis (distributed cache/sessions/rate-limit)
     prompt_cache: Any = None  # RedisPromptCache (write-through cache)
     mcp_registry: Any = None  # MCPRegistry
+    schedule_store: InMemoryScheduleStore = field(default_factory=InMemoryScheduleStore)
     mcp_deployer: Any = None  # K8sDeployer
     conduit: Any = None  # Conduit — wired in __post_init__ or create_container
 

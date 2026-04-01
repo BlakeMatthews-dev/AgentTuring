@@ -248,9 +248,9 @@ class Conduit:
         # ── 5. Quota pre-check ──
         _prov_fields = {f.name for f in ProviderConfig.__dataclass_fields__.values()}
         providers_cfg: dict[str, ProviderConfig] = {
-            k: ProviderConfig(**{fk: fv for fk, fv in v.items() if fk in _prov_fields})
+            k: ProviderConfig(**{fk: fv for fk, fv in v.items() if fk in _prov_fields})  # type: ignore[arg-type]
             if isinstance(v, dict)
-            else v  # type: ignore[arg-type]
+            else v
             for k, v in c.config.providers.items()
         }
 
@@ -305,9 +305,9 @@ class Conduit:
             )
             _model_fields = {f.name for f in ModelConfig.__dataclass_fields__.values()}
             models: dict[str, ModelConfig] = {
-                k: ModelConfig(**{fk: fv for fk, fv in v.items() if fk in _model_fields})
+                k: ModelConfig(**{fk: fv for fk, fv in v.items() if fk in _model_fields})  # type: ignore[arg-type]
                 if isinstance(v, dict)
-                else v  # type: ignore[arg-type]
+                else v
                 for k, v in c.config.models.items()
             }
             providers = routable_providers

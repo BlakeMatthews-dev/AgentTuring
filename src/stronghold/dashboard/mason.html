@@ -354,13 +354,33 @@ function showDetail(idx) {
   }
   if (i.status === 'in_progress') {
     rows.push(`<div class="mt-2 text-xs text-[var(--iron-light)]">Auto-refreshing...</div>`);
-    setTimeout(() => { loadQueue(); showDetail(idx); }, 5000);
   }
   document.getElementById('detail-body').innerHTML = rows.join('');
   document.getElementById('detail-modal').style.display = 'flex';
+  _openDetailIdx = idx;
+
+  // Auto-scroll log to bottom
+  const logEl = document.querySelector('#detail-body .max-h-\\[250px\\]');
+  if (logEl) logEl.scrollTop = logEl.scrollHeight;
 }
 
+let _openDetailIdx = -1;
+let _detailTimer = null;
+
+function _autoRefreshDetail() {
+  if (_detailTimer) clearInterval(_detailTimer);
+  _detailTimer = setInterval(async () => {
+    if (_openDetailIdx < 0) return;
+    await loadQueue();
+    if (_openDetailIdx >= 0 && document.getElementById('detail-modal').style.display === 'flex') {
+      showDetail(_openDetailIdx);
+    }
+  }, 3000);
+}
+_autoRefreshDetail();
+
 function closeDetail() {
+  _openDetailIdx = -1;
   document.getElementById('detail-modal').style.display = 'none';
 }
 

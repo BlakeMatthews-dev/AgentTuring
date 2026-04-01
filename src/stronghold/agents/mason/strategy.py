@@ -70,9 +70,9 @@ class MasonStrategy:
                 done=True,
             )
 
-        await status("Analyzing issue and generating code")
+        await status("Generating code (LLM thinking, may take a few minutes)...")
 
-        # Step 1: Ask LLM to generate code directly — no file listing needed
+        # Step 1: Ask LLM to generate code — with a heartbeat so UI shows progress
         plan_messages = list(messages) + [
             {
                 "role": "user",
@@ -94,9 +94,23 @@ class MasonStrategy:
             },
         ]
 
-        response = await llm.complete(plan_messages, model)
+        # Run LLM call with heartbeat so the UI shows we're alive
+        async def _heartbeat() -> None:
+            elapsed = 0
+            while True:
+                await asyncio.sleep(15)
+                elapsed += 15
+                await status(f"  LLM still generating... ({elapsed}s)")
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            response = await llm.complete(plan_messages, model)
+        finally:
+            heartbeat_task.cancel()
+
         plan_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        await status(f"Plan generated ({len(plan_content)} chars)")
+        file_count = plan_content.count("=== FILE:")
+        await status(f"Code generated: {file_count} files, {len(plan_content)} chars")
 
         # Step 3: Parse file blocks and write them
         files_written = 0

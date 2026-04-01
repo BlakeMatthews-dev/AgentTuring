@@ -383,10 +383,17 @@ class MasonStrategy:
 
                 await status(f"Mason: Running tests (attempt {attempt})")
                 test_output = await run_cmd(
-                    f"python -m pytest {test_path} -v --tb=short 2>&1 | tail -30"
+                    f"python -m pytest {test_path} -v --tb=short 2>&1 | tail -40"
                 )
-                passed = '"passed": true' in test_output
-                await status(f"  Tests: {'GREEN' if passed else 'RED'}")
+                # Check for REAL test results, not just exit code
+                has_tests = " passed" in test_output or " failed" in test_output
+                has_failures = " failed" in test_output or "FAILED" in test_output
+                passed = has_tests and not has_failures
+                if not has_tests:
+                    await status("  Tests: NO TESTS COLLECTED")
+                    passed = False
+                else:
+                    await status(f"  Tests: {'GREEN' if passed else 'RED'}")
                 if passed:
                     break
 

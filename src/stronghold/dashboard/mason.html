@@ -139,6 +139,34 @@
     </div>
   </div>
 
+  <!-- Good First Issues Scanner -->
+  <div class="px-8 pb-4">
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg">Good First Issue Scanner</h3>
+          <p class="text-xs text-[var(--iron-light)] mt-1">Scan the codebase for approachable tasks that teach new contributors the architecture</p>
+        </div>
+        <button class="btn-gold" onclick="runScan()">Scan Codebase</button>
+      </div>
+      <div id="scan-results" class="space-y-2 hidden">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-sm" id="scan-count"></span>
+          <div class="flex gap-2">
+            <button class="btn-iron text-xs" onclick="toggleAll()">Select All</button>
+            <button class="btn-gold text-xs" onclick="createSelected()" id="btn-create" disabled>Create Selected on GitHub</button>
+          </div>
+        </div>
+        <div class="flex gap-2 mb-3">
+          <input type="text" id="scan-owner" placeholder="Owner" class="w-32" value="">
+          <input type="text" id="scan-repo" placeholder="Repo" class="w-32" value="">
+        </div>
+        <div id="scan-list" class="space-y-1 max-h-[400px] overflow-y-auto"></div>
+      </div>
+      <div id="scan-status" class="text-sm text-[var(--iron-light)] mt-3"></div>
+    </div>
+  </div>
+
   <!-- Queue -->
   <div class="px-8 pb-8">
     <div class="card p-6">
@@ -241,6 +269,91 @@ async function reviewPR() {
     el.style.color = resp.ok ? 'var(--emerald)' : 'var(--blood)';
     el.textContent = resp.ok ? `Queued for review (mode: ${data.mode})` : (data.error || 'Failed');
   } catch(e) { console.error('Review failed:', e); }
+}
+
+let scanData = [];
+
+async function runScan() {
+  const el = document.getElementById('scan-status');
+  el.textContent = 'Scanning codebase...';
+  try {
+    const resp = await fetch('/v1/stronghold/mason/scan', {headers: authHeaders()});
+    const data = await resp.json();
+    scanData = data.suggestions || [];
+    document.getElementById('scan-results').classList.remove('hidden');
+    document.getElementById('scan-count').textContent = `${scanData.length} candidates found`;
+    const list = document.getElementById('scan-list');
+    if (scanData.length === 0) {
+      list.innerHTML = '<div class="text-sm text-[var(--iron-light)]">No issues found — codebase is clean</div>';
+      el.textContent = '';
+      return;
+    }
+    list.innerHTML = scanData.map((s, i) => {
+      const catBadge = s.category === 'missing_fake' ? 'badge-queued' :
+                       s.category === 'untested_module' ? 'badge-progress' :
+                       s.category === 'todo_fixme' ? 'badge-failed' : 'badge-done';
+      return `<label class="flex items-start gap-3 p-3 rounded cursor-pointer hover:bg-[var(--stone-dark)]" style="background:rgba(0,0,0,0.15)">
+        <input type="checkbox" class="scan-check mt-1" data-idx="${i}" onchange="updateCreateBtn()">
+        <div class="flex-1">
+          <div class="text-sm">${s.title}</div>
+          <div class="flex gap-2 mt-1">
+            <span class="${catBadge}">${s.category}</span>
+            <span class="text-xs text-[var(--iron-light)]">${s.scope}</span>
+          </div>
+          <div class="text-xs text-[var(--iron-light)] mt-1">${s.what_youll_learn}</div>
+        </div>
+      </label>`;
+    }).join('');
+    el.textContent = '';
+  } catch(e) {
+    el.textContent = 'Scan failed: ' + e.message;
+    el.style.color = 'var(--blood)';
+  }
+}
+
+function toggleAll() {
+  const checks = document.querySelectorAll('.scan-check');
+  const allChecked = [...checks].every(c => c.checked);
+  checks.forEach(c => c.checked = !allChecked);
+  updateCreateBtn();
+}
+
+function updateCreateBtn() {
+  const checked = document.querySelectorAll('.scan-check:checked').length;
+  const btn = document.getElementById('btn-create');
+  btn.disabled = checked === 0;
+  btn.textContent = checked > 0 ? `Create ${checked} Issue${checked > 1 ? 's' : ''} on GitHub` : 'Create Selected on GitHub';
+}
+
+async function createSelected() {
+  const owner = document.getElementById('scan-owner').value;
+  const repo = document.getElementById('scan-repo').value;
+  if (!owner || !repo) {
+    document.getElementById('scan-status').textContent = 'Enter owner and repo first';
+    document.getElementById('scan-status').style.color = 'var(--blood)';
+    return;
+  }
+  const indices = [...document.querySelectorAll('.scan-check:checked')].map(c => parseInt(c.dataset.idx));
+  const el = document.getElementById('scan-status');
+  el.textContent = `Creating ${indices.length} issues...`;
+  el.style.color = 'var(--gold)';
+  try {
+    const resp = await fetch('/v1/stronghold/mason/scan/create', {
+      method: 'POST',
+      headers: {...authHeaders(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({indices, owner, repo}),
+    });
+    const data = await resp.json();
+    el.style.color = 'var(--emerald)';
+    el.textContent = `Created ${data.created} issues` + (data.errors?.length ? ` (${data.errors.length} errors)` : '');
+    if (data.errors?.length) {
+      el.textContent += ': ' + data.errors[0];
+      el.style.color = 'var(--blood)';
+    }
+  } catch(e) {
+    el.textContent = 'Create failed: ' + e.message;
+    el.style.color = 'var(--blood)';
+  }
 }
 
 function loadAll() { loadStatus(); loadQueue(); }

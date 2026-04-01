@@ -172,10 +172,10 @@ async def scan_codebase() -> JSONResponse:
 
 @router.post("/v1/stronghold/mason/scan/create")
 async def create_scanned_issues(request: Request) -> JSONResponse:
-    """Create GitHub issues from scan results.
+    """Create GitHub issues from scan results via GitHub API.
 
-    Body: {"indices": [0, 1, 2]} — which scan results to create as issues.
-    Or: {"all": true} to create all.
+    Body: {"indices": [0, 1, 2], "owner": "org", "repo": "repo"}
+    Or: {"all": true, "owner": "org", "repo": "repo"}
     """
     from pathlib import Path
 
@@ -183,8 +183,14 @@ async def create_scanned_issues(request: Request) -> JSONResponse:
         format_as_github_issue,
         scan_for_good_first_issues,
     )
+    from stronghold.tools.github import GitHubToolExecutor
 
     body = await request.json()
+    owner = body.get("owner", "")
+    repo = body.get("repo", "")
+    if not owner or not repo:
+        return JSONResponse({"error": "owner and repo are required"}, status_code=400)
+
     project_root = Path(__file__).resolve().parents[4]
     suggestions = scan_for_good_first_issues(project_root)
 
@@ -192,15 +198,33 @@ async def create_scanned_issues(request: Request) -> JSONResponse:
     if body.get("all"):
         indices = list(range(len(suggestions)))
 
-    created: list[dict[str, str]] = []
+    github = GitHubToolExecutor()
+    created: list[dict[str, object]] = []
+    errors: list[str] = []
+
     for idx in indices:
-        if 0 <= idx < len(suggestions):
-            payload = format_as_github_issue(suggestions[idx])
-            created.append(payload)
+        if not (0 <= idx < len(suggestions)):
+            continue
+        payload = format_as_github_issue(suggestions[idx])
+        result = await github.execute(
+            {
+                "action": "create_issue",
+                "owner": owner,
+                "repo": repo,
+                "title": payload["title"],
+                "body": str(payload["body"]),
+                "labels": payload.get("labels", []),
+            }
+        )
+        if result.success:
+            created.append({"title": payload["title"], "result": result.content})
+        else:
+            errors.append(f"{payload['title']}: {result.error}")
 
     return JSONResponse(
         {
             "created": len(created),
+            "errors": errors,
             "issues": created,
         }
     )

@@ -248,9 +248,36 @@ class GitHubToolExecutor:
                 for c in resp.json()
             ]
 
+    async def _create_issue(self, args: dict[str, Any]) -> dict[str, Any]:
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        body: dict[str, Any] = {
+            "title": args.get("title", ""),
+            "body": args.get("body", ""),
+        }
+        labels = args.get("labels")
+        if labels:
+            body["labels"] = labels
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self._base_url}/repos/{owner}/{repo}/issues",
+                headers=self._headers(),
+                json=body,
+            )
+            resp.raise_for_status()
+            issue = resp.json()
+            return {
+                "number": issue["number"],
+                "url": issue["html_url"],
+                "state": issue["state"],
+            }
+
     _handlers: dict[str, Any] = {
         "list_issues": _list_issues,
         "get_issue": _get_issue,
+        "create_issue": _create_issue,
         "create_branch": _create_branch,
         "create_pr": _create_pr,
         "get_pr_diff": _get_pr_diff,

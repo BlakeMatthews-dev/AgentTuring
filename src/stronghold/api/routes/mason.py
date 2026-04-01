@@ -136,44 +136,78 @@ async def get_status() -> JSONResponse:
     return JSONResponse(_queue().status())
 
 
-@router.get("/v1/stronghold/mason/issues")
-async def list_github_issues(request: Request) -> JSONResponse:
-    """Fetch all open issues and PRs from GitHub (paginated, up to 500)."""
+# Server-side cache: 15min TTL when populated, 1min when empty
+_issues_cache: dict[str, Any] = {"data": None, "fetched_at": 0.0}
+_CACHE_TTL_FULL = 900.0  # 15 minutes
+_CACHE_TTL_EMPTY = 60.0  # 1 minute
+
+
+async def _fetch_github_items(owner: str, repo: str) -> dict[str, Any]:
+    """Fetch from GitHub or return cached data."""
+    import json as _json
+    import time
+
     from stronghold.tools.github import GitHubToolExecutor
 
-    owner = request.query_params.get("owner", "")
-    repo = request.query_params.get("repo", "")
-    if not owner or not repo:
-        return JSONResponse(
-            {"error": "owner and repo query params required"}, status_code=400
-        )
+    cache_key = f"{owner}/{repo}"
+    now = time.monotonic()
+    cached = _issues_cache.get("data")
+    cached_key = _issues_cache.get("key", "")
+    fetched_at = _issues_cache.get("fetched_at", 0.0)
+
+    if cached is not None and cached_key == cache_key:
+        is_empty = cached.get("total", 0) == 0
+        ttl = _CACHE_TTL_EMPTY if is_empty else _CACHE_TTL_FULL
+        if now - fetched_at < ttl:
+            return cached  # type: ignore[return-value]
 
     github = GitHubToolExecutor()
-    result = await github.execute({
-        "action": "list_issues",
-        "owner": owner,
-        "repo": repo,
-        "state": request.query_params.get("state", "open"),
-        "per_page": 100,
-        "max_pages": 5,
-    })
+    result = await github.execute(
+        {
+            "action": "list_issues",
+            "owner": owner,
+            "repo": repo,
+            "state": "open",
+            "per_page": 100,
+            "max_pages": 5,
+        }
+    )
     if not result.success:
-        return JSONResponse({"error": result.error}, status_code=502)
-
-    import json as _json
+        # Return stale cache if fetch fails
+        if cached is not None and cached_key == cache_key:
+            return cached  # type: ignore[return-value]
+        return {"error": result.error}
 
     items = _json.loads(result.content)
-    # Collect all unique labels for filter UI
     all_labels: set[str] = set()
     for item in items:
         for label in item.get("labels", []):
             all_labels.add(label)
 
-    return JSONResponse({
+    data: dict[str, Any] = {
         "items": items,
         "total": len(items),
         "labels": sorted(all_labels),
-    })
+    }
+    _issues_cache["data"] = data
+    _issues_cache["key"] = cache_key
+    _issues_cache["fetched_at"] = now
+    return data
+
+
+@router.get("/v1/stronghold/mason/issues")
+async def list_github_issues(request: Request) -> JSONResponse:
+    """Fetch all open issues and PRs. Cached: 15min full, 1min empty."""
+    owner = request.query_params.get("owner", "")
+    repo = request.query_params.get("repo", "")
+    if not owner or not repo:
+        return JSONResponse({"error": "owner and repo query params required"}, status_code=400)
+
+    data = await _fetch_github_items(owner, repo)
+    if "error" in data:
+        return JSONResponse({"error": data["error"]}, status_code=502)
+
+    return JSONResponse(data)
 
 
 @router.get("/v1/stronghold/mason/scan")

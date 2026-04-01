@@ -379,8 +379,9 @@ async function createSelected() {
 }
 
 function loadAll() { loadStatus(); loadIssues(); loadQueue(); }
+function refreshStatus() { loadStatus(); loadQueue(); }
 loadAll();
-setInterval(loadAll, 30000);
+setInterval(refreshStatus, 10000);
 </script>
 </body>
 </html>

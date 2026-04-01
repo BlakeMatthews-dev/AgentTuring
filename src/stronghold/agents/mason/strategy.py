@@ -287,85 +287,97 @@ class MasonStrategy:
             if content:
                 existing_source += f"\n=== EXISTING: {fp} ===\n{content[:3000]}\n"
 
-        # ── Step 2+3: Write impl, run tests, loop ──
-        max_attempts = 3
+        # ── Outer loop: impl → test → gates → criteria → retry if not met ──
+        max_cycles = 3
         test_output = ""
         passed = False
+        criteria_met = False
         files_written = 0
+        cycle = 0
 
-        for attempt in range(1, max_attempts + 1):
-            await status(f"Mason 2/5: Implementation (attempt {attempt})")
+        for cycle in range(1, max_cycles + 1):
+            await status(f"=== Build cycle {cycle}/{max_cycles} ===")
 
-            prompt = (
-                f"Issue #{n}: {title}\n\nTests to pass:\n```python\n{test_code[:4000]}\n```\n\n"
+            # Implement (up to 3 attempts to get tests green)
+            for attempt in range(1, 4):
+                await status(f"Mason: Implementing (cycle {cycle}, attempt {attempt})")
+
+                prompt = (
+                    f"Issue #{n}: {title}\n\nTests to pass:\n```python\n{test_code[:4000]}\n```\n\n"
+                )
+                if existing_source:
+                    prompt += f"Existing source (PRESERVE all):\n{existing_source[:4000]}\n\n"
+                if attempt > 1 and test_output:
+                    prompt += f"Previous FAILED:\n```\n{test_output[:1500]}\n```\n\n"
+                prompt += (
+                    "Write implementation. For EACH file:\n"
+                    "=== FILE: path/to/file.py ===\n"
+                    "(complete content preserving existing code)\n"
+                    "=== END ===\n\nOutput ONLY file blocks."
+                )
+
+                impl = await ask(prompt)
+                written = await _write_file_blocks(impl, ws, ex, tool_history, status)
+                files_written += written
+                if written > 0:
+                    await save(f"mason: #{n} cycle {cycle} attempt {attempt}")
+
+                await status(f"Mason: Running tests (attempt {attempt})")
+                test_output = await run_cmd(
+                    f"python -m pytest {test_path} -v --tb=short 2>&1 | tail -30"
+                )
+                passed = '"passed": true' in test_output
+                await status(f"  Tests: {'GREEN' if passed else 'RED'}")
+                if passed:
+                    break
+
+            # Quality gates
+            await status("Mason: Quality gates")
+            for gate in ["ruff check src/stronghold/", "mypy src/stronghold/ --strict"]:
+                await status(f"  {gate.split()[0]}")
+                await run_cmd(f"{gate} 2>&1 | tail -10")
+
+            # Acceptance criteria check
+            await status("Mason: Checking acceptance criteria")
+            verdict = await ask(
+                f"Tests: {'PASSING' if passed else 'FAILING'}.\n\n"
+                f"Output:\n```\n{test_output[:1500]}\n```\n\n"
+                f"Criteria:\n```gherkin\n{criteria}\n```\n\n"
+                f"Is EACH criterion met? 'YES' or 'NO: <which are not met>'"
             )
-            if existing_source:
-                prompt += f"Existing source (PRESERVE all code):\n{existing_source[:4000]}\n\n"
-            if attempt > 1 and test_output:
-                prompt += f"Previous run FAILED:\n```\n{test_output[:1500]}\n```\n\n"
-            prompt += (
-                "Write implementation. For EACH file:\n"
-                "=== FILE: path/to/file.py ===\n"
-                "(complete content preserving existing code)\n"
-                "=== END ===\n\n"
-                "Output ONLY file blocks."
-            )
+            criteria_met = verdict.strip().upper().startswith("YES")
 
-            impl = await ask(prompt)
-            written = await _write_file_blocks(
-                impl,
-                ws,
-                ex,
-                tool_history,
-                status,
-            )
-            files_written += written
-
-            if written > 0:
-                await save(f"mason: impl #{n} (attempt {attempt}, {written} files)")
-
-            # Run tests
-            await status(f"Mason 3/5: Running tests (attempt {attempt})")
-            test_output = await run_cmd(
-                f"python -m pytest {test_path} -v --tb=short 2>&1 | tail -30"
-            )
-            passed = '"passed": true' in test_output
-            color = "GREEN" if passed else "RED"
-            await status(f"  Tests: {color}")
-
-            if passed:
+            if criteria_met:
+                await status("  Criteria: MET")
                 break
 
-        # ── Step 4: Quality gates ──
-        await status("Mason 4/5: Quality gates")
-        for gate in ["ruff check src/stronghold/", "mypy src/stronghold/ --strict"]:
-            gate_name = gate.split()[0]
-            await status(f"  {gate_name}")
-            await run_cmd(f"{gate} 2>&1 | tail -10")
+            # Not met — document and loop
+            await status(f"  Criteria NOT MET: {verdict[:80]}")
+            await comment(
+                f"## Cycle {cycle}: Criteria Not Met\n\n{verdict}\n\nLooping back.\n\n---\n*Mason*"
+            )
+            # Re-read source for next cycle
+            existing_source = ""
+            for match in re.finditer(r"from stronghold\.(\S+) import", test_code):
+                mod = match.group(1).replace(".", "/") + ".py"
+                fp = f"src/stronghold/{mod}"
+                c = await read_file(fp)
+                if c:
+                    existing_source += f"\n=== EXISTING: {fp} ===\n{c[:3000]}\n"
+            test_output += f"\n\nCRITERIA NOT MET:\n{verdict}"
 
-        # ── Step 5: Acceptance criteria check ──
-        await status("Mason 5/5: Checking acceptance criteria")
-        criteria_verdict = await ask(
-            f"Tests are {'PASSING' if passed else 'FAILING'}.\n\n"
-            f"Test output:\n```\n{test_output[:1500]}\n```\n\n"
-            f"Acceptance criteria:\n```gherkin\n{criteria}\n```\n\n"
-            f"Is EACH criterion met? Answer 'YES' or 'NO: <which>'."
-        )
-        criteria_met = criteria_verdict.strip().upper().startswith("YES")
-        await status(f"  Criteria: {'MET' if criteria_met else 'NOT MET'}")
-
-        # ── Post results ──
+        # ── Final results ──
         color = "GREEN" if passed else "RED"
+        status_word = "COMPLETE" if (passed and criteria_met) else "INCOMPLETE"
         await comment(
-            f"## Results\n\n"
+            f"## Results: {status_word}\n\n"
             f"- Tests: **{color}**\n"
-            f"- Criteria: {'MET' if criteria_met else 'NOT MET'}\n"
+            f"- Criteria: **{'MET' if criteria_met else 'NOT MET'}**\n"
             f"- Files: {files_written}\n"
-            f"- Attempts: {attempt}\n\n"
-            f"```\n{test_output[:1000]}\n```\n\n"
-            f"---\n*Mason (Builder)*"
+            f"- Cycles: {cycle}\n\n"
+            f"```\n{test_output[:1000]}\n```\n\n---\n*Mason*"
         )
-        await status("=== Pipeline complete ===")
+        await status(f"=== Pipeline {status_word} ===")
 
         return ReasoningResult(
             response=(

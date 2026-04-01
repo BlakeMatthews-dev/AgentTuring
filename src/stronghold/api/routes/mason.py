@@ -88,17 +88,16 @@ async def _dispatch_mason(issue: Any) -> None:
 
     queue = _queue()
     queue.start(issue.issue_number)
-    logger.info("Mason dispatching issue #%d: %s", issue.issue_number, issue.title)
+    print(f"[MASON] Dispatching issue #{issue.issue_number}: {issue.title}", flush=True)
 
     try:
         container = _state.get("container")
         if not container:
-            # Get container from the app state — set during startup
-            logger.warning("No container reference — cannot dispatch")
+            print("[MASON] ERROR: No container reference", flush=True)
             queue.fail(issue.issue_number, error="container not available")
             return
 
-        await container.route_request(
+        result = await container.route_request(
             messages=[
                 {
                     "role": "user",
@@ -114,11 +113,21 @@ async def _dispatch_mason(issue: Any) -> None:
             auth=SYSTEM_AUTH,
             intent_hint="code_gen",
         )
+        # Log what happened
+        import json as _json
+
+        print(f"[MASON] Result keys: {list(result.keys())}", flush=True)
+        routing = result.get("routing", {})
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        print(
+            f"[MASON] agent={routing.get('agent', '?')} | "
+            f"response={content[:300]}",
+            flush=True,
+        )
         queue.complete(issue.issue_number)
-        logger.info("Mason completed issue #%d", issue.issue_number)
     except Exception as e:
         queue.fail(issue.issue_number, error=str(e))
-        logger.warning("Mason failed issue #%d: %s", issue.issue_number, e)
+        print(f"[MASON] FAILED #{issue.issue_number}: {e}", flush=True)
 
 
 @router.post("/v1/stronghold/mason/review-pr")

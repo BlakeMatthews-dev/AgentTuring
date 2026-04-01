@@ -435,7 +435,7 @@ class Conduit:
 
             always_clarify = {"creative"}
 
-            if not is_sticky_followup:
+            if not is_sticky_followup and not intent_hint:
                 if intent.task_type in always_clarify:
                     from stronghold.agents.request_analyzer import (
                         MissingDetail,

@@ -8,8 +8,8 @@ description: >
   Learns from Auditor review feedback via RLHF.
 soul: SOUL.md
 reasoning:
-  strategy: direct
-  max_subtasks: 15
+  strategy: react
+  max_rounds: 50
   review_after_each: false
   phases:
     - name: acceptance_criteria

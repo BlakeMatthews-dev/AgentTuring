@@ -206,6 +206,16 @@ def _register_custom_strategies() -> None:
     except ImportError:
         pass
 
+    # Builders learning strategy (Frank, Mason, Auditor)
+    try:
+        from stronghold.agents.strategies.builders_learning import (
+            BuildersLearningStrategy,
+        )  # noqa: PLC0415
+
+        register_strategy("builders_learning", BuildersLearningStrategy)
+    except ImportError:
+        pass
+
     # Artificer custom strategy
     try:
         from stronghold.agents.artificer.strategy import ArtificerStrategy  # noqa: PLC0415

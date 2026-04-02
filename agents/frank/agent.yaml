@@ -7,8 +7,8 @@ description: >
   Mason (the Builder) only when the tests are solid.
 soul: SOUL.md
 reasoning:
-  strategy: direct
-  max_subtasks: 10
+  strategy: react
+  max_rounds: 10
 model: auto
 model_fallbacks:
   - gemini-2.5-pro

@@ -562,8 +562,15 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
             },
         )
         if ws_result.startswith("Error:"):
-            logger.error("Workspace creation failed: %s", ws_result)
-            return
+            # Workspace may already exist from a previous run — try to reuse it
+            existing_path = f"/workspace/worktrees/mason-{issue_number}"
+            import os
+            if os.path.isdir(existing_path):
+                ws_result = _json.dumps({"path": existing_path, "branch": f"mason/{issue_number}"})
+                logger.info("Reusing existing workspace: %s", existing_path)
+            else:
+                logger.error("Workspace creation failed: %s", ws_result)
+                return
 
         ws_data = _json.loads(ws_result)
         run.branch = ws_data.get("branch", run.branch)
@@ -616,8 +623,10 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
     for outer in range(MAX_OUTER_LOOPS):
         print(f"[OUTER] Loop {outer + 1}/{MAX_OUTER_LOOPS} for run {run_id}", flush=True)
 
-        # Reset run to issue_analyzed if this is a retry (not the first pass)
+        # Reset run to acceptance_defined if this is a retry (not the first pass)
         if outer > 0:
+            from stronghold.builders import WorkerName as _WN
+
             run = orch._runs.get(run_id)
             if not run:
                 break
@@ -644,7 +653,7 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
 
             # Reset stage back to acceptance_defined so Frank re-evaluates
             run.current_stage = "acceptance_defined"
-            run.current_worker = WorkerName.FRANK
+            run.current_worker = _WN.FRANK
             run.status = RunStatus.RUNNING
 
         # Run stages until completion or failure

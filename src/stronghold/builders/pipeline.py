@@ -809,19 +809,17 @@ class RuntimePipeline:
         )
 
         text = await self._llm_call(prompt, self._auditor_model)
-        # Parse verdict — find which keyword appears first in the response
-        upper = text.upper() if text else ""
-        pos_approved = upper.find("APPROVED")
-        pos_rejected = upper.find("CHANGES_REQUESTED")
-        if pos_approved == -1 and pos_rejected == -1:
-            approved = True  # No verdict found — default approve
-        elif pos_rejected == -1:
-            approved = True
-        elif pos_approved == -1:
-            approved = False
-        else:
-            approved = pos_approved < pos_rejected
-        print(f"[AUDITOR] stage={stage} approved={approved} pos_A={pos_approved} pos_R={pos_rejected} first100={text[:100] if text else 'EMPTY'}", flush=True)
+        # Parse verdict — scan lines for first clear verdict keyword
+        approved = True  # default approve if no verdict found
+        for line in (text or "").splitlines():
+            stripped = line.strip().upper().lstrip("#").strip()
+            if stripped.startswith("APPROVED") or stripped.startswith("VERDICT: APPROVED") or stripped.startswith("VERDICT:APPROVED"):
+                approved = True
+                break
+            if stripped.startswith("CHANGES_REQUESTED") or stripped.startswith("VERDICT: CHANGES") or stripped.startswith("VERDICT:CHANGES"):
+                approved = False
+                break
+        print(f"[AUDITOR] stage={stage} approved={approved} first80={text[:80] if text else 'EMPTY'}", flush=True)
         return approved, text
 
     # ── Utilities ────────────────────────────────────────────────────

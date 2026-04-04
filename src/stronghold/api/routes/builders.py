@@ -599,7 +599,13 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
                     )
             except Exception:
                 pass
-        print(f"[BUILDERS] Onboarding loaded: {len(run._onboarding)} chars", flush=True)
+        # Copy platform tooling into workspace (tests/fakes.py, ONBOARDING.md)
+        # The workspace is a git clone from GitHub which doesn't have our latest utilities
+        await container.tool_dispatcher.execute("shell", {
+            "command": "cp /app/tests/fakes.py tests/fakes.py && cp /app/ONBOARDING.md ONBOARDING.md 2>/dev/null; true",
+            "workspace": ws_path,
+        })
+        print(f"[BUILDERS] Onboarding loaded: {len(run._onboarding)} chars, platform tooling copied", flush=True)
 
     except Exception as e:
         logger.error("Workflow setup failed for run %s: %s", run_id, e)
@@ -829,8 +835,6 @@ def _build_stage_prompt(stage: str, worker: Any, run: Any) -> str:
         ),
     }
     return stage_prompts.get(stage, f"You are {worker_name}. Execute stage: {stage}{tool_context}")
-<<<<<<< Updated upstream
-=======
 
 
 async def _check_existing_work(
@@ -1362,4 +1366,3 @@ async def _execute_nested_loop_workflow(
         "reason": "max_outer_loops_exceeded",
         "failures": outer_tracker.failure_count,
     }
->>>>>>> Stashed changes

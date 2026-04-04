@@ -502,11 +502,16 @@ class RuntimePipeline:
         issue_content = getattr(run, "_issue_content", "")
         issue_title = getattr(run, "_issue_title", "")
 
-        # Runtime reads repo structure
+        # Runtime reads repo structure — give Frank visibility into the codebase
         file_listing = await self._list_files("src/", ws)
         test_listing = await self._list_files("tests/", ws)
+        dashboard_listing = await self._list_files("src/stronghold/dashboard/", ws)
         architecture = await self._read_file("ARCHITECTURE.md", ws)
         architecture_excerpt = architecture[:3000] if architecture else "(not found)"
+
+        # Store listings on run so later stages can use them
+        run._file_listing = file_listing
+        run._dashboard_listing = dashboard_listing
 
         feedback_block = ""
         if feedback:
@@ -519,6 +524,7 @@ class RuntimePipeline:
             issue_title=issue_title,
             issue_content=issue_content,
             file_listing=file_listing,
+            dashboard_listing=dashboard_listing,
             test_listing=test_listing,
             architecture_excerpt=architecture_excerpt,
             feedback_block=feedback_block,
@@ -657,11 +663,13 @@ class RuntimePipeline:
         # Resolve affected source file
         if not affected_files:
             file_listing = await self._list_files("src/stronghold/api/routes", ws)
+            dashboard_listing = getattr(run, "_dashboard_listing", "") or await self._list_files("src/stronghold/dashboard", ws)
             raw_prompt = (
                 f"Which source file should be modified to implement this issue?\n\n"
                 f"Issue: {issue_content[:500]}\n\n"
                 f"Available route files:\n{file_listing}\n\n"
-                f"Output ONLY the file path, e.g.: src/stronghold/api/routes/status.py\n"
+                f"Dashboard files:\n{dashboard_listing}\n\n"
+                f"Output ONLY the file path, e.g.: src/stronghold/dashboard/index.html\n"
             )
             prompt = self._prepend_onboarding(raw_prompt, run)
             path_response = await self._llm_call(prompt, self._mason_model)

@@ -26,6 +26,9 @@ Issue #{{issue_number}}: {{issue_title}}
 Repository source structure:
 {{file_listing}}
 
+Dashboard files:
+{{dashboard_listing}}
+
 Test structure:
 {{test_listing}}
 

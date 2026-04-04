@@ -41,15 +41,21 @@
 
   // Check for API key in localStorage
   var hasApiKey = tokenType === 'api_key' && !!localStorage.getItem(TOKEN_KEY);
-
+  
   // No session at all -> redirect to login
   if (!hasCookieSession && !hasApiKey) {
+    console.error(
+            "Auth guard redirect: No session cookie found, path=" + 
+            path + location.search
+        );
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_TYPE_KEY);
     localStorage.removeItem(USER_KEY);
     location.href = LOGIN + '?redirect=' + encodeURIComponent(path + location.search);
     return;
   }
+
+  console.log("Auth guard: Session indicator present =", hasCookieSession);
 })();
 
 /* -- Global helpers (available to all dashboard pages) -- */

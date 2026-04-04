@@ -345,10 +345,12 @@ class TestMultiTenantIsolation:
 class TestTracing:
     async def test_traces_flow_to_phoenix(self, client: httpx.AsyncClient) -> None:
         """Send a chat request, verify trace appears in Phoenix."""
-        # Get baseline trace count
         gql = '{"query":"{ node(id:\\"UHJvamVjdDox\\") { ... on Project { traceCount } } }"}'
-        r1 = httpx.post("http://localhost:6006/graphql", content=gql,
-                        headers={"Content-Type": "application/json"}, timeout=5)
+        try:
+            r1 = httpx.post("http://localhost:6006/graphql", content=gql,
+                            headers={"Content-Type": "application/json"}, timeout=5)
+        except httpx.ConnectError:
+            pytest.skip("Phoenix not running at localhost:6006")
         before = r1.json()["data"]["node"]["traceCount"] if r1.status_code == 200 else 0
 
         # Send a traced request
@@ -374,8 +376,11 @@ class TestTracing:
             '{ spans(first:20, sort:{col:startTime, dir:desc}) '
             '{ edges { node { name } } } } } }"}'
         )
-        resp = httpx.post("http://localhost:6006/graphql", content=gql,
-                          headers={"Content-Type": "application/json"}, timeout=5)
+        try:
+            resp = httpx.post("http://localhost:6006/graphql", content=gql,
+                              headers={"Content-Type": "application/json"}, timeout=5)
+        except httpx.ConnectError:
+            pytest.skip("Phoenix not running at localhost:6006")
         spans = [e["node"]["name"] for e in resp.json()["data"]["node"]["spans"]["edges"]]
 
         # Core pipeline spans should be present
@@ -392,10 +397,13 @@ class TestOpenWebUIPipeline:
     async def test_pipeline_lists_models(self, base_url: str) -> None:
         """Pipelines container exposes Stronghold agents as models."""
         async with httpx.AsyncClient(timeout=5) as c:
-            resp = await c.get(
-                "http://localhost:9099/v1/models",
-                headers={"Authorization": "Bearer 0p3n-w3bu!"},
-            )
+            try:
+                resp = await c.get(
+                    "http://localhost:9099/v1/models",
+                    headers={"Authorization": "Bearer 0p3n-w3bu!"},
+                )
+            except httpx.ConnectError:
+                pytest.skip("Pipelines container not running")
             if resp.status_code != 200:
                 pytest.skip("Pipelines container not running")
             data = resp.json()
@@ -406,17 +414,20 @@ class TestOpenWebUIPipeline:
     async def test_pipeline_routes_to_stronghold(self, base_url: str) -> None:
         """Chat via Pipeline → Stronghold → LiteLLM → real LLM response."""
         async with httpx.AsyncClient(timeout=30) as c:
-            resp = await c.post(
-                "http://localhost:9099/v1/chat/completions",
-                headers={
-                    "Authorization": "Bearer 0p3n-w3bu!",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "stronghold_pipeline",
-                    "messages": [{"role": "user", "content": "Say exactly: pipeline works"}],
-                },
-            )
+            try:
+                resp = await c.post(
+                    "http://localhost:9099/v1/chat/completions",
+                    headers={
+                        "Authorization": "Bearer 0p3n-w3bu!",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "stronghold_pipeline",
+                        "messages": [{"role": "user", "content": "Say exactly: pipeline works"}],
+                    },
+                )
+            except httpx.ConnectError:
+                pytest.skip("Pipelines container not running")
             if resp.status_code != 200:
                 pytest.skip("Pipelines container not running")
             # Response is SSE — extract content from chunks

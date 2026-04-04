@@ -104,6 +104,13 @@ class ReactStrategy:
             if not isinstance(tool_calls, list):
                 tool_calls = []
 
+            logger.info(
+                "React round %d: model=%s tool_calls=%d content_len=%d tools_sent=%d",
+                round_num, model, len(tool_calls),
+                len(message.get("content", "") or ""),
+                len(tools) if tools else 0,
+            )
+
             if not tool_calls or round_num >= self.max_rounds:
                 content = message.get("content", "")
                 return ReasoningResult(

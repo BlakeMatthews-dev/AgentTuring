@@ -9,9 +9,8 @@ reasoning:
   strategy: react
   max_rounds: 10
   review_after_each: false
-model: auto
+model: google-gemini-3.1-pro
 model_fallbacks:
-  - gemini-2.5-pro
   - mistral-large
 model_constraints:
   temperature: 0.1

@@ -8,10 +8,14 @@ downstream route handlers.
 
 from __future__ import annotations
 
+import logging
+
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING
 
 import jwt as pyjwt
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
@@ -66,6 +70,11 @@ class DemoCookieMiddleware:
 
         morsel = sc.get(cookie_name)
         if not morsel or not morsel.value:
+            logger.debug(
+                "CookieMiddleware extracted: cookie_name=%s found=%s",
+                cookie_name,
+                bool(morsel),
+            )
             await self.app(scope, receive, send)
             return
 

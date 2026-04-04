@@ -22,61 +22,80 @@ from stronghold.persistence.redis_rate_limit import RedisRateLimiter
 from stronghold.persistence.redis_cache import RedisCache
 
 
-class FakeRedis:
-    """Fake Redis client for testing."""
+class FakeRedisPool(RedisPool):
+    """In-memory RedisPool replacement for testing.
 
-    def __init__(self):
-        self.data = {}
-        self.sets = {}
+    Overrides all public methods so get_client() is never called and
+    no real Redis connection is attempted.
+    """
 
-    async def get(self, key):
-        return self.data.get(key)
+    def __init__(self, url: str = "redis://localhost:6379") -> None:
+        self.url = url
+        self.max_connections = 1
+        self._data: dict[str, str] = {}
+        self._ttls: dict[str, int] = {}
+        self._sets: dict[str, dict[str, float]] = {}
 
-    async def set(self, key, value, ex=None):
-        self.data[key] = value
+    async def get_client(self):
+        raise RuntimeError("FakeRedisPool should not call get_client")
+
+    async def ping(self) -> bool:
         return True
 
-    async def delete(self, key):
-        self.data.pop(key, None)
-        return 1 if key in self.data else 0
+    async def get(self, key: str) -> str | None:
+        return self._data.get(key)
 
-    async def exists(self, key):
-        return 1 if key in self.data else 0
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self._data[key] = value
+        if ex is not None:
+            self._ttls[key] = ex
 
-    async def ttl(self, key):
-        return 60
+    async def delete(self, key: str) -> int:
+        existed = key in self._data
+        self._data.pop(key, None)
+        self._ttls.pop(key, None)
+        return 1 if existed else 0
 
-    async def incr(self, key):
-        self.data[key] = self.data.get(key, 0) + 1
-        return self.data[key]
+    async def exists(self, key: str) -> int:
+        return 1 if key in self._data else 0
 
-    async def expire(self, key, seconds):
-        return True
+    async def ttl(self, key: str) -> int:
+        if key not in self._data:
+            return -2
+        return self._ttls.get(key, -1)
 
-    async def zadd(self, key, mapping):
-        if key not in self.sets:
-            self.sets[key] = {}
-        self.sets[key].update(mapping)
+    async def incr(self, key: str) -> int:
+        val = int(self._data.get(key, "0")) + 1
+        self._data[key] = str(val)
+        return val
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        if key in self._data or key in self._sets:
+            self._ttls[key] = seconds
+            return True
+        return False
+
+    async def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        if key not in self._sets:
+            self._sets[key] = {}
+        self._sets[key].update(mapping)
         return len(mapping)
 
-    async def zcard(self, key):
-        return len(self.sets.get(key, {}))
+    async def zcard(self, key: str) -> int:
+        return len(self._sets.get(key, {}))
 
-    async def zremrangebyscore(self, key, min_score, max_score):
-        if key not in self.sets:
+    async def zremrangebyscore(self, key: str, min_score: float, max_score: float) -> int:
+        if key not in self._sets:
             return 0
-        to_remove = [k for k, v in self.sets[key].items() if min_score <= v <= max_score]
+        to_remove = [k for k, v in self._sets[key].items() if min_score <= v <= max_score]
         for k in to_remove:
-            del self.sets[key][k]
+            del self._sets[key][k]
         return len(to_remove)
 
-    async def zrangebyscore(self, key, min_score, max_score):
-        if key not in self.sets:
+    async def zrangebyscore(self, key: str, min_score: float, max_score: float) -> list[str]:
+        if key not in self._sets:
             return []
-        return [k for k, v in self.sets[key].items() if min_score <= v <= max_score]
-
-    async def ping(self):
-        return True
+        return [k for k, v in self._sets[key].items() if min_score <= v <= max_score]
 
 
 async def test_redis_ping():
@@ -84,9 +103,7 @@ async def test_redis_ping():
 
     Evidence: Connection succeeds and ping returns PONG.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
-
+    pool = FakeRedisPool()
     result = await pool.ping()
     assert result is True
 
@@ -96,14 +113,13 @@ async def test_redis_session_store_ttl():
 
     Evidence: Sessions expire after TTL.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
+    pool = FakeRedisPool()
     store = RedisSessionStore(pool, ttl_seconds=86400)
 
     await store.save("session-123", {"user_id": "user-123"})
 
     ttl = await pool.ttl("session:session-123")
-    assert ttl == 86400 or ttl == 86399
+    assert ttl == 86400
 
 
 async def test_redis_rate_limiter():
@@ -111,8 +127,7 @@ async def test_redis_rate_limiter():
 
     Evidence: Sliding window enforces rate limits.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
+    pool = FakeRedisPool()
     limiter = RedisRateLimiter(pool, requests=10, window_seconds=60)
 
     for i in range(10):
@@ -129,13 +144,12 @@ async def test_redis_cache():
 
     Evidence: Cache stores and retrieves values with TTL.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
-    cache = RedisCache(pool, ttl_seconds=300)
+    pool = FakeRedisPool()
+    cache = RedisCache(pool, default_ttl=300)
 
     await cache.set("prompt:default.soul", "system prompt")
     ttl = await pool.ttl("prompt:default.soul")
-    assert ttl == 300 or ttl == 299
+    assert ttl == 300
 
 
 async def test_sessions_survive_restart():
@@ -143,8 +157,7 @@ async def test_sessions_survive_restart():
 
     Evidence: Session exists after restart.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
+    pool = FakeRedisPool()
     store = RedisSessionStore(pool, ttl_seconds=86400)
 
     await store.save("session-123", {"user_id": "user-123"})
@@ -179,8 +192,7 @@ async def test_rate_limit_headers():
 
     Evidence: X-RateLimit-* headers present in response.
     """
-    pool = RedisPool("redis://localhost:6379")
-    pool._pool = FakeRedis()
+    pool = FakeRedisPool()
     limiter = RedisRateLimiter(pool, requests=10, window_seconds=60)
 
     allowed, headers = await limiter.check("user-123")

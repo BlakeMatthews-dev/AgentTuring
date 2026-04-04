@@ -24,12 +24,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import defaultdict
 from typing import Any
 
 import httpx
 import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
 logger = logging.getLogger("stronghold.auth.bff")
@@ -38,6 +39,42 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # CSRF header required on all POST endpoints
 _CSRF_HEADER = "x-stronghold-request"
+
+# In-memory rate limiting for API key validation (5 failed attempts per minute per IP)
+_api_key_rate_limits: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_api_key_rate_limit(ip_address: str) -> bool:
+    """Check if IP has exceeded rate limit for API key validation.
+
+    Allows 5 failed attempts per minute per IP address.
+    Returns True if allowed, False if rate limit exceeded.
+    Only counts failed attempts (recorded by caller after validation fails).
+    """
+    current_time = time.time()
+    minute_ago = current_time - 60
+
+    # Remove entries older than 1 minute
+    _api_key_rate_limits[ip_address] = [
+        timestamp for timestamp in _api_key_rate_limits[ip_address] if timestamp > minute_ago
+    ]
+
+    # Check if under limit (5 attempts per minute)
+    if len(_api_key_rate_limits[ip_address]) < 5:
+        return True
+
+    logger.warning(
+        "API key rate limit exceeded for IP=%s: %d attempts in last minute",
+        ip_address,
+        len(_api_key_rate_limits[ip_address]),
+    )
+    return False
+
+
+def _record_api_key_failure(ip_address: str) -> None:
+    """Record a failed API key validation attempt for rate limiting."""
+    current_time = time.time()
+    _api_key_rate_limits[ip_address].append(current_time)
 
 
 def _check_csrf(request: Request) -> None:
@@ -164,6 +201,16 @@ async def exchange_token(
         samesite="lax",
         max_age=max_age,
         path="/",
+        domain=".agentstronghold.com",
+    )
+
+    logger.info(
+        "Session cookie SET: name=%s domain=%s path=%s httponly=%s samesite=%s",
+        cookie_name,
+        ".agentstronghold.com",
+        "/",
+        True,
+        "lax",
     )
 
     # Non-HttpOnly indicator cookie for the auth guard JS
@@ -176,6 +223,14 @@ async def exchange_token(
         samesite="lax",
         max_age=max_age,
         path="/",
+        domain=".agentstronghold.com",
+    )
+
+    logger.info(
+        "Indicator cookie SET: name=stronghold_logged_in domain=%s path=%s samesite=%s",
+        ".agentstronghold.com",
+        "/",
+        "lax",
     )
 
     logger.info(
@@ -421,6 +476,16 @@ async def demo_login(
         samesite="lax",
         max_age=max_age,
         path="/",
+        domain=".agentstronghold.com",
+    )
+
+    logger.info(
+        "Session cookie SET: name=%s domain=%s path=%s httponly=%s samesite=%s",
+        cookie_name,
+        ".agentstronghold.com",
+        "/",
+        True,
+        "lax",
     )
     response.set_cookie(
         key="stronghold_logged_in",
@@ -430,6 +495,34 @@ async def demo_login(
         samesite="lax",
         max_age=max_age,
         path="/",
+        domain=".agentstronghold.com",
+    )
+
+    logger.info(
+        "Session cookie SET: name=%s domain=%s path=%s httponly=%s samesite=%s",
+        cookie_name,
+        ".agentstronghold.com",
+        "/",
+        True,
+        "lax",
+    )
+
+    response.set_cookie(
+        key="stronghold_logged_in",
+        value="1",
+        httponly=False,
+        secure=True,
+        samesite="lax",
+        max_age=max_age,
+        path="/",
+        domain=".agentstronghold.com",
+    )
+
+    logger.info(
+        "Indicator cookie SET: name=stronghold_logged_in domain=%s path=%s samesite=%s",
+        ".agentstronghold.com",
+        "/",
+        "lax",
     )
 
     logger.info(
@@ -530,6 +623,79 @@ async def get_session(request: Request) -> JSONResponse:
             "team_id": auth_ctx.team_id,
             "roles": sorted(auth_ctx.roles),
             "kind": auth_ctx.kind.value if hasattr(auth_ctx.kind, "value") else str(auth_ctx.kind),
+        }
+    )
+
+
+class ValidateApiKeyRequest(BaseModel):
+    """Request body for API key validation."""
+
+    api_key: str
+
+
+@router.post("/validate-api-key")
+async def validate_api_key(
+    request: Request,
+    body: ValidateApiKeyRequest,
+) -> JSONResponse:
+    """Validate an API key before allowing login.
+
+    Returns success only if key exactly matches ROUTER_API_KEY.
+    Uses constant-time comparison to prevent timing attacks.
+    Logs all failed attempts with IP address for security monitoring.
+    Rate limited: 5 failed attempts per minute per IP.
+    """
+    _check_csrf(request)
+
+    client_ip = request.headers.get("x-forwarded-for", "unknown")
+
+    # Check rate limit BEFORE validation to prevent brute force
+    if not _check_api_key_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Please try again later.",
+        )
+
+    api_key = body.api_key.strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    container = request.app.state.container
+    expected_key = container.config.router_api_key
+
+    if not expected_key:
+        raise HTTPException(
+            status_code=503,
+            detail="API key authentication not configured",
+        )
+
+    # Constant-time comparison to prevent timing attacks
+    import hmac
+
+    if not hmac.compare_digest(api_key, expected_key):
+        _record_api_key_failure(client_ip)
+        logger.warning(
+            "API key validation failed from IP=%s: user attempted invalid key (length=%d)",
+            client_ip,
+            len(api_key),
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+        )
+
+    logger.info(
+        "API key validation succeeded from IP=%s",
+        client_ip,
+    )
+
+    # Return minimal user info - no secrets exposed
+    return JSONResponse(
+        {
+            "valid": True,
+            "user_id": "system",
+            "username": "API Key User",
+            "org_id": "__system__",
         }
     )
 

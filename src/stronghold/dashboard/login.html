@@ -592,18 +592,47 @@ async function checkApprovalStatus() {
 
 // -- API Key Login --
 
-function submitApiKey(e) {
+async function submitApiKey(e) {
   e.preventDefault();
   var key = document.getElementById('api-key-input').value.trim();
   if (!key) {
     showMsg('Please enter an API key.', 'error');
     return;
   }
-
-  localStorage.setItem(TOKEN_KEY, key);
-  localStorage.setItem(TOKEN_TYPE_KEY, 'api_key');
-  localStorage.setItem(USER_KEY, 'API Key User');
-  location.href = getRedirect();
+  
+  document.getElementById('submit-btn').disabled = true;
+  showMsg('Validating API key...', 'info');
+  
+  try {
+    // NEW: Validate with server BEFORE storing to localStorage
+    var resp = await fetch('/auth/validate-api-key', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Stronghold-Request': '1',
+      },
+      body: JSON.stringify({ api_key: key }),
+    });
+    
+    if (!resp.ok) {
+      var errBody = await resp.json().catch(function() { return {}; });
+      showMsg(errBody.detail || 'Invalid API key', 'error');
+      document.getElementById('submit-btn').disabled = false;
+      return;
+    }
+    
+    var userData = await resp.json();
+    
+    // Only store AFTER successful validation
+    localStorage.setItem(TOKEN_KEY, key);
+    localStorage.setItem(TOKEN_TYPE_KEY, 'api_key');
+    localStorage.setItem(USER_KEY, userData.username || userData.user_id || '');
+    
+    location.href = getRedirect();
+  } catch(err) {
+    showMsg('API key validation failed: ' + err.message, 'error');
+    document.getElementById('submit-btn').disabled = false;
+  }
 }
 </script>
 </body>

@@ -269,6 +269,8 @@ class TestWebhookChatEndpoint:
         try:
             app = create_app()
             with TestClient(app) as client:
+                # Trigger middleware to initialize the container
+                client.get("/")
                 # Replace the real LLM with FakeLLMClient on the container
                 fake_llm = FakeLLMClient()
                 fake_llm.set_simple_response("Hello from webhook!")
@@ -413,6 +415,8 @@ class TestAgentsStreamSSE:
         """A valid stream request returns SSE events including status and done."""
         app = create_app()
         with TestClient(app) as client:
+            # Trigger middleware to initialize the container
+            client.get("/")
             # Replace the real LLM with FakeLLMClient on the container
             fake_llm = FakeLLMClient()
             fake_llm.set_simple_response("Streamed result")
@@ -448,6 +452,8 @@ class TestAgentsStreamSSE:
         """Stream request with all optional fields (intent, expected_output, details, repo)."""
         app = create_app()
         with TestClient(app) as client:
+            # Trigger middleware to initialize the container
+            client.get("/")
             # Replace the real LLM with FakeLLMClient on the container
             fake_llm = FakeLLMClient()
             fake_llm.set_simple_response("Done")

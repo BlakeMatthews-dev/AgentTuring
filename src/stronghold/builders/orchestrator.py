@@ -261,6 +261,23 @@ class BuildersOrchestrator:
             raise ValueError("completion gates not satisfied")
         return self.advance_stage(run_id, "completed")
 
+    def fail_run(self, run_id: str, *, error: str) -> RunState:
+        """Mark a run as failed with an error message."""
+        run = self._runs[run_id]
+        run.status = RunStatus.FAILED
+        run.current_stage = "failed"
+        run.updated_at = _utc_now()
+        run.events.append(
+            StageEvent(
+                run_id=run.run_id,
+                stage="failed",
+                event="run_failed",
+                actor="system",
+                message=error,
+            )
+        )
+        return run
+
     def schedule_retry(self, run_id: str, *, reason: str) -> RunState:
         run = self._runs[run_id]
         run.retries[run.current_stage] = run.retries.get(run.current_stage, 0) + 1

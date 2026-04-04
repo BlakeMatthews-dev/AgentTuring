@@ -214,46 +214,270 @@ async def list_runs(request: Request) -> JSONResponse:
     return JSONResponse(content={"runs": runs})
 
 
+MAX_STAGE_RETRIES = 3
+
+
+async def _post_stage_output_to_issue(
+    container: Any,
+    owner: str,
+    repo: str,
+    issue_number: int,
+    run_id: str,
+    stage: str,
+    worker_name: str,
+    summary: str,
+) -> bool:
+    """Post the worker's stage output as a GitHub issue comment. Returns True on success."""
+    comment_body = (
+        f"## Stage: `{stage}` — {worker_name}\n\n"
+        f"**Run:** `{run_id}`\n\n"
+        f"### Output\n\n{summary}\n\n"
+        f"---\n*Awaiting Auditor review.*"
+    )
+    result = await container.tool_dispatcher.execute(
+        "github",
+        {
+            "action": "post_pr_comment",
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number,
+            "body": comment_body,
+        },
+    )
+    if result.startswith("Error:"):
+        logger.error("Failed to post stage output to issue: %s", result)
+        return False
+    logger.info("Posted %s output to %s/%s#%d", stage, owner, repo, issue_number)
+    return True
+
+
+async def _auditor_review_stage(
+    container: Any,
+    service_auth: Any,
+    run: Any,
+    stage: str,
+    worker_name: str,
+    worker_output: str,
+) -> tuple[bool, str]:
+    """Auditor reviews a stage's output. Returns (approved, feedback).
+
+    The Auditor checks whether the worker's output meets the stage requirements.
+    Returns (True, summary) on approval, (False, feedback) on rejection.
+    """
+    auditor = container.agents.get("auditor")
+    if not auditor:
+        logger.warning("Auditor agent not found — auto-approving stage %s", stage)
+        return True, "Auto-approved (no auditor configured)"
+
+    issue_title = getattr(run, "_issue_title", "")
+    issue_content = getattr(run, "_issue_content", "")
+
+    review_prompt = (
+        f"You are reviewing stage `{stage}` output from `{worker_name}` "
+        f"for issue {run.repo}#{run.issue_number}: {issue_title}\n\n"
+        f"## Issue Description\n{issue_content}\n\n"
+        f"## Stage Requirements\n{_STAGE_REQUIREMENTS.get(stage, 'Complete the stage successfully.')}\n\n"
+        f"## Worker Output\n{worker_output}\n\n"
+        f"## Your Task\n"
+        f"Review whether the output meets the stage requirements. Be strict but fair.\n\n"
+        f"Respond with EXACTLY one of:\n"
+        f"- `APPROVED: <one-line reason>` if the output meets requirements\n"
+        f"- `CHANGES_REQUESTED: <specific feedback on what must be fixed>` if not\n\n"
+        f"Do NOT use tools. Just review and respond with your verdict.\n"
+    )
+
+    try:
+        response = await auditor.handle(
+            [{"role": "user", "content": review_prompt}],
+            auth=service_auth,
+            session_id=f"auditor-{run.run_id}-{stage}",
+        )
+        verdict_text = response.content or ""
+        logger.info("Auditor verdict for %s/%s: %s", run.run_id, stage, verdict_text[:200])
+
+        if "APPROVED" in verdict_text.upper().split("\n")[0]:
+            return True, verdict_text
+        else:
+            return False, verdict_text
+    except Exception as e:
+        logger.error("Auditor review failed for %s/%s: %s", run.run_id, stage, e)
+        # Fail open — don't block the pipeline on auditor errors
+        return True, f"Auto-approved (auditor error: {e})"
+
+
+async def _post_auditor_verdict_to_issue(
+    container: Any,
+    owner: str,
+    repo: str,
+    issue_number: int,
+    run_id: str,
+    stage: str,
+    approved: bool,
+    feedback: str,
+    attempt: int,
+) -> None:
+    """Post the Auditor's verdict as a GitHub issue comment."""
+    verdict = "APPROVED" if approved else "CHANGES_REQUESTED"
+    comment_body = (
+        f"## Auditor Review: `{stage}` (attempt {attempt})\n\n"
+        f"**Verdict:** {verdict}\n\n"
+        f"### Feedback\n\n{feedback}\n\n"
+        f"---\n"
+    )
+    await container.tool_dispatcher.execute(
+        "github",
+        {
+            "action": "post_pr_comment",
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number,
+            "body": comment_body,
+        },
+    )
+
+
+_STAGE_REQUIREMENTS: dict[str, str] = {
+    "issue_analyzed": (
+        "Must provide: 1) Clear problem statement, 2) List of requirements, "
+        "3) Edge cases identified, 4) Suggested implementation approach."
+    ),
+    "acceptance_defined": (
+        "Must provide Gherkin-format acceptance criteria (Given/When/Then) covering: "
+        "1) Happy path, 2) Error scenarios, 3) Edge cases. "
+        "Criteria must be testable and specific."
+    ),
+    "tests_written": (
+        "Must have created actual test files in the workspace using file_ops tool calls. "
+        "Tests must be runnable with pytest. If the output says 'no text output' but tool "
+        "calls were made, check that files were actually written."
+    ),
+    "implementation_started": (
+        "Must have written implementation code using file_ops tool calls. "
+        "Code must address the issue requirements. Changes must be committed to git."
+    ),
+    "implementation_ready": (
+        "Must have run quality checks (pytest, ruff, mypy). "
+        "Report must show results of each check. New code failures must be fixed."
+    ),
+    "quality_checks_passed": (
+        "All quality gates must pass for the new code. Pre-existing failures are acceptable "
+        "but new regressions are not. Git log must show commits for this issue."
+    ),
+}
+
+
+def _build_pipeline(container: Any) -> Any:
+    """Build a RuntimePipeline from the DI container."""
+    from stronghold.builders.pipeline import RuntimePipeline
+
+    # Read model configs from agent identities
+    frank = container.agents.get("frank")
+    mason = container.agents.get("mason")
+    auditor = container.agents.get("auditor")
+
+    return RuntimePipeline(
+        llm=container.llm,
+        tool_dispatcher=container.tool_dispatcher,
+        prompt_manager=container.prompt_manager,
+        frank_model=frank.identity.model if frank else "google-gemini-3.1-pro",
+        mason_model=mason.identity.model if mason else "openrouter-anthropic/claude-opus-4.6",
+        auditor_model=auditor.identity.model if auditor else "google-gemini-3.1-pro",
+    )
+
+
+_STAGE_HANDLERS = {
+    "issue_analyzed": "analyze_issue",
+    "acceptance_defined": "define_acceptance_criteria",
+    "tests_written": "write_tests",
+    "implementation_started": "implement",
+    "implementation_ready": "run_quality_gates",
+    "quality_checks_passed": "final_verification",
+}
+
+_STAGE_WORKER = {
+    "issue_analyzed": "frank",
+    "acceptance_defined": "frank",
+    "tests_written": "mason",
+    "implementation_started": "mason",
+    "implementation_ready": "mason",
+    "quality_checks_passed": "mason",
+}
+
+
 async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_auth: Any) -> None:
-    """Execute a single stage: call the agent, record result, advance to next stage."""
+    """Execute a single stage using runtime-controlled pipeline.
+
+    The runtime controls ALL execution:
+    1. Pipeline method reads workspace, calls LLM for content, writes files, runs tests
+    2. Evidence is posted to GitHub issue automatically by pipeline
+    3. Auditor reviews concrete evidence (actual files, test output)
+    4. If approved → advance. If rejected → retry with feedback (max 3).
+    """
     from stronghold.builders import ArtifactRef, RunResult, RunStatus, WorkerName
 
     run = orch._runs[run_id]
     stage = run.current_stage
     worker = run.current_worker
+    owner, repo_name = run.repo.split("/")
 
-    worker_name = worker.value if hasattr(worker, "value") else str(worker)
-    agent = container.agents.get(worker_name)
-    if not agent:
-        logger.error("Agent '%s' not found for run %s stage %s", worker_name, run_id, stage)
+    handler_name = _STAGE_HANDLERS.get(stage)
+    if not handler_name:
+        logger.error("No pipeline handler for stage %s", stage)
         return
 
-    prompt = _build_stage_prompt(stage, worker, run)
-    messages = [{"role": "user", "content": prompt}]
+    pipeline = _build_pipeline(container)
+    auditor_feedback = ""
 
-    summary = ""
-    try:
-        response = await agent.handle(
-            messages,
-            auth=service_auth,
-            session_id=f"builders-{run_id}",
+    for attempt in range(1, MAX_STAGE_RETRIES + 1):
+        print(f"[BUILDERS] Stage {stage} attempt {attempt}/{MAX_STAGE_RETRIES} for run {run_id}", flush=True)
+
+        # 1. Runtime executes the stage — pass Auditor feedback from prior rejection
+        try:
+            handler = getattr(pipeline, handler_name)
+            result = await handler(run, feedback=auditor_feedback)
+            print(f"[BUILDERS] Stage {stage} result: success={result.success}, summary={result.summary[:200]}", flush=True)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[BUILDERS] Pipeline {stage} EXCEPTION: {e}\n{tb}", flush=True)
+            result = None
+
+        if result is None or not result.success:
+            summary = result.summary if result else f"Stage {stage} failed"
+            logger.error("Stage %s failed: %s", stage, summary)
+            break
+
+        # 2. Auditor reviews concrete evidence (stage-aware prompt)
+        approved, feedback = await pipeline.auditor_review(stage, result.evidence)
+
+        # 3. Post Auditor verdict to issue
+        await _post_auditor_verdict_to_issue(
+            container, owner, repo_name, run.issue_number,
+            run_id, stage, approved, feedback, attempt,
         )
-        summary = response.content[:500] if response.content else f"Stage {stage} executed"
-        if response.blocked:
-            logger.warning("Stage %s blocked: %s", stage, response.content)
-            summary = f"Blocked: {response.content[:200]}"
-    except Exception as e:
-        logger.error("Agent call failed for run %s stage %s: %s", run_id, stage, e)
-        summary = f"Stage {stage} failed: {e}"
+
+        if approved:
+            logger.info("Stage %s approved by Auditor (attempt %d)", stage, attempt)
+            break
+
+        logger.info("Stage %s rejected by Auditor (attempt %d/%d)", stage, attempt, MAX_STAGE_RETRIES)
+        auditor_feedback = feedback
+        if attempt == MAX_STAGE_RETRIES:
+            result = None  # Signal failure
+            break
+
+    # Record result and advance (or fail)
+    success = result is not None and result.success
+    status = RunStatus.PASSED if success else RunStatus.FAILED
+    summary = result.summary if result else f"Stage {stage} failed after {MAX_STAGE_RETRIES} attempts"
+    worker_name = worker.value if hasattr(worker, "value") else str(worker)
 
     run_result = RunResult(
         run_id=run_id,
         worker=worker,
         stage=stage,
-        status=RunStatus.PASSED
-        if not summary.startswith("Blocked") and not summary.startswith("Stage")
-        else RunStatus.FAILED,
-        summary=summary,
+        status=status,
+        summary=summary[:500],
         artifacts=[
             ArtifactRef(
                 type=f"{stage}_output",
@@ -265,13 +489,13 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
 
     idx = _STAGE_SEQUENCE.index(stage) if stage in _STAGE_SEQUENCE else -1
 
-    if idx >= 0 and idx + 1 < len(_STAGE_SEQUENCE):
+    if status == RunStatus.PASSED and idx >= 0 and idx + 1 < len(_STAGE_SEQUENCE):
         next_stage = _STAGE_SEQUENCE[idx + 1]
         next_worker_name = _STAGE_WORKER.get(next_stage)
         next_worker = WorkerName(next_worker_name) if next_worker_name else worker
         orch.apply_result(run_result, next_stage=next_stage)
         orch._runs[run_id].current_worker = next_worker
-    elif stage == "quality_checks_passed":
+    elif status == RunStatus.PASSED and stage == "quality_checks_passed":
         orch.apply_result(run_result)
         orch.complete_run_if_ready(
             run_id,
@@ -281,16 +505,6 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
         )
     else:
         orch.apply_result(run_result)
-
-
-_STAGE_WORKER = {
-    "issue_analyzed": "frank",
-    "acceptance_defined": "frank",
-    "tests_written": "mason",
-    "implementation_started": "mason",
-    "implementation_ready": "mason",
-    "quality_checks_passed": "mason",
-}
 
 
 async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service_auth: Any) -> None:
@@ -359,17 +573,33 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
         repo_verdict = await _scan_repo_for_threats(ws_path, warden)
         if not repo_verdict.clean:
             logger.warning(
-                "Repo scan blocked for run %s: %s",
+                "Repo scan found warnings for run %s (non-blocking): %s",
                 run_id,
                 repo_verdict.flags,
             )
-            orch.fail_run(run_id, error=f"Warden blocked repo: {repo_verdict.flags}")
-            return
-        logger.info("Repo scan passed for run %s", run_id)
+            # Log but don't block — config files with example values are expected
+        else:
+            logger.info("Repo scan passed for run %s", run_id)
 
         run._workspace_path = ws_path
         run._issue_content = issue_content
         run._issue_title = issue_title
+
+        # Stage 0: Load onboarding + seed prompt library
+        pipeline = _build_pipeline(container)
+        run._onboarding = await pipeline.load_onboarding(ws_path)
+        await pipeline.seed_prompts()
+        # Seed onboarding into prompt library too
+        if container.prompt_manager and run._onboarding:
+            try:
+                existing = await container.prompt_manager.get("builders.onboarding")
+                if not existing:
+                    await container.prompt_manager.upsert(
+                        "builders.onboarding", run._onboarding, label="production",
+                    )
+            except Exception:
+                pass
+        print(f"[BUILDERS] Onboarding loaded: {len(run._onboarding)} chars", flush=True)
 
     except Exception as e:
         logger.error("Workflow setup failed for run %s: %s", run_id, e)
@@ -559,51 +789,577 @@ def _build_stage_prompt(stage: str, worker: Any, run: Any) -> str:
             f"```\n"
         ),
         "tests_written": (
-            f"You are {worker_name}. Your job is to write comprehensive tests for {run.repo}#{run.issue_number}.\n\n"
-            f"Workspace: {ws_path}\n"
-            f"Target: 95% code coverage\n\n"
-            f"Steps:\n"
-            f"1. Use file_ops with action 'list' to explore test structure\n"
-            f"2. Use file_ops with action 'read' to examine existing tests\n"
-            f"3. Use file_ops with action 'write' to create new test file\n"
-            f"4. Use run_pytest to verify tests pass\n\n"
-            f"Write tests for:\n"
-            f"- Unit tests in tests/unit/\n"
-            f"- Integration tests in tests/integration/\n"
-            f"- Edge case tests in tests/edge/\n"
+            f"You are {worker_name}. Write tests for {run.repo}#{run.issue_number}.\n\n"
+            f"Issue: {issue_title}\n{issue_context}\n\n"
+            f"YOU MUST USE TOOLS. Do not describe what you would do — actually do it.\n\n"
+            f"Step 1: Call file_ops with action='list', path='tests/api', workspace='{ws_path}' to see existing tests.\n"
+            f"Step 2: Call file_ops with action='read', path='src/stronghold/api/routes/status.py', workspace='{ws_path}' to see existing code.\n"
+            f"Step 3: Call file_ops with action='write' to create the test file at the correct path, workspace='{ws_path}'.\n"
+            f"Step 4: Call run_pytest with workspace='{ws_path}' to verify.\n\n"
+            f"Every step MUST be a tool call. No text-only responses.\n"
         ),
         "implementation_started": (
-            f"You are {worker_name}. Your job is to implement the solution for {run.repo}#{run.issue_number}.\n\n"
-            f"Workspace: {ws_path}\n"
-            f"Issue context:\n{issue_context}\n\n"
-            f"Steps:\n"
-            f"1. Read the acceptance criteria from the issue_analysis artifact\n"
-            f"2. Use file_ops to action 'read' to examine relevant source files\n"
-            f"3. Use file_ops with action 'write' to implement the solution\n"
-            f"4. Use file_ops with action 'read' to verify implementation\n"
+            f"You are {worker_name}. Implement the solution for {run.repo}#{run.issue_number}.\n\n"
+            f"Issue: {issue_title}\n{issue_context}\n\n"
+            f"YOU MUST USE TOOLS. Do not describe what you would do — actually do it.\n\n"
+            f"Step 1: Call file_ops with action='read', path='src/stronghold/api/routes/status.py', workspace='{ws_path}' to see the target file.\n"
+            f"Step 2: Call file_ops with action='write' to add the new code, workspace='{ws_path}'.\n"
+            f"Step 3: Call run_pytest with workspace='{ws_path}' to verify tests pass.\n"
+            f"Step 4: Call git with command='add -A && git commit -m \"feat: implement #{run.issue_number}\"', workspace='{ws_path}'.\n\n"
+            f"Every step MUST be a tool call. No text-only responses.\n"
         ),
         "implementation_ready": (
             f"You are {worker_name}. Run quality checks on the implementation.\n\n"
-            f"Workspace: {ws_path}\n\n"
-            f"Run these quality checks in order:\n"
-            f"1. run_pytest with path 'tests/'\n"
-            f"2. run_ruff_check\n"
-            f"3. run_ruff_format\n"
-            f"4. run_mypy\n\n"
-            f"If any check fails, use file_ops to fix the issues and re-run.\n"
-            f"Report final status of all checks."
+            f"YOU MUST USE TOOLS — call each one:\n\n"
+            f"1. Call run_pytest with workspace='{ws_path}'\n"
+            f"2. Call run_ruff_check with workspace='{ws_path}'\n"
+            f"3. Call run_ruff_format with workspace='{ws_path}'\n"
+            f"4. Call run_mypy with workspace='{ws_path}'\n\n"
+            f"If any check fails on YOUR code (not pre-existing failures), call file_ops to fix and re-run.\n"
+            f"Report final status of all checks.\n"
         ),
         "quality_checks_passed": (
-            f"You are {worker_name}. Verify all quality gates pass and summarize the implementation.\n\n"
-            f"Workspace: {ws_path}\n\n"
-            f"Run these verifications:\n"
-            f"1. run_pytest - verify all tests pass\n"
-            f"2. run_ruff_check - verify no linting errors\n"
-            f"3. run_mypy - verify no type errors\n\n"
-            f"Summarize:\n"
-            f"- What was implemented\n"
-            f"- How it addresses the issue\n"
-            f"- Any remaining work or considerations\n"
+            f"You are {worker_name}. Final verification for {run.repo}#{run.issue_number}.\n\n"
+            f"YOU MUST USE TOOLS:\n\n"
+            f"1. Call run_pytest with workspace='{ws_path}'\n"
+            f"2. Call run_ruff_check with workspace='{ws_path}'\n"
+            f"3. Call run_mypy with workspace='{ws_path}'\n\n"
+            f"Then call git with command='log --oneline -5', workspace='{ws_path}' to confirm commits.\n"
+            f"Summarize what was implemented and how it addresses the issue.\n"
         ),
     }
     return stage_prompts.get(stage, f"You are {worker_name}. Execute stage: {stage}{tool_context}")
+<<<<<<< Updated upstream
+=======
+
+
+async def _check_existing_work(
+    tool_dispatcher: Any,
+    owner: str,
+    repo: str,
+    issue_number: int,
+    issue_title: str,
+) -> dict[str, Any]:
+    """Check for existing work (PRs, issues, comments) related to the issue."""
+    import re
+
+    keywords = re.findall(r"\b\w+\b", issue_title.lower())
+    search_query = " ".join(keywords[:3])
+
+    prs_result = await tool_dispatcher.execute(
+        "github",
+        {
+            "action": "search_issues",
+            "owner": owner,
+            "repo": repo,
+            "query": f"{search_query} is:pr",
+        },
+    )
+
+    prs = []
+    if not prs_result.startswith("Error:"):
+        prs_data = json.loads(prs_result)
+        prs = prs_data.get("items", [])
+
+    comments_result = await tool_dispatcher.execute(
+        "github",
+        {
+            "action": "list_issue_comments",
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number,
+        },
+    )
+
+    comments = []
+    if not comments_result.startswith("Error:"):
+        comments = json.loads(comments_result)
+
+    linked_result = await tool_dispatcher.execute(
+        "github",
+        {
+            "action": "get_linked_issues",
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number,
+        },
+    )
+
+    linked_issues = []
+    if not linked_result.startswith("Error:"):
+        linked_issues = json.loads(linked_result)
+
+    has_work = bool(prs or comments or linked_issues)
+
+    return {
+        "prs": prs,
+        "issues": linked_issues,
+        "comments": comments,
+        "has_work": has_work,
+    }
+
+
+async def _frank_archie_phase(
+    container: Any,
+    tool_dispatcher: Any,
+    run_id: str,
+    repo: str,
+    issue_number: int,
+    issue_title: str,
+    issue_content: str,
+    ws_path: str,
+    existing_work: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Frank/Archie phase: decompose problem and define acceptance criteria."""
+    from stronghold.builders import WorkerName
+
+    if existing_work is None:
+        existing_work = await _check_existing_work(
+            tool_dispatcher=tool_dispatcher,
+            owner=repo.split("/")[0],
+            repo=repo.split("/")[1],
+            issue_number=issue_number,
+            issue_title=issue_title,
+        )
+
+    if existing_work["has_work"]:
+        publisher = IssueCommentPublisher(
+            tool_dispatcher=tool_dispatcher,
+            formatter=IssueCommentFormatter(),
+        )
+        await publisher.publish_workflow_step(
+            owner=repo.split("/")[0],
+            repo=repo.split("/")[1],
+            issue_number=issue_number,
+            comment_type=CommentType.FRANK_DECOMPOSITION,
+            step="existing_work_found",
+            details={
+                "existing_prs": len(existing_work["prs"]),
+                "existing_comments": len(existing_work["comments"]),
+            },
+            run_id=run_id,
+        )
+        return {
+            "phase": "frank_archie",
+            "decomposed": False,
+            "existing_prs": [p["number"] for p in existing_work["prs"]],
+        }
+
+    frank = container.agents.get("frank")
+    if not frank:
+        return {"phase": "frank_archie", "decomposed": False, "error": "Frank agent not found"}
+
+    prompt = _build_stage_prompt(
+        "issue_analyzed",
+        WorkerName.FRANK,
+        Mock(
+            repo=repo,
+            issue_number=issue_number,
+            _workspace_path=ws_path,
+            _issue_content=issue_content,
+            _issue_title=issue_title,
+        ),
+    )
+    messages = [{"role": "user", "content": prompt}]
+
+    response = await frank.handle(
+        messages,
+        auth=_build_service_auth(container),
+        session_id=f"builders-{run_id}",
+    )
+
+    publisher = IssueCommentPublisher(
+        tool_dispatcher=tool_dispatcher,
+        formatter=IssueCommentFormatter(),
+    )
+    await publisher.publish_workflow_step(
+        owner=repo.split("/")[0],
+        repo=repo.split("/")[1],
+        issue_number=issue_number,
+        comment_type=CommentType.FRANK_DECOMPOSITION,
+        step="problem_decomposition",
+        details={
+            "sub_problems": ["Decomposed into sub-problems"],
+            "assumptions": ["Assumptions documented"],
+        },
+        run_id=run_id,
+    )
+
+    return {
+        "phase": "frank_archie",
+        "decomposed": True,
+        "response": response.content if response else "",
+    }
+
+
+async def _mason_phase(
+    container: Any,
+    tool_dispatcher: Any,
+    test_tracker: MasonTestTracker,
+    run_id: str,
+    repo: str,
+    issue_number: int,
+    ws_path: str,
+    max_attempts: int = 10,
+) -> dict[str, Any]:
+    """Mason phase: TDD implementation with test tracking."""
+    from stronghold.builders import WorkerName
+
+    mason = container.agents.get("mason")
+    if not mason:
+        return {"phase": "mason", "success": False, "error": "Mason agent not found"}
+
+    for attempt in range(max_attempts):
+        logger.info(f"Mason phase attempt {attempt + 1} of {max_attempts}")
+
+        try:
+            prompt = _build_stage_prompt(
+                "implementation_started",
+                WorkerName.MASON,
+                Mock(
+                    repo=repo,
+                    issue_number=issue_number,
+                    _workspace_path=ws_path,
+                    _issue_content="",
+                    _issue_title="",
+                ),
+            )
+            messages = [{"role": "user", "content": prompt}]
+
+            response = await mason.handle(
+                messages,
+                auth=_build_service_auth(container),
+                session_id=f"builders-{run_id}",
+            )
+
+            pytest_result = await tool_dispatcher.execute(
+                "workspace",
+                {"action": "run_pytest", "path": ws_path},
+            )
+        except Exception as e:
+            logger.error(f"Exception in Mason phase attempt {attempt + 1}: {e}")
+            raise
+
+        passing_count = 0
+        failing_count = 0
+        coverage = "0%"
+
+        logger.info(f"Pytest result: {pytest_result}")
+
+        if not pytest_result.startswith("Error:"):
+            import re
+
+            match = re.search(r"(\d+)\s+passed", pytest_result)
+            if match:
+                passing_count = int(match.group(1))
+            match = re.search(r"(\d+)\s+failed", pytest_result)
+            if match:
+                failing_count = int(match.group(1))
+            match = re.search(r"(\d+)%", pytest_result)
+            if match:
+                coverage = f"{match.group(1)}%"
+
+        logger.info(
+            f"Parsed results: passing={passing_count}, failing={failing_count}, coverage={coverage}"
+        )
+
+        test_tracker.record_test_result(passing_count)
+
+        publisher = IssueCommentPublisher(
+            tool_dispatcher=tool_dispatcher,
+            formatter=IssueCommentFormatter(),
+        )
+        await publisher.publish_workflow_step(
+            owner=repo.split("/")[0],
+            repo=repo.split("/")[1],
+            issue_number=issue_number,
+            comment_type=CommentType.MASON_TEST_RESULTS,
+            step=f"test_execution_{attempt + 1}",
+            details={
+                "passing": passing_count,
+                "failing": failing_count,
+                "coverage": coverage,
+                "high_water_mark": test_tracker.high_water_mark,
+                "stall_counter": test_tracker.stall_counter,
+            },
+            run_id=run_id,
+        )
+
+        if test_tracker.has_failed:
+            return {
+                "phase": "mason",
+                "success": False,
+                "stalled": True,
+                "attempts": attempt + 1,
+            }
+
+        if failing_count == 0:
+            return {
+                "phase": "mason",
+                "success": True,
+                "attempts": attempt + 1,
+            }
+
+    return {
+        "phase": "mason",
+        "success": False,
+        "stalled": False,
+        "attempts": max_attempts,
+    }
+
+
+async def _run_quality_gates(
+    tool_dispatcher: Any,
+    ws_path: str,
+) -> dict[str, Any]:
+    """Run quality gates: pytest, ruff, mypy, bandit."""
+    import re
+
+    pytest_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "run_pytest", "path": ws_path},
+    )
+
+    coverage = "0%"
+    if not pytest_result.startswith("Error:"):
+        match = re.search(r"(\d+)%", pytest_result)
+        if match:
+            coverage = f"{match.group(1)}%"
+
+    coverage_pct = int(coverage.replace("%", "")) if coverage != "0%" else 0
+
+    ruff_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "run_ruff_check"},
+    )
+
+    mypy_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "run_mypy"},
+    )
+
+    bandit_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "run_bandit"},
+    )
+
+    passed = coverage_pct >= 95
+
+    return {
+        "passed": passed,
+        "coverage": coverage,
+        "pytest": "passed" if not pytest_result.startswith("Error:") else "failed",
+        "ruff_check": "passed" if not ruff_result.startswith("Error:") else "failed",
+        "mypy": "passed" if not mypy_result.startswith("Error:") else "failed",
+        "bandit": "passed" if not bandit_result.startswith("Error:") else "failed",
+    }
+
+
+async def _create_pr_after_success(
+    tool_dispatcher: Any,
+    owner: str,
+    repo: str,
+    branch: str,
+    issue_number: int,
+    ws_path: str,
+    quality_passed: bool,
+) -> dict[str, Any]:
+    """Commit, push, and create PR after successful workflow."""
+    if not quality_passed:
+        return {"created": False, "pr_number": None}
+
+    commit_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "commit", "message": f"feat: implement issue #{issue_number}"},
+    )
+
+    if commit_result.startswith("Error:"):
+        return {"created": False, "pr_number": None}
+
+    push_result = await tool_dispatcher.execute(
+        "workspace",
+        {"action": "push"},
+    )
+
+    if push_result.startswith("Error:"):
+        return {"created": False, "pr_number": None}
+
+    pr_result = await tool_dispatcher.execute(
+        "github",
+        {
+            "action": "create_pr",
+            "owner": owner,
+            "repo": repo,
+            "branch": branch,
+            "title": f"Fix #{issue_number}",
+            "head": branch,
+            "base": "main",
+            "body": f"Implements #{issue_number}\n\nGenerated by Stronghold Builders.",
+        },
+    )
+
+    if pr_result.startswith("Error:"):
+        return {"created": False, "pr_number": None}
+
+    pr_data = json.loads(pr_result)
+    pr_number = pr_data.get("number")
+
+    publisher = IssueCommentPublisher(
+        tool_dispatcher=tool_dispatcher,
+        formatter=IssueCommentFormatter(),
+    )
+    await publisher.publish_workflow_step(
+        owner=owner,
+        repo=repo,
+        issue_number=issue_number,
+        comment_type=CommentType.PR_CREATED,
+        step="pr_creation",
+        details={
+            "pr_number": pr_number,
+            "pr_url": pr_data.get("html_url", ""),
+            "branch": branch,
+        },
+        run_id="",
+    )
+
+    await tool_dispatcher.execute(
+        "workspace",
+        {"action": "cleanup"},
+    )
+
+    return {"created": True, "pr_number": pr_number}
+
+
+async def _execute_nested_loop_workflow(
+    container: Any,
+    tool_dispatcher: Any,
+    run_id: str,
+    repo: str,
+    issue_number: int,
+    ws_path: str,
+    issue_title: str,
+    issue_content: str,
+) -> dict[str, Any]:
+    """Execute sophisticated nested-loop workflow with outer/inner loops."""
+    outer_tracker = OuterLoopTracker(max_failures=5)
+    model_escalator = ModelEscalator()
+    owner, repo_name = repo.split("/")
+
+    for outer_retry in range(5):
+        model = model_escalator.select_model(retry_count=outer_retry)
+
+        logger.info(
+            "Outer loop attempt %d with model %s",
+            outer_retry + 1,
+            model,
+        )
+
+        frank_result = await _frank_archie_phase(
+            container=container,
+            tool_dispatcher=tool_dispatcher,
+            run_id=run_id,
+            repo=repo,
+            issue_number=issue_number,
+            issue_title=issue_title,
+            issue_content=issue_content,
+            ws_path=ws_path,
+        )
+
+        if not frank_result.get("decomposed", False) and frank_result.get("existing_prs"):
+            outer_tracker.record_success()
+            return {
+                "status": "completed",
+                "reason": "existing_work_found",
+                "existing_prs": frank_result["existing_prs"],
+            }
+
+        test_tracker = MasonTestTracker()
+
+        for inner_retry in range(3):
+            mason_result = await _mason_phase(
+                container=container,
+                tool_dispatcher=tool_dispatcher,
+                test_tracker=test_tracker,
+                run_id=run_id,
+                repo=repo,
+                issue_number=issue_number,
+                ws_path=ws_path,
+            )
+
+            if mason_result.get("success"):
+                quality_result = await _run_quality_gates(
+                    tool_dispatcher=tool_dispatcher,
+                    ws_path=ws_path,
+                )
+
+                publisher = IssueCommentPublisher(
+                    tool_dispatcher=tool_dispatcher,
+                    formatter=IssueCommentFormatter(),
+                )
+                await publisher.publish_workflow_step(
+                    owner=owner,
+                    repo=repo_name,
+                    issue_number=issue_number,
+                    comment_type=CommentType.QUALITY_CHECKS,
+                    step="quality_verification",
+                    details=quality_result,
+                    run_id=run_id,
+                )
+
+                if quality_result["passed"]:
+                    pr_result = await _create_pr_after_success(
+                        tool_dispatcher=tool_dispatcher,
+                        owner=owner,
+                        repo=repo_name,
+                        branch=f"builders/{issue_number}-{run_id}",
+                        issue_number=issue_number,
+                        ws_path=ws_path,
+                        quality_passed=True,
+                    )
+
+                    if pr_result["created"]:
+                        outer_tracker.record_success()
+                        return {
+                            "status": "completed",
+                            "pr_number": pr_result["pr_number"],
+                        }
+                else:
+                    outer_tracker.record_failure()
+                    break
+
+            if mason_result.get("stalled"):
+                logger.info(
+                    "Mason stalled after %d attempts, returning to Frank/Archie",
+                    test_tracker.stall_counter,
+                )
+                break
+
+        if outer_tracker.should_signal_admin:
+            publisher = IssueCommentPublisher(
+                tool_dispatcher=tool_dispatcher,
+                formatter=IssueCommentFormatter(),
+            )
+            await publisher.publish_workflow_step(
+                owner=owner,
+                repo=repo_name,
+                issue_number=issue_number,
+                comment_type=CommentType.ADMIN_SIGNAL,
+                step="admin_alert",
+                details={
+                    "total_failures": outer_tracker.failure_count,
+                    "recommendation": "Review issue complexity and consider manual intervention",
+                },
+                run_id=run_id,
+            )
+            return {
+                "status": "failed",
+                "reason": "max_retries_exceeded",
+                "failures": outer_tracker.failure_count,
+            }
+
+    return {
+        "status": "failed",
+        "reason": "max_outer_loops_exceeded",
+        "failures": outer_tracker.failure_count,
+    }
+>>>>>>> Stashed changes

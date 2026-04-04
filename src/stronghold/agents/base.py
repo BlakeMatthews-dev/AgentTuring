@@ -437,7 +437,7 @@ class Agent:
                         {
                             "done": result.done,
                             "tool_rounds": len(result.tool_history) if result.tool_history else 0,
-                            "response_length": len(result.response),
+                            "response_length": len(result.response) if result.response else 0,
                         }
                     )
             else:
@@ -613,7 +613,7 @@ class Agent:
                 {
                     "agent": self.identity.name,
                     "model": model,
-                    "response_length": str(len(result.response)),
+                    "response_length": str(len(result.response)) if result.response else "0",
                     "tool_calls_total": str(len(result.tool_history) if result.tool_history else 0),
                     "tool_calls_success": str(tool_success_count),
                     "tool_calls_failed": str(tool_fail_count),

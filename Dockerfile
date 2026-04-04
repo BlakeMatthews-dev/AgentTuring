@@ -23,6 +23,8 @@ COPY tests/ tests/
 COPY migrations/ migrations/
 COPY config/ config/
 COPY pyproject.toml .
+COPY ONBOARDING.md .
+COPY CLAUDE.md .
 
 # Remove uvloop — it requires socketpair() which fails in unprivileged containers
 RUN pip uninstall -y uvloop 2>/dev/null; true

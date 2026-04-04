@@ -9,9 +9,9 @@ soul: SOUL.md
 reasoning:
   strategy: react
   max_rounds: 10
-model: auto
+model: google-gemini-3.1-pro
 model_fallbacks:
-  - gemini-2.5-pro
+  - openrouter-anthropic/claude-opus-4.6
   - mistral-large
 model_constraints:
   temperature: 0.3

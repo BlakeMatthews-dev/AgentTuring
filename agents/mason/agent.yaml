@@ -44,9 +44,9 @@ reasoning:
       description: "Verify code solves the issue, not just passes tests"
       exit_gate: "Each acceptance criterion verified, no scope creep"
       max_rounds: 2
-model: auto
+model: openrouter-anthropic/claude-opus-4.6
 model_fallbacks:
-  - gemini-2.5-pro
+  - google-gemini-3.1-pro
   - mistral-large
 model_constraints:
   temperature: 0.2

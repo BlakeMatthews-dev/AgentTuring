@@ -52,6 +52,26 @@ class RetryClient:
         return await self._retry("post", path, **kw)
 
 
+@pytest.fixture(autouse=True)
+def _reset_strikes() -> None:
+    """Re-enable and unlock the system user before each test.
+
+    Injection tests trigger strikes which can disable the account,
+    causing all subsequent tests to fail with 403.
+    """
+    if _stack_running():
+        headers = {"Authorization": f"Bearer {API_KEY}"}
+        for action in ("enable", "unlock"):
+            try:
+                httpx.post(
+                    f"{STRONGHOLD_URL}/v1/stronghold/admin/strikes/system/{action}",
+                    headers=headers,
+                    timeout=3,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+
 @pytest.fixture
 def base_url() -> str:
     return STRONGHOLD_URL

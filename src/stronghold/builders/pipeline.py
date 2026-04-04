@@ -22,6 +22,82 @@ logger = logging.getLogger("stronghold.builders.pipeline")
 
 MAX_LLM_RETRIES = 3
 
+
+# ── Issue type registry for context-aware onboarding ─────────────────
+
+
+@dataclass
+class IssueType:
+    """Maps issue signals to onboarding sections. Extensible — just append."""
+
+    name: str
+    signals: list[str]       # path patterns, title prefixes, keywords
+    sections: list[str]      # ONBOARDING.md section headers to inject
+    priority: int = 0        # higher = matched first (most specific wins)
+
+
+ISSUE_TYPE_REGISTRY: list[IssueType] = [
+    IssueType(
+        name="test_redis",
+        signals=["cache/redis", "redis_pool"],
+        sections=[
+            "App Factory",
+            "Pattern 2: Utility Class Tests (NO FastAPI, NO TestClient)",
+            "Testing modules that connect to Redis",
+            "Valid Import Paths",
+            "Test-Only Issues vs Feature Issues",
+        ],
+        priority=10,
+    ),
+    IssueType(
+        name="test_utility",
+        signals=["cache/", "security/", "memory/", "tools/", "prompts/", "classifier/", "router/selector"],
+        sections=[
+            "App Factory",
+            "Pattern 2: Utility Class Tests (NO FastAPI, NO TestClient)",
+            "Valid Import Paths",
+            "Test-Only Issues vs Feature Issues",
+        ],
+        priority=5,
+    ),
+    IssueType(
+        name="test_route",
+        signals=["api/routes/", "endpoint", "/v1/"],
+        sections=[
+            "App Factory",
+            "Route Paths in Tests vs Production",
+            "Pattern 1: Route Tests (FastAPI + TestClient)",
+            "Valid Import Paths",
+            "Test-Only Issues vs Feature Issues",
+        ],
+        priority=5,
+    ),
+    IssueType(
+        name="feature_route",
+        signals=["feat:", "fix:", "api/routes/"],
+        sections=[
+            "App Factory",
+            "Route Paths in Tests vs Production",
+            "Pattern 1: Route Tests (FastAPI + TestClient)",
+            "Valid Import Paths",
+            "Build Rules (from CLAUDE.md)",
+        ],
+        priority=1,
+    ),
+    IssueType(
+        name="feature_general",
+        signals=[],  # default fallback
+        sections=[
+            "App Factory",
+            "Pattern 2: Utility Class Tests (NO FastAPI, NO TestClient)",
+            "Valid Import Paths",
+            "Build Rules (from CLAUDE.md)",
+        ],
+        priority=0,
+    ),
+]
+
+
 # ── Auditor stage context ────────────────────────────────────────────
 # Each stage gets: purpose, scope, out_of_scope, approval_checklist, rejection_format
 # The Auditor prompt is built from these — it never invents its own criteria.
@@ -200,17 +276,68 @@ class RuntimePipeline:
         self._onboarding_cache = content
         return content
 
+    @staticmethod
+    def _detect_issue_type(run: Any) -> IssueType:
+        """Match issue signals against registry. Highest priority match wins."""
+        title = getattr(run, "_issue_title", "").lower()
+        content = getattr(run, "_issue_content", "").lower()
+        affected = getattr(run, "_analysis", {}).get("affected_files", [])
+        search_text = f"{title} {content} {' '.join(affected)}"
+
+        for itype in sorted(ISSUE_TYPE_REGISTRY, key=lambda t: -t.priority):
+            if not itype.signals:
+                continue
+            if any(signal in search_text for signal in itype.signals):
+                return itype
+
+        return min(ISSUE_TYPE_REGISTRY, key=lambda t: t.priority)
+
+    @staticmethod
+    def _parse_onboarding_sections(text: str) -> dict[str, str]:
+        """Split ONBOARDING.md into sections by ## and ### headers."""
+        sections: dict[str, str] = {}
+        current_name = ""
+        current_lines: list[str] = []
+        for line in text.splitlines():
+            if line.startswith("## ") or line.startswith("### "):
+                if current_name:
+                    sections[current_name] = "\n".join(current_lines)
+                current_name = line.lstrip("#").strip()
+                current_lines = [line]
+            else:
+                current_lines.append(line)
+        if current_name:
+            sections[current_name] = "\n".join(current_lines)
+        return sections
+
     def _prepend_onboarding(self, prompt: str, run: Any) -> str:
-        """Inject onboarding context into an LLM prompt."""
+        """Inject ONLY the relevant onboarding sections based on issue type."""
         onboarding = getattr(run, "_onboarding", "")
         if not onboarding:
             return prompt
-        return (
-            f"## Codebase Context (read before writing any code)\n\n"
-            f"{onboarding}\n\n"
-            f"---\n\n"
-            f"{prompt}"
+
+        sections = self._parse_onboarding_sections(onboarding)
+        issue_type = self._detect_issue_type(run)
+
+        # Build focused context from matching sections
+        parts: list[str] = []
+        for section_name in issue_type.sections:
+            for key, content in sections.items():
+                if key.startswith(section_name) or section_name in key:
+                    parts.append(content)
+                    break
+
+        if not parts:
+            # Fallback: use full doc if no sections matched
+            return f"## Codebase Context\n\n{onboarding}\n\n---\n\n{prompt}"
+
+        context = "\n\n---\n\n".join(parts)
+        print(
+            f"[ONBOARDING] Issue type: {issue_type.name}, injecting {len(parts)} sections "
+            f"({len(context)} chars, vs {len(onboarding)} full doc)",
+            flush=True,
         )
+        return f"## Codebase Context\n\n{context}\n\n---\n\n{prompt}"
 
     async def _get_prompt(self, name: str) -> str:
         """Get a prompt from the library. Falls back to defaults if not in manager."""

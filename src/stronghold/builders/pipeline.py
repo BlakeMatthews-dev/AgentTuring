@@ -543,6 +543,17 @@ class RuntimePipeline:
         files_written: list[str] = []
         criteria_completed = 0
 
+        # Check if test file already exists from a previous outer loop
+        existing_test_code = await self._read_file(test_file, ws)
+        has_existing_tests = bool(existing_test_code and "def test_" in existing_test_code)
+        if has_existing_tests:
+            # Seed tracker with current passing count so hwm starts right
+            existing_output = await self._run_pytest(ws, test_file)
+            existing_passing = self._count_passing(existing_output)
+            if existing_passing > 0:
+                tracker.record_test_result(existing_passing)
+            print(f"[TDD] Preserving existing test file ({existing_passing} passing, {len(existing_test_code)} chars)", flush=True)
+
         for i, criterion in enumerate(criteria):
             if i in locked_criteria:
                 print(f"[TDD] Criterion {i + 1}/{len(criteria)}: LOCKED (tests pass) — skipping", flush=True)
@@ -551,8 +562,8 @@ class RuntimePipeline:
             print(f"[TDD] Criterion {i + 1}/{len(criteria)}: {criterion[:80]}", flush=True)
 
             # ── Test phase: write ONE test ──────────────────────────
-            if i == 0:
-                # First criterion: generate complete file
+            if not has_existing_tests and i == 0:
+                # First criterion AND no existing file: generate complete file
                 template = await self._get_prompt("builders.mason.write_first_test")
                 raw_prompt = self._render(
                     template,
@@ -561,7 +572,7 @@ class RuntimePipeline:
                     feedback_block=feedback if feedback else "",
                 )
             else:
-                # Subsequent: append to existing file
+                # Append to existing file (whether from this loop or previous)
                 existing_code = await self._read_file(test_file, ws)
                 template = await self._get_prompt("builders.mason.append_test")
                 raw_prompt = self._render(

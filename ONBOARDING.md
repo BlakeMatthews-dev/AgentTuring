@@ -106,8 +106,85 @@ class TestGetRedis:
 - Import the module directly: `from stronghold.cache.redis_pool import ...`
 - Test the public API (functions, methods, classes)
 - Use `async def test_...` for async functions (asyncio_mode="auto" handles it)
-- For modules that connect to external services (Redis, DB), test the
-  logic without connecting — test URL parsing, config, error handling
+- For modules that connect to external services (Redis, DB), use the
+  FakeRedis pattern below — never connect to a real server in tests
+
+### Testing modules that connect to Redis
+
+`tests/fakes.py` has `FakeRedisPool` but for testing `cache/redis_pool.py`
+specifically, you need to patch the `aioredis.from_url` call since the module
+uses the real redis library directly.
+
+```python
+"""Tests for redis_pool — no real Redis needed."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from stronghold.cache.redis_pool import get_redis, close_redis, _mask_url
+
+
+# Reset module-level _pool between tests
+@pytest.fixture(autouse=True)
+def reset_pool():
+    import stronghold.cache.redis_pool as mod
+    mod._pool = None
+    yield
+    mod._pool = None
+
+
+class TestMaskUrl:
+    def test_masks_password(self) -> None:
+        assert "secret" not in _mask_url("redis://:secret@host:6379/0")
+        assert "***" in _mask_url("redis://:secret@host:6379/0")
+
+    def test_no_credentials_unchanged(self) -> None:
+        assert _mask_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
+
+
+class TestGetRedis:
+    @patch("stronghold.cache.redis_pool.aioredis.from_url")
+    async def test_creates_pool(self, mock_from_url: AsyncMock) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(return_value=True)
+        mock_from_url.return_value = mock_redis
+
+        result = await get_redis("redis://localhost:6379/0")
+        assert result is mock_redis
+        mock_from_url.assert_called_once()
+
+    @patch("stronghold.cache.redis_pool.aioredis.from_url")
+    async def test_reuses_existing_pool(self, mock_from_url: AsyncMock) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(return_value=True)
+        mock_from_url.return_value = mock_redis
+
+        r1 = await get_redis()
+        r2 = await get_redis()
+        assert r1 is r2
+        assert mock_from_url.call_count == 1  # Only created once
+
+
+class TestCloseRedis:
+    @patch("stronghold.cache.redis_pool.aioredis.from_url")
+    async def test_closes_pool(self, mock_from_url: AsyncMock) -> None:
+        mock_redis = AsyncMock()
+        mock_redis.ping = AsyncMock(return_value=True)
+        mock_redis.aclose = AsyncMock()
+        mock_from_url.return_value = mock_redis
+
+        await get_redis()
+        await close_redis()
+        mock_redis.aclose.assert_called_once()
+```
+
+**NOTE:** This is the ONE exception to the "no unittest.mock" rule — external
+service connections (Redis, HTTP, DB) MUST be mocked since tests run without
+those services. Use `unittest.mock.patch` ONLY for external connection points,
+never for internal Stronghold classes.
 
 ---
 

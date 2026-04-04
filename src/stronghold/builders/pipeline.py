@@ -405,9 +405,25 @@ class RuntimePipeline:
         requirements = analysis.get("requirements", [issue_content])
         edge_cases = analysis.get("edge_cases", [])
 
+        # Check for locked criteria from a previous outer loop pass
+        locked = getattr(run, "_locked_criteria", set())
+        old_criteria = getattr(run, "_criteria", [])
+
         feedback_block = ""
         if feedback:
             feedback_block = f"Previous criteria rejected. Fix:\n{feedback}"
+
+        if locked and old_criteria:
+            locked_info = "\n".join(
+                f"- Criterion {i + 1}: {'LOCKED (tests pass — do NOT change)' if i in locked else 'FAILED — must be rewritten'}: {c[:80]}"
+                for i, c in enumerate(old_criteria)
+            )
+            feedback_block += (
+                f"\n\nPREVIOUS ATTEMPT RESULTS:\n{locked_info}\n\n"
+                f"Keep the locked criteria EXACTLY as they are. "
+                f"Only rewrite the FAILED criteria. "
+                f"Return ALL criteria (locked + rewritten) in order.\n"
+            )
 
         template = await self._get_prompt("builders.frank.acceptance_criteria")
         prompt = self._render(
@@ -468,6 +484,7 @@ class RuntimePipeline:
         owner, repo = run.repo.split("/")
         ws = getattr(run, "_workspace_path", "")
         criteria = getattr(run, "_criteria", [])
+        locked_criteria: set[int] = getattr(run, "_locked_criteria", set())
         analysis = getattr(run, "_analysis", {})
         affected_files = analysis.get("affected_files", [])
         issue_content = getattr(run, "_issue_content", "")
@@ -502,6 +519,10 @@ class RuntimePipeline:
         criteria_completed = 0
 
         for i, criterion in enumerate(criteria):
+            if i in locked_criteria:
+                print(f"[TDD] Criterion {i + 1}/{len(criteria)}: LOCKED (tests pass) — skipping", flush=True)
+                criteria_completed += 1
+                continue
             print(f"[TDD] Criterion {i + 1}/{len(criteria)}: {criterion[:80]}", flush=True)
 
             # ── Test phase: write ONE test ──────────────────────────
@@ -619,12 +640,22 @@ class RuntimePipeline:
                     except ExtractionError:
                         pass
 
+            # Check if this criterion's tests pass
+            check_output = await self._run_pytest(ws, test_file)
+            check_passing = self._count_passing(check_output)
+            check_failing = self._count_failing(check_output)
+
             # Commit this criterion
             await self._git_command("add -A", ws)
             await self._git_command(
                 f'commit -m "feat(#{run.issue_number}): criterion {i + 1} -- {criterion[:50]}" --allow-empty', ws,
             )
             criteria_completed += 1
+
+            # Lock this criterion if all tests pass so far
+            if check_failing == 0 and check_passing > 0:
+                locked_criteria.add(i)
+                print(f"[TDD] Criterion {i + 1} LOCKED ({check_passing} tests pass)", flush=True)
 
             # Post progress
             final_output = await self._run_pytest(ws, test_file)
@@ -639,6 +670,9 @@ class RuntimePipeline:
             if tracker.has_failed:
                 logger.warning("Stalled — stopping TDD loop")
                 break
+
+        # Persist locked criteria on run for next outer loop pass
+        run._locked_criteria = locked_criteria
 
         # Final summary
         final_output = await self._run_pytest(ws, test_file)

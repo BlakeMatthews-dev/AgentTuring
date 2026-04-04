@@ -611,20 +611,86 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
         logger.error("Workflow setup failed for run %s: %s", run_id, e)
         return
 
-    max_iterations = len(_STAGE_SEQUENCE) + 2
+    MAX_OUTER_LOOPS = 3
 
-    for _ in range(max_iterations):
+    for outer in range(MAX_OUTER_LOOPS):
+        print(f"[OUTER] Loop {outer + 1}/{MAX_OUTER_LOOPS} for run {run_id}", flush=True)
+
+        # Reset run to issue_analyzed if this is a retry (not the first pass)
+        if outer > 0:
+            run = orch._runs.get(run_id)
+            if not run:
+                break
+
+            # Tell Frank which criteria are locked
+            locked = getattr(run, "_locked_criteria", set())
+            criteria = getattr(run, "_criteria", [])
+            if locked and criteria:
+                locked_summary = "\n".join(
+                    f"- Criterion {i + 1}: {'LOCKED (tests pass)' if i in locked else 'NEEDS REWORK'}"
+                    for i in range(len(criteria))
+                )
+                await container.tool_dispatcher.execute("github", {
+                    "action": "post_pr_comment",
+                    "owner": owner,
+                    "repo": repo,
+                    "issue_number": issue_number,
+                    "body": (
+                        f"## Outer Loop {outer + 1}: Re-evaluating criteria\n\n"
+                        f"{locked_summary}\n\n"
+                        f"Frank will re-evaluate failing criteria. Locked criteria will not be touched."
+                    ),
+                })
+
+            # Reset stage back to acceptance_defined so Frank re-evaluates
+            run.current_stage = "acceptance_defined"
+            run.current_worker = WorkerName.FRANK
+            run.status = RunStatus.RUNNING
+
+        # Run stages until completion or failure
+        max_iterations = len(_STAGE_SEQUENCE) + 2
+        for _ in range(max_iterations):
+            run = orch._runs.get(run_id)
+            if not run:
+                break
+            if run.status in (RunStatus.PASSED, RunStatus.FAILED, RunStatus.BLOCKED):
+                break
+            await _execute_one_stage(run_id, orch, container, service_auth)
+
         run = orch._runs.get(run_id)
         if not run:
             break
-        if run.status in (RunStatus.PASSED, RunStatus.FAILED, RunStatus.BLOCKED):
+
+        # If passed → create PR and exit
+        if run.status == RunStatus.PASSED:
+            if ws_path:
+                await _create_pr_on_finish(run, container, owner, repo, ws_path)
             break
 
-        await _execute_one_stage(run_id, orch, container, service_auth)
+        # If TDD stalled (not a hard failure) → try another outer loop
+        if outer < MAX_OUTER_LOOPS - 1:
+            print(f"[OUTER] Loop {outer + 1} did not complete — retrying with Frank re-evaluation", flush=True)
+            # Reset status so the loop continues
+            run.status = RunStatus.RUNNING
+            continue
 
-    run = orch._runs.get(run_id)
-    if run and run.status == RunStatus.PASSED and ws_path:
-        await _create_pr_on_finish(run, container, owner, repo, ws_path)
+        # Exhausted all outer loops → BLOCKED, wait for human
+        run.status = RunStatus.BLOCKED
+        await container.tool_dispatcher.execute("github", {
+            "action": "post_pr_comment",
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number,
+            "body": (
+                f"## Builders: Waiting for human guidance\n\n"
+                f"**{MAX_OUTER_LOOPS} outer loops exhausted.** "
+                f"The pipeline could not fully resolve this issue autonomously.\n\n"
+                f"**What was accomplished:** Check the comments above for per-criterion progress.\n\n"
+                f"**What's needed:** Review the failing criteria and provide guidance, "
+                f"then re-trigger the run."
+            ),
+        })
+        print(f"[OUTER] All {MAX_OUTER_LOOPS} loops exhausted — BLOCKED, waiting for human", flush=True)
 
     logger.info("Workflow complete for run %s", run_id)
 

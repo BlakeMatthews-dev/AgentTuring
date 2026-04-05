@@ -223,12 +223,13 @@ class RuntimePipeline:
     """Deterministic stage executor. LLM generates content, runtime executes."""
 
     # Model rotation for outer loop — each pass tries the next model
-    # Opus first (OpenRouter free tier), then GLM-5 (Zhipu free credits),
-    # then Gemini (rate-limited but no spend cap)
+    # Opus first (OpenRouter free tier), then Gemini (no spend cap).
+    # NOTE: zhipu-glm-5 returns empty content (reasoning-only model) —
+    # unusable as Mason until we handle reasoning_content field.
     MODEL_ROTATION = [
         "openrouter-anthropic/claude-opus-4.6",   # Best, OpenRouter free tier
-        "zhipu-glm-5",                             # 95.8% SWE-bench, free credits
-        "google-gemini-3.1-pro",                   # Rate-limited, no spend cap
+        "google-gemini-3.1-pro",                   # No spend cap, reliable
+        "mistral-large",                           # Fast fallback
     ]
 
     # Per-model success tracking: {model: {"attempts": N, "criteria_passed": N}}

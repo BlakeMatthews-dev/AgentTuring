@@ -101,37 +101,64 @@ class LiteLLMClient:
         body: dict[str, Any],
         headers: dict[str, str],
     ) -> dict[str, Any] | Exception:
-        """Try a single model. Returns response dict on success, Exception on failure."""
+        """Try a single model with exponential backoff on rate limits.
+
+        429 = rate limited → retry same model with backoff (up to 3x)
+        402 = quota exhausted → skip to next model immediately
+        408/5xx = transient → skip to next model
+        """
         body["model"] = model
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{self._base_url}/v1/chat/completions",
-                    json=body,
-                    headers=headers,
-                )
+        max_retries = 3
 
-            if resp.status_code == 200:  # noqa: PLR2004
-                return resp.json()  # type: ignore[no-any-return]
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    resp = await client.post(
+                        f"{self._base_url}/v1/chat/completions",
+                        json=body,
+                        headers=headers,
+                    )
 
-            # Retryable: 402 (quota), 408 (timeout), 429, 400 (cooldown), 422, 5xx
-            if resp.status_code in (400, 402, 408, 422, 429, 500, 502, 503):
-                logger.debug("Model %s returned %d, skipping", model, resp.status_code)
-                await asyncio.sleep(0.2)
-                return httpx.HTTPStatusError(
-                    f"{resp.status_code}",
-                    request=resp.request,
-                    response=resp,
-                )
+                if resp.status_code == 200:  # noqa: PLR2004
+                    return resp.json()  # type: ignore[no-any-return]
 
-            # Non-retryable (401, 403, etc.)
-            resp.raise_for_status()
+                # Rate limited → backoff and retry SAME model
+                if resp.status_code == 429:  # noqa: PLR2004
+                    delay = 2 ** attempt * 2  # 2s, 4s, 8s
+                    logger.info(
+                        "Model %s rate limited (429), "
+                        "retry %d/%d in %ds",
+                        model, attempt + 1, max_retries, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
 
-        except httpx.ConnectError as e:
-            logger.debug("Connection error for %s: %s", model, e)
-            return e
+                # Quota/timeout/transient → skip to next model
+                if resp.status_code in (400, 402, 408, 422, 500, 502, 503):
+                    logger.debug(
+                        "Model %s returned %d, skipping",
+                        model, resp.status_code,
+                    )
+                    return httpx.HTTPStatusError(
+                        f"{resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
 
-        return RuntimeError(f"Unexpected state for model {model}")
+                # Non-retryable (401, 403, etc.)
+                resp.raise_for_status()
+
+            except httpx.ConnectError as e:
+                logger.debug("Connection error for %s: %s", model, e)
+                return e
+
+        # Exhausted retries on rate limit — skip to next model
+        logger.warning("Model %s exhausted %d rate-limit retries", model, max_retries)
+        return httpx.HTTPStatusError(
+            "429",
+            request=resp.request,  # type: ignore[possibly-undefined]
+            response=resp,  # type: ignore[possibly-undefined]
+        )
 
     async def _fetch_available_models(
         self,

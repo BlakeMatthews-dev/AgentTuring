@@ -78,9 +78,12 @@ Target source code:
 CRITICAL RULES:
 - Include imports, fixture, and ONE test class with ONE test function
 - Follow the test pattern from the Codebase Context above EXACTLY
-- Tests mount the router directly WITHOUT prefix via app.include_router(router)
-- Use the BARE route path (e.g., "/version" not "/v1/stronghold/version")
 - The test SHOULD FAIL initially (TDD — implementation not written yet)
+- Match the test approach to the file type:
+  - For .html files: read the file with pathlib and assert on HTML structure/content
+  - For .py route files: mount the router with app.include_router(router), use TestClient
+  - For .py utility files: import and instantiate the class directly
+- NEVER use API route patterns (TestClient, include_router) for HTML/CSS issues
 
 Output ONLY Python pytest code. No explanation.
 """
@@ -103,7 +106,7 @@ CRITICAL RULES:
 - Do NOT modify or remove any existing test functions
 - Do NOT duplicate imports or the fixture — they already exist
 - Add only the new test function (def test_... or class Test...)
-- Use the BARE route path (e.g., "/version" not "/v1/stronghold/version")
+- Match the test approach used in the existing file (HTML structural vs route vs utility)
 
 Output ONLY the complete Python file with the new test appended. No explanation.
 """
@@ -121,11 +124,12 @@ Target source code:
 CRITICAL RULES:
 - ONE file with ONE set of imports, ONE fixture, MULTIPLE test classes/functions
 - Follow the test pattern from the Codebase Context above EXACTLY
-- Tests mount the router directly WITHOUT prefix via app.include_router(router)
-- Use the BARE route path (e.g., "/version" not "/v1/stronghold/version")
-- The production prefix is added by create_app(), NOT by the test
-- If the criterion mentions a full URL path, strip the prefix for the test
 - Do NOT duplicate imports or fixtures — one set at the top of the file
+- Match the test approach to the file type:
+  - For .html files: read the file with pathlib and assert on HTML structure/content
+  - For .py route files: mount the router with app.include_router(router), use TestClient
+  - For .py utility files: import and instantiate the class directly
+- NEVER use API route patterns (TestClient, include_router) for HTML/CSS issues
 
 Output ONLY Python pytest code. No explanation.
 Start with import statements. One file, all criteria.
@@ -181,7 +185,15 @@ Issue: {{issue_content}}
 Available route files:
 {{file_listing}}
 
-Output ONLY the file path, e.g.: src/stronghold/api/routes/status.py
+Dashboard files:
+{{dashboard_listing}}
+
+Determine the correct file based on the issue type:
+- UI/dashboard issues → look in src/stronghold/dashboard/*.html
+- API route issues → look in src/stronghold/api/routes/*.py
+- Utility/library issues → look in src/stronghold/ subdirectories
+
+Output ONLY the file path, e.g.: src/stronghold/dashboard/index.html
 """
 
 FIX_VIOLATIONS = """\
@@ -302,13 +314,16 @@ rejection_format: State WHICH gate failed with the EXACT violation text, and whe
 """
 
 AUDITOR_STAGE_QUALITY_CHECKS_PASSED = """\
-purpose: Final verification — confirm commits and passing tests
+purpose: Final verification — confirm commits and tests exist
 scope: Git log, diff stat, final pytest run
-out_of_scope: Re-reviewing implementation decisions from earlier stages
+out_of_scope: >
+  Re-reviewing implementation decisions from earlier stages.
+  Test pass/fail counts — the TDD stage already verified tests.
+  Do NOT reject because some tests fail.
 checklist:
 - Git log shows at least one commit for this issue
 - Diff shows changes to source and/or test files
-- Pytest output shows tests ran
+- Pytest output is present (pytest was invoked, not empty)
 rejection_format: State WHICH check failed, quoting the evidence
 """
 

@@ -85,6 +85,23 @@ KNOWN_MCP_SERVERS: dict[str, dict[str, Any]] = {
             MCPDiscoveredTool("search_messages", "Search messages in Slack"),
         ],
     },
+    "context7": {
+        "image": "ghcr.io/anthropics/mcp-server-context7:latest",
+        "description": "Library and framework documentation lookup via Context7",
+        "author": "Anthropic (official)",
+        "port": 3000,
+        "trust_tier": "t2",
+        "known_tools": [
+            MCPDiscoveredTool(
+                "resolve-library-id",
+                "Resolve a library/framework name to its Context7 library ID",
+            ),
+            MCPDiscoveredTool(
+                "query-docs",
+                "Fetch up-to-date documentation for a library using its Context7 ID",
+            ),
+        ],
+    },
 }
 
 

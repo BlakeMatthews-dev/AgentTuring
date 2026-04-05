@@ -61,6 +61,10 @@ tools:
   - run_bandit
   - git
   - github
+  - glob_files
+  - grep_content
+  - read_file
+  - context7
 memory:
   learnings: true
   episodic: true

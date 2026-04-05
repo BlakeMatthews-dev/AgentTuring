@@ -94,6 +94,23 @@ RUN_BANDIT_DEF = ToolDefinition(
     groups=("code_gen",),
 )
 
+GIT_TOOL_DEF = ToolDefinition(
+    name="git",
+    description="Run git commands in the workspace (log, diff, status, etc.).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Git subcommand and args (e.g. 'log --oneline -10').",
+            },
+            "workspace": {"type": "string", "description": "Working directory."},
+        },
+        "required": ["command", "workspace"],
+    },
+    groups=("code_gen",),
+)
+
 # Commands that are allowed to run
 _ALLOWED_PREFIXES = (
     "pytest",

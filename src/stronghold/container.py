@@ -312,10 +312,19 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
-    # Register all Mason tools
+    # Register all tools
     from stronghold.tools.file_ops import FILE_OPS_TOOL_DEF, FileOpsExecutor  # noqa: PLC0415
     from stronghold.tools.github import GITHUB_TOOL_DEF, GitHubToolExecutor  # noqa: PLC0415
+    from stronghold.tools.repo_scan import (  # noqa: PLC0415
+        GLOB_FILES_DEF,
+        GREP_CONTENT_DEF,
+        READ_FILE_DEF,
+        GlobFilesExecutor,
+        GrepContentExecutor,
+        ReadFileExecutor,
+    )
     from stronghold.tools.shell_exec import (  # noqa: PLC0415
+        GIT_TOOL_DEF,
         RUN_BANDIT_DEF,
         RUN_MYPY_DEF,
         RUN_PYTEST_DEF,
@@ -338,6 +347,22 @@ async def create_container(config: StrongholdConfig) -> Container:
 
     workspace = WorkspaceManager()
     tool_registry.register(WORKSPACE_TOOL_DEF, workspace.execute)
+
+    # Read-only repo scanning tools
+    glob_files = GlobFilesExecutor()
+    tool_registry.register(GLOB_FILES_DEF, glob_files.execute)
+    grep_content = GrepContentExecutor()
+    tool_registry.register(GREP_CONTENT_DEF, grep_content.execute)
+    read_file = ReadFileExecutor()
+    tool_registry.register(READ_FILE_DEF, read_file.execute)
+
+    # Git tool — delegates to shell with "git " prefix
+    async def _git_execute(arguments: dict[str, Any]) -> Any:
+        cmd = arguments.get("command", "")
+        ws = arguments.get("workspace", "")
+        return await shell.execute({"command": f"git {cmd}", "workspace": ws})
+
+    tool_registry.register(GIT_TOOL_DEF, _git_execute)
 
     # Quality gate convenience tools
     qg = QualityGateExecutor(shell)

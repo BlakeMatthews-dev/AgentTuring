@@ -22,6 +22,10 @@ tools:
   - shell
   - workspace
   - run_pytest
+  - glob_files
+  - grep_content
+  - read_file
+  - context7
 memory:
   learnings: true
   episodic: false

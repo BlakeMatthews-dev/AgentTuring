@@ -467,8 +467,12 @@ class RuntimePipeline:
         )
 
     async def _run_pytest(self, workspace: str, path: str = "tests/") -> str:
-        """Run pytest with workspace src/ on PYTHONPATH so local changes are used."""
-        cmd = f"PYTHONPATH={workspace}/src:$PYTHONPATH python -m pytest {path} -v"
+        """Run pytest with workspace src/ taking priority over installed package."""
+        # sys.path.insert(0, ...) beats site-packages; PYTHONPATH alone does not
+        cmd = (
+            f"python -c \"import sys; sys.path.insert(0, '{workspace}/src'); "
+            f"import pytest; pytest.main(['{path}', '-v'])\""
+        )
         return await self._td.execute(
             "shell", {"command": cmd, "workspace": workspace},
         )

@@ -14,6 +14,7 @@ router = APIRouter()
 # Record service start time at module level
 _SERVICE_START_TIME = time.monotonic()
 
+
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
     """Health check — no auth required (load balancer probe).
@@ -55,6 +56,7 @@ async def health(request: Request) -> dict[str, Any]:
 
     return result
 
+
 @router.get("/status/reactor")
 async def reactor_status(request: Request) -> dict[str, Any]:
     """Reactor loop status — triggers, events, stats. Requires auth."""
@@ -76,6 +78,7 @@ async def reactor_status(request: Request) -> dict[str, Any]:
         "triggers": status.triggers,
         "recent_events": status.recent_events,
     }
+
 
 @router.get("/v1/stronghold/status/uptime")
 async def uptime() -> dict[str, Any]:

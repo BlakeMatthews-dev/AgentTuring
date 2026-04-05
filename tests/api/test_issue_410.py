@@ -30,3 +30,10 @@ class TestUptimeEndpoint:
             assert isinstance(data.get("uptime_seconds"), float)
             assert isinstance(data.get("started_at"), str)
             assert data.get("service") == "stronghold"
+
+    def test_uptime_seconds_is_non_negative(self, app: FastAPI) -> None:
+        with TestClient(app) as client:
+            resp = client.get("/v1/stronghold/status/uptime")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data.get("uptime_seconds", -1) >= 0

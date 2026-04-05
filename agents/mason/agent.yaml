@@ -46,8 +46,8 @@ reasoning:
       max_rounds: 2
 model: openrouter-anthropic/claude-opus-4.6
 model_fallbacks:
+  - zhipu-glm-5
   - google-gemini-3.1-pro
-  - mistral-large
 model_constraints:
   temperature: 0.2
   max_tokens: 8192

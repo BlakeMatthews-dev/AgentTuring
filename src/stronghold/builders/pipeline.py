@@ -223,13 +223,12 @@ class RuntimePipeline:
     """Deterministic stage executor. LLM generates content, runtime executes."""
 
     # Model rotation for outer loop — each pass tries the next model
+    # Opus first (OpenRouter free tier), then GLM-5 (Zhipu free credits),
+    # then Gemini (rate-limited but no spend cap)
     MODEL_ROTATION = [
-        "openrouter-anthropic/claude-opus-4.6",   # SWE-bench 81.4%
-        "google-gemini-3.1-pro",                   # SWE-bench 78.8%
-        "openrouter-openai/gpt-5.2-pro",          # SWE-bench 78.2%
-        "mistral-large",                            # Fast, solid fallback
-        "sambanova-deepseek-v3.2",                 # Cheap, fast, decent code
-        "cohere-command-a-reasoning-08-2025",      # Reasoning specialist
+        "openrouter-anthropic/claude-opus-4.6",   # Best, OpenRouter free tier
+        "zhipu-glm-5",                             # 95.8% SWE-bench, free credits
+        "google-gemini-3.1-pro",                   # Rate-limited, no spend cap
     ]
 
     # Per-model success tracking: {model: {"attempts": N, "criteria_passed": N}}

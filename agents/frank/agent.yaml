@@ -11,7 +11,7 @@ reasoning:
   max_rounds: 10
 model: google-gemini-3.1-pro
 model_fallbacks:
-  - openrouter-anthropic/claude-opus-4.6
+  - zhipu-glm-5
   - mistral-large
 model_constraints:
   temperature: 0.3

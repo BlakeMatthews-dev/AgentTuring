@@ -37,3 +37,10 @@ class TestUptimeEndpoint:
             assert resp.status_code == 200
             data = resp.json()
             assert data.get("uptime_seconds", -1) >= 0
+
+    def test_uptime_seconds_is_non_negative(self, app: FastAPI) -> None:
+        with TestClient(app) as client:
+            resp = client.get("/v1/stronghold/status/uptime")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["uptime_seconds"] >= 0

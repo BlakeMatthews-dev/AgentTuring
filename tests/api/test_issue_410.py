@@ -119,3 +119,20 @@ class TestUptimeEndpoint:
             data = resp.json()
             assert "uptime_seconds" in data
             assert data["uptime_seconds"] >= 0
+
+    def test_started_at_is_valid_iso8601_and_in_past(self, app: FastAPI) -> None:
+        """Verify started_at is a valid ISO 8601 timestamp in the past."""
+        with TestClient(app) as client:
+            resp = client.get("/v1/stronghold/status/uptime")
+            assert resp.status_code == 200
+            data = resp.json()
+            started_at = data["started_at"]
+            assert isinstance(started_at, str)
+
+            from datetime import datetime, timezone
+            try:
+                parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                assert parsed.tzinfo is not None, "Timestamp should have timezone info"
+                assert parsed < datetime.now(timezone.utc)
+            except ValueError:
+                pytest.fail("started_at is not a valid ISO 8601 timestamp")

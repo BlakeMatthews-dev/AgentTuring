@@ -305,11 +305,14 @@ rejection_format: State WHICH test still fails and WHY, quoting the error output
 
 AUDITOR_STAGE_IMPLEMENTATION_READY = """\
 purpose: Run quality gates and fix violations in new code
-scope: All gates ran, new-code violations addressed
-out_of_scope: Pre-existing violations in files NOT touched by this issue
+scope: ruff, mypy, bandit results on changed files
+out_of_scope: >
+  Pre-existing violations in files NOT touched by this issue.
+  Pytest test failures — the TDD stage handles test pass/fail.
+  Do NOT reject because pytest shows failing tests.
 checklist:
-- All 5 quality gates ran (pytest, ruff_check, ruff_format, mypy, bandit)
-- No NEW violations introduced by this issue's changes
+- Quality gates ran (ruff_check, ruff_format, mypy, bandit)
+- No NEW ruff/mypy/bandit violations in this issue's changed files
 rejection_format: State WHICH gate failed with the EXACT violation text, and whether it is new or pre-existing
 """
 

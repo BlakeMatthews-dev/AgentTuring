@@ -817,7 +817,7 @@ async def _create_pr_on_finish(
                 "action": "create_pr",
                 "owner": owner,
                 "repo": repo,
-                "title": f"feat: #{issue_num} — {run.issue_title or ''}".strip(),
+                "title": f"feat: #{issue_num} — {getattr(run, '_issue_title', '')}".strip(),
                 "head": branch,
                 "base": "main",
                 "body": (

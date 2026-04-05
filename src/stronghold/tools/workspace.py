@@ -126,10 +126,13 @@ class WorkspaceManager:
 
     def _create(self, args: dict[str, Any]) -> dict[str, str]:
         """Create an isolated worktree for an issue."""
+        import uuid as _uuid
+
         owner = args.get("owner", "")
         repo = args.get("repo", "")
         issue = args.get("issue_number", 0)
-        branch = args.get("branch", f"mason/{issue}")
+        short_id = _uuid.uuid4().hex[:6]
+        branch = args.get("branch", f"mason/{issue}-{short_id}")
 
         repo_dir = self._ensure_clone(owner, repo)
         # Fetch latest main
@@ -191,7 +194,7 @@ class WorkspaceManager:
         if not worktree_dir.exists():
             return {"status": "error", "error": "worktree not found"}
         branch = self._run(["git", "branch", "--show-current"], cwd=worktree_dir).strip()
-        self._run(["git", "push", "-u", "-f", "origin", branch], cwd=worktree_dir)
+        self._run(["git", "push", "-u", "origin", branch], cwd=worktree_dir)
         return {"status": "pushed", "branch": branch}
 
     def _cleanup(self, args: dict[str, Any]) -> dict[str, str]:

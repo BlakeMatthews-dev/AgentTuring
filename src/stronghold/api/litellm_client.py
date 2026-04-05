@@ -104,7 +104,7 @@ class LiteLLMClient:
         """Try a single model. Returns response dict on success, Exception on failure."""
         body["model"] = model
         try:
-            async with httpx.AsyncClient(timeout=600.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
                     f"{self._base_url}/v1/chat/completions",
                     json=body,
@@ -114,8 +114,8 @@ class LiteLLMClient:
             if resp.status_code == 200:  # noqa: PLR2004
                 return resp.json()  # type: ignore[no-any-return]
 
-            # Retryable: 402 (quota), 429, 400 (cooldown), 422 (no tools), 5xx
-            if resp.status_code in (400, 402, 422, 429, 500, 502, 503):
+            # Retryable: 402 (quota), 408 (timeout), 429, 400 (cooldown), 422, 5xx
+            if resp.status_code in (400, 402, 408, 422, 429, 500, 502, 503):
                 logger.debug("Model %s returned %d, skipping", model, resp.status_code)
                 await asyncio.sleep(0.2)
                 return httpx.HTTPStatusError(

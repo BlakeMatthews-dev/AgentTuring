@@ -135,13 +135,28 @@ class WorkspaceManager:
         branch = args.get("branch", f"mason/{issue}-{short_id}")
 
         repo_dir = self._ensure_clone(owner, repo)
-        # Fetch latest main
-        self._run(["git", "fetch", "origin", "main"], cwd=repo_dir)
+        # Always fetch latest main from remote (unshallow if needed)
+        self._run(
+            ["git", "fetch", "--depth=50", "origin", "main"], cwd=repo_dir,
+        )
 
         worktree_dir = self._base / "worktrees" / f"mason-{issue}"
         if worktree_dir.exists():
+            # Reset existing worktree to fresh origin/main so callers
+            # never see stale content
+            try:
+                self._run(
+                    ["git", "fetch", "origin", "main"], cwd=worktree_dir,
+                )
+                self._run(
+                    ["git", "reset", "--hard", "origin/main"],
+                    cwd=worktree_dir,
+                )
+                self._run(["git", "clean", "-fd"], cwd=worktree_dir)
+            except Exception as e:
+                logger.warning("Worktree reset failed: %s", e)
             return {
-                "status": "exists",
+                "status": "refreshed",
                 "path": str(worktree_dir),
                 "branch": branch,
             }

@@ -642,6 +642,10 @@ class GitHubToolExecutor:
         """Submit a review on a PR.
 
         event: APPROVE | REQUEST_CHANGES | COMMENT
+
+        GitHub rejects APPROVE and REQUEST_CHANGES when the reviewer is also
+        the PR author (422). Falls back to a regular issue comment in that
+        case so the feedback is still delivered.
         """
         import httpx
 
@@ -661,6 +665,22 @@ class GitHubToolExecutor:
                 headers=self._headers(),
                 json=payload,
             )
+            if resp.status_code == 422 and event != "COMMENT":
+                # Self-review not allowed — post as issue comment instead
+                prefix = f"**[Gatekeeper {event}]**\n\n"
+                fallback = await client.post(
+                    f"{self._base_url}/repos/{owner}/{repo}/issues/{number}/comments",
+                    headers=self._headers(),
+                    json={"body": prefix + body},
+                )
+                fallback.raise_for_status()
+                comment = fallback.json()
+                return {
+                    "id": comment["id"],
+                    "state": f"FALLBACK_COMMENT_{event}",
+                    "url": comment.get("html_url", ""),
+                    "note": "self-review blocked by GitHub, posted as comment",
+                }
             resp.raise_for_status()
             review = resp.json()
             return {

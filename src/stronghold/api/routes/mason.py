@@ -15,14 +15,10 @@ import hmac
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-
-if TYPE_CHECKING:
-    from stronghold.agents.mason.queue import InMemoryMasonQueue
-    from stronghold.events import Reactor
 
 logger = logging.getLogger("stronghold.api.mason")
 
@@ -30,8 +26,8 @@ router = APIRouter(tags=["mason"])
 
 
 def configure_mason_router(
-    queue: InMemoryMasonQueue,
-    reactor: Reactor,
+    queue: Any,
+    reactor: Any,
     container: Any = None,
 ) -> None:
     """Bind the Mason queue, reactor, and container to the router."""
@@ -44,12 +40,12 @@ def configure_mason_router(
 _state: dict[str, Any] = {}
 
 
-def _queue() -> InMemoryMasonQueue:
-    return _state["queue"]  # type: ignore[return-value]
+def _queue() -> Any:
+    return _state["queue"]
 
 
-def _reactor() -> Reactor:
-    return _state["reactor"]  # type: ignore[return-value]
+def _reactor() -> Any:
+    return _state["reactor"]
 
 
 @router.post("/v1/stronghold/mason/assign")
@@ -215,7 +211,7 @@ async def _fetch_github_items(owner: str, repo: str) -> dict[str, Any]:
         is_empty = cached.get("total", 0) == 0
         ttl = _CACHE_TTL_EMPTY if is_empty else _CACHE_TTL_FULL
         if now - fetched_at < ttl:
-            return cached  # type: ignore[return-value]
+            return cast("dict[str, Any]", cached)
 
     github = GitHubToolExecutor()
     result = await github.execute(
@@ -231,7 +227,7 @@ async def _fetch_github_items(owner: str, repo: str) -> dict[str, Any]:
     if not result.success:
         # Return stale cache if fetch fails
         if cached is not None and cached_key == cache_key:
-            return cached  # type: ignore[return-value]
+            return cast("dict[str, Any]", cached)
         return {"error": result.error}
 
     items = _json.loads(result.content)
@@ -275,7 +271,7 @@ async def scan_codebase() -> JSONResponse:
     """
     from pathlib import Path
 
-    from stronghold.agents.mason.scanner import (
+    from stronghold.tools.scanner import (
         format_as_github_issue,
         scan_for_good_first_issues,
     )
@@ -311,11 +307,11 @@ async def create_scanned_issues(request: Request) -> JSONResponse:
     """
     from pathlib import Path
 
-    from stronghold.agents.mason.scanner import (
+    from stronghold.tools.github import GitHubToolExecutor
+    from stronghold.tools.scanner import (
         format_as_github_issue,
         scan_for_good_first_issues,
     )
-    from stronghold.tools.github import GitHubToolExecutor
 
     body = await request.json()
     owner = body.get("owner", "")

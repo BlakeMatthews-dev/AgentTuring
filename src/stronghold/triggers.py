@@ -206,7 +206,7 @@ def register_core_triggers(container: Container) -> None:
 
         # Mark as in-progress
         if hasattr(container, "mason_queue"):
-            container.mason_queue.start(issue_number)  # type: ignore[attr-defined]
+            container.mason_queue.start(issue_number)
 
         # Route through Conduit as a synthetic request
         from stronghold.types.auth import SYSTEM_AUTH  # noqa: PLC0415
@@ -229,12 +229,12 @@ def register_core_triggers(container: Container) -> None:
             )
             # Mark complete
             if hasattr(container, "mason_queue"):
-                container.mason_queue.complete(issue_number)  # type: ignore[attr-defined]
+                container.mason_queue.complete(issue_number)
             logger.info("Mason completed issue #%d", issue_number)
             return {"issue_number": issue_number, "status": "completed"}
         except Exception as e:
             if hasattr(container, "mason_queue"):
-                container.mason_queue.fail(  # type: ignore[attr-defined]
+                container.mason_queue.fail(
                     issue_number,
                     error=str(e),
                 )

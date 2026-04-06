@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from stronghold.agents.strategies.react import ReactStrategy
@@ -302,8 +303,6 @@ class BuildersLearningStrategy:
         logger.info(f"Storing Mason learning for run {run_id}")
         # In production: await self.memory.store("mason_failures", {...})
 
-    def _utc_now(self):
+    def _utc_now(self) -> datetime:
         """Get current UTC timestamp."""
-        from datetime import UTC, datetime
-
         return datetime.now(UTC)

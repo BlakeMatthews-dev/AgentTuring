@@ -7,14 +7,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 
 from stronghold.config.loader import load_config
 from stronghold.container import create_container
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
 
 @asynccontextmanager
@@ -69,7 +69,10 @@ def create_app() -> FastAPI:
     if running_under_pytest:
 
         @app.middleware("http")
-        async def _ensure_test_container(request: Request, call_next: object) -> object:
+        async def _ensure_test_container(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
             if not hasattr(request.app.state, "container"):
                 request.app.state.container = await create_container(load_config())
             return await call_next(request)

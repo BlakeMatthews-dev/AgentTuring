@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed for diff against base branch
 
       - uses: actions/setup-python@v5
         with:
@@ -38,17 +40,38 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      - name: Ruff check
-        run: ruff check src/stronghold/
+      - name: Compute changed Python files
+        id: changed
+        run: |
+          if [ -n "${GITHUB_BASE_REF}" ]; then
+            git fetch origin "${GITHUB_BASE_REF}" --depth=50
+            BASE="origin/${GITHUB_BASE_REF}"
+          else
+            BASE="HEAD~1"
+          fi
+          CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" -- 'src/stronghold/**/*.py' | tr '\n' ' ')
+          echo "files=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "Changed Python files: $CHANGED"
 
-      - name: Ruff format
-        run: ruff format --check src/stronghold/
+      - name: Ruff check (changed files only)
+        if: steps.changed.outputs.files != ''
+        run: ruff check ${{ steps.changed.outputs.files }}
 
-      - name: Mypy strict
-        run: mypy src/stronghold/ --strict
+      - name: Ruff format (changed files only)
+        if: steps.changed.outputs.files != ''
+        run: ruff format --check ${{ steps.changed.outputs.files }}
 
-      - name: Bandit security scan
-        run: bandit -r src/stronghold/ -ll -q --skip B608
+      - name: Mypy strict (changed files only)
+        if: steps.changed.outputs.files != ''
+        run: mypy ${{ steps.changed.outputs.files }} --strict
+
+      - name: Bandit security scan (changed files only)
+        if: steps.changed.outputs.files != ''
+        run: bandit ${{ steps.changed.outputs.files }} -ll -q --skip B608
+
+      - name: No-op (no Python changes)
+        if: steps.changed.outputs.files == ''
+        run: echo "No Python files changed in this PR — skipping lint."
 
   test:
     name: Tests

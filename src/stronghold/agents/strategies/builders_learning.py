@@ -57,7 +57,6 @@ class BuildersLearningStrategy:
         """
         # Extract worker type from context
         worker = kwargs.get("worker", "unknown")
-        run_id = kwargs.get("run_id", "unknown")
 
         if worker == "frank":
             return await self._frank_with_learning(messages, model, llm, trace, warden, **kwargs)
@@ -112,8 +111,8 @@ class BuildersLearningStrategy:
             messages, model, llm, trace=trace, warden=warden, context=context, **kwargs
         )
 
-        # Step 5: Store diagnostic artifact (would go to orchestrator)
-        diagnostic = {
+        # Step 5: Store diagnostic artifact (TODO: wire to orchestrator)
+        _diagnostic = {  # noqa: F841
             "worker": "frank",
             "run_id": run_id,
             "repository_state": repo_state,
@@ -183,7 +182,12 @@ class BuildersLearningStrategy:
             logger.warning(f"PR would be rejected: {diagnostics.get('issues')}")
             # In production, would fix issues before marking done
             result = ReasoningResult(
-                response=f"{result.response}\n\nSelf-diagnosis: Found {len(diagnostics.get('issues', []))} issues - must fix before PR",
+                response=(
+                    f"{result.response}\n\n"
+                    f"Self-diagnosis: Found "
+                    f"{len(diagnostics.get('issues', []))} "
+                    f"issues - must fix before PR"
+                ),
                 done=False,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
@@ -300,6 +304,6 @@ class BuildersLearningStrategy:
 
     def _utc_now(self):
         """Get current UTC timestamp."""
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
 
         return datetime.now(UTC)

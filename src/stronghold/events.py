@@ -193,8 +193,14 @@ class Reactor:
             return None
 
         if spec.mode == TriggerMode.INTERVAL:
+            # last_fired == 0 means "never fired" — fire immediately on first
+            # eval. Without this, an interval longer than process uptime would
+            # never fire, since time.monotonic() resets per-process and starts
+            # near zero in fresh containers.
+            if state.last_fired == 0:
+                return MutableEvent(name=f"_interval:{spec.name}")
             effective_interval = spec.interval_secs
-            if spec.jitter > 0 and state.last_fired > 0:
+            if spec.jitter > 0:
                 effective_interval *= 1 + random.uniform(-spec.jitter, spec.jitter)
             if mono - state.last_fired >= effective_interval:
                 return MutableEvent(name=f"_interval:{spec.name}")

@@ -62,9 +62,13 @@ class TestListIssues:
         })
         assert result.success
         issues = json.loads(result.content)
-        # PR should be excluded
-        assert len(issues) == 1
-        assert issues[0]["number"] == 1
+        # Tool returns both issues and PRs with is_pr flag — callers filter
+        assert len(issues) == 2
+        non_prs = [i for i in issues if not i["is_pr"]]
+        assert len(non_prs) == 1
+        assert non_prs[0]["number"] == 1
+        prs = [i for i in issues if i["is_pr"]]
+        assert len(prs) == 1
 
     @respx.mock
     async def test_filters_by_labels(self) -> None:

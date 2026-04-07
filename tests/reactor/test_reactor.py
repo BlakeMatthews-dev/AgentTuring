@@ -128,7 +128,7 @@ async def test_interval_trigger_respects_interval() -> None:
         action,
     )
 
-    await run_reactor_briefly(reactor, ticks=20)
+    await run_reactor_briefly(reactor, ticks=200)
 
     # First fire is immediate (last_fired=0), but won't fire again
     assert len(action.calls) == 1

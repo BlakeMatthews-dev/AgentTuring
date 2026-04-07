@@ -1043,10 +1043,13 @@ class RuntimePipeline:
             check_passing = self._count_passing(check_output)
             check_failing = self._count_failing(check_output)
 
-            # Auto-format the source files Mason just wrote BEFORE committing.
-            # We can't rely on run_quality_gates running this — and even if it
-            # does, the format must be in the per-criterion commits so the
-            # branch we push has properly formatted code.
+            # Auto-format + verify each source file Mason just wrote BEFORE
+            # committing. Format must be in the per-criterion commit so the
+            # branch we push has properly formatted code, and we now also
+            # verify the file is non-empty and parses cleanly to catch the
+            # "stub commit" failure mode where extraction succeeds but the
+            # file ends up empty/broken.
+            stub_files: list[str] = []
             for fpath in (affected_files + [test_file]):
                 await self._td.execute(
                     "shell",
@@ -1062,6 +1065,38 @@ class RuntimePipeline:
                         "workspace": ws,
                     },
                 )
+                # Sanity check: file exists and isn't a stub
+                content = await self._read_file(fpath, ws)
+                if not content or len(content.strip()) < 20:
+                    stub_files.append(fpath)
+                    continue
+                # Syntax check via py_compile (cheap, no LLM cost)
+                if fpath.endswith(".py"):
+                    syntax_check = await self._td.execute(
+                        "shell",
+                        {
+                            "command": (
+                                f"python3 -m py_compile {fpath} 2>&1 "
+                                f"&& echo OK_SYNTAX || echo FAIL_SYNTAX"
+                            ),
+                            "workspace": ws,
+                        },
+                    )
+                    if "FAIL_SYNTAX" in syntax_check:
+                        stub_files.append(fpath)
+
+            if stub_files:
+                logger.warning(
+                    "Mason TDD: criterion %d stub/broken files detected: %s — skipping commit",
+                    i + 1, stub_files,
+                )
+                await self._post_to_issue(
+                    owner, repo, run.issue_number,
+                    f"⚠️ Criterion {i + 1}: skipped commit — stub or broken files: "
+                    f"{', '.join(stub_files)}",
+                    run=run,
+                )
+                continue
 
             # Commit this criterion
             await self._git_command("add -A", ws)
@@ -1759,12 +1794,27 @@ class RuntimePipeline:
         if "mypy --strict" in text or "mypy errors" in text or "type errors" in text:
             return "enumerable:mypy"
 
-        # Atomic: single file mention with single criterion
+        # Atomic: single file mention with few criteria, no multi-file markers
         path_matches = _re.findall(r"src/stronghold/[\w/]+\.(?:py|html)", text)
         unique_paths = set(path_matches)
         criteria_count = body.count("- [ ]") + body.count("- [x]")
 
-        if len(unique_paths) == 1 and criteria_count <= 5:
+        # Strong multi-file signals — anything with these is NOT atomic
+        multi_file_markers = (
+            "files to create",
+            "files to modify",
+            "files to add",
+            "## files",
+            "new files",
+            ".github/workflows/",
+        )
+        has_multi_file_marker = any(m in text for m in multi_file_markers)
+
+        if (
+            len(unique_paths) <= 1
+            and criteria_count <= 3
+            and not has_multi_file_marker
+        ):
             return "atomic"
 
         # Otherwise, agentic LLM decomposition

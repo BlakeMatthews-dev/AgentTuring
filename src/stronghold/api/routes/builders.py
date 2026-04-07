@@ -777,14 +777,83 @@ async def _review_pass(container: Any, owner: str, repo: str) -> None:
 async def _dispatch_scheduler_run(
     container: Any, owner: str, repo: str, issue: dict[str, Any],
 ) -> None:
-    """Dispatch a single scheduled run. Fire and forget."""
+    """Dispatch a single scheduled run. Fire and forget.
+
+    Quartermaster pre-pass: if the issue is non-atomic per the triage
+    heuristic AND is not already a Quartermaster-created sub-issue,
+    decompose it instead of handing it to Mason. The decompose call
+    labels the parent 'epic', so subsequent scheduler ticks skip it
+    and pick up the freshly created leaves instead.
+    """
     import asyncio as _asyncio
+    import json as _json
 
     from stronghold.builders import WorkerName
+    from stronghold.builders.pipeline import RuntimePipeline
 
     number = issue["number"]
     title = issue.get("title", "")
+    labels = [lb.lower() for lb in issue.get("labels", [])]
+
+    # list_issues does not include the body — fetch the full issue so the
+    # triage heuristic sees the actual content (acceptance criteria, file
+    # paths, "Files to create" markers).
     body = issue.get("body", "") or ""
+    if not body:
+        try:
+            full_raw = await container.tool_dispatcher.execute(
+                "github",
+                {
+                    "action": "get_issue",
+                    "owner": owner, "repo": repo,
+                    "issue_number": number,
+                },
+            )
+            if not full_raw.startswith("Error:"):
+                full = _json.loads(full_raw)
+                body = full.get("body", "") or ""
+        except Exception as e:
+            logger.warning("Scheduler: get_issue #%d failed: %s", number, e)
+
+    # ── Quartermaster pre-pass ────────────────────────────────────
+    # Skip the pre-pass if this issue is already a leaf (created by
+    # Quartermaster) or already an epic (parent already decomposed).
+    is_qm_leaf = "quartermaster" in labels
+    is_epic = "epic" in labels
+    if not is_qm_leaf and not is_epic:
+        strategy = RuntimePipeline._triage_issue(title, body)
+        if strategy != "atomic":
+            logger.info(
+                "Scheduler: issue #%d is non-atomic (%s) — running Quartermaster pre-pass",
+                number, strategy,
+            )
+            try:
+                pipeline = _build_pipeline(container)
+                from types import SimpleNamespace
+                qm_run = SimpleNamespace(
+                    run_id=f"qm-pre-{number}",
+                    issue_number=number,
+                    repo=f"{owner}/{repo}",
+                    _issue_title=title,
+                    _issue_content=body,
+                    _workspace_path="",
+                )
+                qm_result = await pipeline.decompose_issue(qm_run)
+                if qm_result.success:
+                    logger.info(
+                        "Scheduler: Quartermaster decomposed #%d — skipping direct dispatch",
+                        number,
+                    )
+                    return
+                logger.warning(
+                    "Scheduler: Quartermaster failed on #%d (%s) — falling back to direct dispatch",
+                    number, qm_result.summary[:200],
+                )
+            except Exception as e:
+                logger.warning(
+                    "Scheduler: Quartermaster pre-pass crashed on #%d: %s — falling back",
+                    number, e,
+                )
 
     # Detect UI issue like create_run does
     ui_signals = [

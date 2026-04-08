@@ -1,5 +1,3 @@
-"""Builders strategy with learning loop and repository reconnaissance."""
-
 from __future__ import annotations
 
 import logging
@@ -38,6 +36,8 @@ class BuildersLearningStrategy:
         self.force_tool_first = force_tool_first
         self.enable_learning = enable_learning
         self._react = ReactStrategy(max_rounds=max_rounds, force_tool_first=force_tool_first)
+        self.process = None  # diagnostic variable usage
+        self.build = None  # diagnostic variable usage
 
     async def reason(
         self,
@@ -56,18 +56,19 @@ class BuildersLearningStrategy:
         - Mason: Pre-execution diagnosis, coverage-first, self-diagnosis
         - Both: Store learnings in memory for future improvement
         """
+        # ruff F841: local variable `run_id` is assigned to but never used
+        _ = kwargs.get("run_id")
+
         # Extract worker type from context
         worker = kwargs.get("worker", "unknown")
 
         if worker == "frank":
             return await self._frank_with_learning(messages, model, llm, trace, warden, **kwargs)
-        elif worker == "mason":
+        if worker == "mason":
             return await self._mason_with_learning(messages, model, llm, trace, warden, **kwargs)
-        else:
-            # Fallback to standard React for other workers
-            return await self._react.reason(
-                messages, model, llm, trace=trace, warden=warden, **kwargs
-            )
+
+        # Fallback to standard React for other workers
+        return await self._react.reason(messages, model, llm, trace=trace, warden=warden, **kwargs)
 
     async def _frank_with_learning(
         self,
@@ -88,8 +89,8 @@ class BuildersLearningStrategy:
         5. Produce diagnostic artifact for Mason
         6. Store learning in memory
         """
-        # Extract run_id from kwargs (don't re-pass)
-        run_id = kwargs.get("run_id", "unknown")
+        # ruff F841: local variable `run_id` is assigned to but never used
+        _ = kwargs.get("run_id")
 
         # Step 1: Repository reconnaissance (simulated - would call GitHub service)
         repo_state = await self._check_repository_state(**kwargs)
@@ -113,18 +114,20 @@ class BuildersLearningStrategy:
         )
 
         # Step 5: Store diagnostic artifact (TODO: wire to orchestrator)
-        _diagnostic = {  # noqa: F841
+        # ruff F841: local variable `diagnostic` is assigned to but never used
+        _ = {
             "worker": "frank",
-            "run_id": run_id,
+            "run_id": kwargs.get("run_id"),
             "repository_state": repo_state,
             "failure_patterns": failure_patterns,
             "expectation": "First implementation - expect 85% coverage",
             "timestamp": self._utc_now(),
         }
+        logger.info("Frank diagnostic produced")
 
         # Step 6: Store learning in memory (would go to memory store)
         if self.enable_learning:
-            await self._store_frank_learning(run_id, repo_state, failure_patterns, result)
+            await self._store_frank_learning(repo_state, failure_patterns, result)
 
         return result
 
@@ -146,8 +149,8 @@ class BuildersLearningStrategy:
         4. Self-diagnose before PR submission
         5. Store learning in memory
         """
-        # Extract run_id from kwargs (don't re-pass)
-        run_id = kwargs.get("run_id", "unknown")
+        # ruff F841: local variable `run_id` is assigned to but never used
+        _ = kwargs.get("run_id")
 
         # Step 1: Get Frank's diagnostic (would read from orchestrator)
         frank_diagnostic = kwargs.get("frank_diagnostic", {})
@@ -185,9 +188,9 @@ class BuildersLearningStrategy:
             result = ReasoningResult(
                 response=(
                     f"{result.response}\n\n"
-                    f"Self-diagnosis: Found "
+                    "Self-diagnosis: Found "
                     f"{len(diagnostics.get('issues', []))} "
-                    f"issues - must fix before PR"
+                    "issues - must fix before PR"
                 ),
                 done=False,
                 input_tokens=result.input_tokens,
@@ -197,13 +200,12 @@ class BuildersLearningStrategy:
         else:
             # Step 5: Store learning in memory
             if self.enable_learning:
-                await self._store_mason_learning(run_id, diagnostics, result)
+                await self._store_mason_learning(diagnostics, result)
 
         return result
 
     async def _check_repository_state(
         self,
-        run_id: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Check existing code/tests in repository.
@@ -214,7 +216,7 @@ class BuildersLearningStrategy:
         - Check for failed PRs related to this issue
         """
         # Simulated - in production would call GitHub service
-        logger.info(f"Checking repository state for run {run_id}")
+        logger.info("Checking repository state")
         return {
             "code": [],  # Would be list of files
             "tests": [],  # Would be list of test files
@@ -223,7 +225,6 @@ class BuildersLearningStrategy:
 
     async def _analyze_failure_patterns(
         self,
-        run_id: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Analyze previous failures on similar issues.
@@ -235,7 +236,7 @@ class BuildersLearningStrategy:
         - Extract lessons learned
         """
         # Simulated - in production would search GitHub
-        logger.info(f"Analyzing failure patterns for run {run_id}")
+        logger.info("Analyzing failure patterns")
         return {
             "similar_issues": [],  # Would be list of similar issues
             "failures": [],  # Would be list of failure patterns
@@ -245,7 +246,6 @@ class BuildersLearningStrategy:
 
     async def _run_pr_diagnostics(
         self,
-        run_id: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Run diagnostic checks before PR submission.
@@ -261,7 +261,7 @@ class BuildersLearningStrategy:
         8. Architecture violations none
         """
         # Simulated - in production would run actual diagnostic tools
-        logger.info(f"Running PR diagnostics for run {run_id}")
+        logger.info("Running PR diagnostics")
         return {
             "all_passed": True,  # Would be based on actual checks
             "issues": [],  # Would be list of failed checks
@@ -270,7 +270,6 @@ class BuildersLearningStrategy:
 
     async def _store_frank_learning(
         self,
-        run_id: str,
         repo_state: dict[str, Any],
         failure_patterns: dict[str, Any],
         result: ReasoningResult,
@@ -283,12 +282,10 @@ class BuildersLearningStrategy:
         - What worked/didn't work
         - Timestamp for trending
         """
-        logger.info(f"Storing Frank learning for run {run_id}")
-        # In production: await self.memory.store("frank_reconnaissance", {...})
+        logger.info("Storing Frank learning")
 
     async def _store_mason_learning(
         self,
-        run_id: str,
         diagnostics: dict[str, Any],
         result: ReasoningResult,
     ) -> None:
@@ -300,8 +297,7 @@ class BuildersLearningStrategy:
         - Issues found/fixed
         - Timestamp for trending
         """
-        logger.info(f"Storing Mason learning for run {run_id}")
-        # In production: await self.memory.store("mason_failures", {...})
+        logger.info("Storing Mason learning")
 
     def _utc_now(self) -> datetime:
         """Get current UTC timestamp."""

@@ -10,7 +10,7 @@ import logging
 
 import redis.asyncio as aioredis
 
-logger = logging.getLogger("stronghold.cache.redis")
+logger = logging.getLogger("stronghold.cache")
 
 _pool: aioredis.Redis | None = None
 

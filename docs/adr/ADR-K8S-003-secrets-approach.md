@@ -85,6 +85,104 @@ security:
   it via the upstream secret store's rotation policy; Vault supports it via
   Vault Agent template re-renders.
 
+### Secret injection patterns
+
+The universal rules above pin down WHERE secrets live (files, not env vars)
+and WHO can read them (per-tenant isolation). This section pins down HOW
+they reach a running container. Four patterns are supported; each pod picks
+exactly one.
+
+**1. Preferred: projected volume mounts via `secret` references.** The pod
+spec declares a `volume` of type `secret` referencing a Kubernetes Secret
+(populated by whichever backend is active), and a `volumeMount` that places
+the decoded files under `/var/run/secrets/stronghold/<name>/`. The workload
+reads the file on demand. This is the default for every Stronghold
+component.
+
+Why preferred:
+
+- Secret rotation propagates automatically when the Secret is updated (the
+  kubelet refreshes the mounted file within ~60 seconds) — no pod restart
+  required for workloads that re-read the file on each use.
+- The secret material never appears in `oc describe pod`, `oc get pod -o
+  yaml`, or process environment, which narrows the blast radius of a
+  read-only API compromise.
+- Works identically across all four secrets backends (k8s, sealed-secrets,
+  ESO, Vault CSI), so the pod spec is portable.
+
+**2. Init container for one-shot materialization.** A dedicated init
+container runs before the main container, reads from the secrets backend,
+and writes a derived artifact (e.g., a pre-rendered config file that
+interpolates secret values into a non-secret template) to an `emptyDir`
+shared with the main container. The main container then reads the
+non-secret artifact.
+
+When to use:
+
+- The workload is a third-party component that cannot be taught to read
+  secrets from a file path and requires the secret baked into a config
+  file (LiteLLM's `config.yaml`, for example).
+- A secret must be transformed (base64-decoded, reformatted, combined with
+  other values) before the main container can consume it.
+- A pre-flight integrity check on the secret must run and fail-fast the
+  pod before the main container starts, rather than failing at first-use.
+
+Init containers are not the default because they delay pod start by the
+init-container runtime and because the rendered artifact sits unencrypted
+on the node's `emptyDir` tmpfs for the pod's lifetime.
+
+**3. Downward API for pod-identity metadata only.** The downward API
+exposes pod metadata (namespace, pod name, labels, annotations, node name,
+ServiceAccount name) to the container as environment variables or mounted
+files. It is explicitly **not** a secrets mechanism — downward API values
+are all non-sensitive metadata already visible in `oc describe pod`.
+
+When to use:
+
+- Populating `POD_NAMESPACE` / `POD_NAME` for log correlation and telemetry
+  (Phoenix traces, audit events).
+- Surfacing the `stronghold.io/tenant-id` label to the workload so it can
+  scope its queries.
+- Passing the node name for topology-aware client behavior.
+
+The downward API is called out here specifically to prevent the common
+mistake of treating it as a secrets channel. Pod labels and annotations
+are world-readable inside the namespace; never put a secret there.
+
+**4. CSI secret provider (Vault / cloud-native).** When the backend is
+`vault` or `eso` with the `secrets-store.csi.k8s.io` driver enabled, a
+`csi` volume mounts the backend's secrets directly at pod start without
+first materializing a Kubernetes Secret. This is the most tightly coupled
+option and is only used for customers who have a policy requirement that
+secret material never touch etcd at all.
+
+### Explicit ban on env-var injection of API keys
+
+**`env.valueFrom.secretKeyRef` and `envFrom.secretRef` are forbidden for
+any secret whose value provides authentication or authorization** (API
+keys, database passwords, OAuth client secrets, JWT signing keys, model
+provider keys). CI fails a PR whose rendered manifests place a
+`secretKeyRef` under `env:` or an `envFrom.secretRef` on any
+Stronghold-owned Deployment, StatefulSet, or Job.
+
+Rationale (OWASP Top 10 2021, A05:2021 Security Misconfiguration):
+
+- Environment variables are inherited by every child process of the
+  container and by any debugger attached to PID 1. A compromised sidecar
+  or a shell-out from the main process leaks the key transitively.
+- `oc describe pod`, `oc get pod -o yaml`, and the kubelet's audit log all
+  surface the environment. Any operator with pod read access gets the
+  secret, regardless of Secret RBAC.
+- Crash dumps, stack traces, and common observability tooling (APM
+  agents, error reporters) frequently capture process environment.
+  Secrets in env vars end up in third-party error-tracking services.
+- File-mounted secrets can be rotated in place; env vars require a pod
+  restart to pick up a new value, which disincentivizes rotation.
+
+The only exception is non-sensitive configuration (feature flags,
+hostnames, log levels) sourced from ConfigMaps via `envFrom.configMapRef`.
+Those are not secrets and are unaffected by this rule.
+
 ### Migration path
 
 The current hardcoded credentials in `docker-compose.yml` and `.kubeconfig-docker`
@@ -164,4 +262,8 @@ replaced by sealed-secrets in the OKD homelab deployment.
 - Google Cloud Workload Identity documentation
 - Azure AD Workload Identity documentation
 - NIST SP 800-57 Part 1 Rev. 5 (Recommendation for Key Management)
+- OWASP Top 10 2021 A05:2021 Security Misconfiguration — owasp.org/Top10/A05_2021-Security_Misconfiguration/
+- Kubernetes documentation: "Downward API for Pods"
+- Kubernetes documentation: "Projected Volumes"
+- Kubernetes documentation: "Secrets Store CSI Driver" — secrets-store-csi-driver.sigs.k8s.io
 - SOC2 Trust Services Criteria CC6.1 (logical access)

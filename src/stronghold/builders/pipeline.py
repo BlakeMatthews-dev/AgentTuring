@@ -655,6 +655,27 @@ class RuntimePipeline:
             prompt, self._frank_model, extract_json, "issue analysis",
         )
 
+        # Source-of-truth merge: if the issue body has an explicit
+        # '## Files' section (Quartermaster decompositions and well-
+        # formed human sub-issues do), trust those over Frank's LLM
+        # guess. The LLM tends to hallucinate plausible-but-wrong
+        # paths for "create new module" issues, picking an existing
+        # file that *sounds* related instead of the actual new module
+        # the issue body asks for. Files declared in the body are
+        # preferred; LLM-suggested files are appended if they don't
+        # collide.
+        body_files = self._extract_files_from_issue_body(issue_content)
+        if body_files:
+            llm_files = analysis.get("affected_files", []) or []
+            merged: list[str] = list(body_files)
+            for f in llm_files:
+                if f and f not in merged:
+                    merged.append(f)
+            analysis["affected_files"] = merged
+            analysis["affected_files_source"] = "issue_body" if not llm_files else "issue_body+llm"
+        else:
+            analysis.setdefault("affected_files_source", "llm")
+
         # Post to issue
         summary = (
             f"## Issue Analysis\n\n"
@@ -663,7 +684,8 @@ class RuntimePipeline:
             + "\n".join(f"- {r}" for r in analysis.get("requirements", []))
             + "\n\n**Edge Cases:**\n"
             + "\n".join(f"- {e}" for e in analysis.get("edge_cases", []))
-            + f"\n\n**Affected Files:** {', '.join(analysis.get('affected_files', []))}\n\n"
+            + f"\n\n**Affected Files** (source: {analysis.get('affected_files_source', 'llm')}):"
+            f" {', '.join(analysis.get('affected_files', []))}\n\n"
             f"**Approach:** {analysis.get('approach', '')}\n"
         )
 
@@ -792,11 +814,20 @@ class RuntimePipeline:
         criteria = getattr(run, "_criteria", [])
         locked_criteria: set[int] = getattr(run, "_locked_criteria", set())
         analysis = getattr(run, "_analysis", {})
-        affected_files = analysis.get("affected_files", [])
+        affected_files = list(analysis.get("affected_files", []) or [])
         issue_content = getattr(run, "_issue_content", "")
 
         if not criteria:
             return StageResult(success=False, summary="No acceptance criteria found")
+
+        # Belt-and-suspenders: even if Frank's analysis didn't carry
+        # the files forward, parse the issue body's '## Files' section
+        # directly. This catches issues where analyze_issue ran on an
+        # older code path or the analysis dict was lost across stages.
+        body_files = self._extract_files_from_issue_body(issue_content)
+        for bf in body_files:
+            if bf and bf not in affected_files:
+                affected_files.append(bf)
 
         # Resolve affected source file
         if not affected_files:
@@ -2811,4 +2842,57 @@ class RuntimePipeline:
             path = match.group(1)
             if path not in paths:
                 paths.append(path)
+        return paths
+
+    @staticmethod
+    def _extract_files_from_issue_body(issue_body: str) -> list[str]:
+        """Extract file paths from a Quartermaster-style '## Files' section.
+
+        Quartermaster decompositions and other well-formed sub-issues
+        include an explicit list of files that should be created or
+        modified, as a markdown bullet list under a '## Files' header
+        (sometimes '## Files to create' or '## Files to modify').
+
+        Example issue body fragment::
+
+            ## Files
+            - src/stronghold/analytics/suggestions.py
+            - src/stronghold/api/routes/optimization.py
+            - tests/api/test_optimization.py
+
+        Returns the list of paths in document order, deduplicated.
+        Returns [] if no '## Files' section is present.
+
+        This is the source of truth for the implementation pipeline:
+        if Quartermaster (or a human author) said the issue requires
+        these files, the impl phase must create them. Frank's LLM
+        guess at affected_files is secondary and may hallucinate
+        existing-but-wrong paths.
+        """
+        import re
+
+        match = re.search(
+            r"^##\s+Files(?:\s+to\s+(?:create|modify|change))?\s*\n"
+            r"((?:[ \t]*[-*][ \t]+\S.*\n?)+)",
+            issue_body,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        if not match:
+            return []
+
+        block = match.group(1)
+        paths: list[str] = []
+        for line in block.splitlines():
+            line = line.strip()
+            if not line.startswith(("-", "*")):
+                continue
+            # Strip the bullet marker, surrounding backticks, and any
+            # trailing inline annotation like " (new)" or " — desc".
+            entry = line.lstrip("-*").strip().strip("`").strip()
+            # Stop at the first whitespace so trailing prose doesn't
+            # get glued to the path.
+            entry = entry.split()[0] if entry else ""
+            entry = entry.strip("`,;")
+            if entry and entry not in paths:
+                paths.append(entry)
         return paths

@@ -123,37 +123,66 @@
   }
 </style>
 <script src="/dashboard/auth.js"></script>
-</head>
-<body class="flex">
+<script>
+  // ProgressBar component
+  class ProgressBar extends HTMLElement {
+    static get observedAttributes() {
+      return ['value', 'max', 'label'];
+    }
 
-<!-- Mobile sidebar overlay -->
-<div class="sidebar-overlay" id="sidebar-overlay" role="button" onclick="closeSidebar()"></div>
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+    }
 
-<!-- Sidebar — Castle Turrets -->
-<nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
-  <div class="p-5 border-b border-[var(--iron)]">
-    <div class="flex items-center gap-3">
-      <span class="crest tower-crest">&#x1F3F0;</span>
-      <div>
-        <h1 class="text-lg leading-tight">Stronghold</h1>
-        <p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p>
-      </div>
-    </div>
-  </div>
+    connectedCallback() {
+      this.render();
+    }
 
-  <div class="flex-1 py-4" onclick="closeSidebar()">
-    <a href="/greathall" class="sidebar-item active">
-      <span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall
-    </a>
-    <a href="/dashboard/agents" class="sidebar-item">
-      <span class="sidebar-icon">&#x2694;</span> Knights
-    </a>
-    <a href="/dashboard/skills" class="sidebar-item">
-      <span class="sidebar-icon">&#x1F6E1;</span> Armory
-    </a>
-    <a href="/dashboard/mcp" class="sidebar-item">
-      <span style="width:24px;text-align:center">&#x1F525;</span> Forge
-    </a>
-    <a href="/dashboard/security" class="sidebar-item">
-      <span class="sidebar-icon">&#x1F5FC;</span> Watchtower
-    </a>
+    attributeChangedCallback(name, oldValue, newValue) {
+      this.render();
+    }
+
+    render() {
+      const value = this.getAttribute('value') || '0';
+      const max = this.getAttribute('max') || '100';
+      const label = this.getAttribute('label') || '';
+
+      this.shadowRoot.innerHTML = `
+        <div class="w-full">
+          ${label ? `<label class="block text-sm font-medium text-gray-300 mb-1">${label}</label>` : ''}
+          <div class="w-full bg-gray-700 rounded-full h-4">
+            <div
+              class="bg-emerald-500 h-4 rounded-full transition-all duration-300 ease-out"
+              style="width: ${(parseFloat(value) / parseFloat(max)) * 100}%"
+              role="progressbar"
+              aria-valuenow="${value}"
+              aria-valuemin="0"
+              aria-valuemax="${max}"
+              aria-label="${label}"
+            ></div>
+          </div>
+          <div class="text-xs text-gray-400 mt-1 text-right">
+            {Math.round((value / max) * 100)}%
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  customElements.define('progress-bar', ProgressBar);
+
+  // Define propTypes
+  ProgressBar.propTypes = {
+    value: Number,
+    max: Number,
+    label: String
+  };
+
+  // Define defaultProps
+  ProgressBar.defaultProps = {
+    value: 0,
+    max: 100,
+    label: ''
+  };
+</script>

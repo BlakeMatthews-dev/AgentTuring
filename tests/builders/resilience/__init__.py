@@ -1,1 +1,0 @@
-"""Builders resilience tests."""

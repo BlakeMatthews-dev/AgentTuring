@@ -1313,7 +1313,15 @@ _UI_STAGE_WORKER = {
 }
 
 
-async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_auth: Any) -> None:
+async def _execute_one_stage(
+    run_id: str,
+    orch: Any,
+    container: Any,
+    service_auth: Any,
+    *,
+    ctx: Any | None = None,
+    trace: Any | None = None,
+) -> None:
     """Execute a single stage using runtime-controlled pipeline.
 
     The runtime controls ALL execution:
@@ -1323,6 +1331,7 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
     4. If approved → advance. If rejected → retry with feedback (max 3).
     """
     from stronghold.builders import ArtifactRef, RunResult, RunStatus, WorkerName
+    from stronghold.builders.contracts import StageEvent
     from stronghold.log_context import RunLoggerAdapter
 
     wf_log = RunLoggerAdapter(workflow_logger, run_id)
@@ -1344,16 +1353,40 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
         pipeline._mason_model = model_override
     auditor_feedback = ""
 
+    worker_id = worker.value if hasattr(worker, "value") else str(worker)
     for attempt in range(1, MAX_STAGE_RETRIES + 1):
         wf_log.info("[BUILDERS] stage %s attempt %d/%d", stage, attempt, MAX_STAGE_RETRIES)
+        run.events.append(StageEvent(
+            run_id=run_id, stage=stage, event="stage_attempt_started",
+            actor=worker_id, message=f"attempt {attempt}/{MAX_STAGE_RETRIES}",
+        ))
+
+        # Enrich trace context for this attempt
+        if ctx is not None:
+            attempt_ctx = ctx.with_(
+                stage=stage, agent_id=worker_id, agent_kind="build_worker",
+                stage_attempt=attempt,
+            )
+        else:
+            attempt_ctx = None
 
         # 1. Runtime executes the stage — pass Auditor feedback from prior rejection
         failure_kind: str | None = None
         failure_traceback: str = ""
         try:
             handler = getattr(pipeline, handler_name)
-            result = await handler(run, feedback=auditor_feedback)
+            if trace is not None and attempt_ctx is not None:
+                with trace.span(f"stage.{stage}.attempt{attempt}") as span:
+                    span.set_attributes(attempt_ctx.to_span_attrs())
+                    result = await handler(run, feedback=auditor_feedback)
+            else:
+                result = await handler(run, feedback=auditor_feedback)
             wf_log.info("[BUILDERS] stage %s result: success=%s summary=%s", stage, result.success, result.summary[:200])
+            run.events.append(StageEvent(
+                run_id=run_id, stage=stage, event="stage_attempt_completed",
+                actor=worker_id,
+                message=f"success={result.success} {result.summary[:200]}",
+            ))
         except Exception as e:
             import traceback
             failure_traceback = traceback.format_exc()
@@ -1381,6 +1414,10 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
 
         # 2. Auditor reviews concrete evidence (stage-aware prompt)
         approved, feedback = await pipeline.auditor_review(stage, result.evidence)
+        run.events.append(StageEvent(
+            run_id=run_id, stage=stage, event="auditor_verdict",
+            actor="auditor", message=f"approved={approved} {feedback[:200] if feedback else ''}",
+        ))
 
         # 3. Post Auditor verdict to issue
         await _post_auditor_verdict_to_issue(
@@ -1467,6 +1504,8 @@ async def _execute_one_stage(run_id: str, orch: Any, container: Any, service_aut
 async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service_auth: Any) -> None:
     """Execute all stages in sequence until completion or failure."""
     from stronghold.builders import RunStatus
+    from stronghold.builders.contracts import StageEvent
+    from stronghold.builders.trace_context import TraceContext
     from stronghold.log_context import RunLoggerAdapter
     import json as _json
 
@@ -1476,6 +1515,35 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
     run = orch._runs.get(run_id)
     if not run:
         return
+
+    # ── Build TraceContext + create trace ─────────────────────────────
+    session_id = run.session_id or run_id  # synthesis per session model
+    ctx = TraceContext(
+        run_id=run_id,
+        user_id=getattr(service_auth, "user_id", "builders-service"),
+        org_id=getattr(service_auth, "org_id", ""),
+        auth_method=getattr(service_auth, "auth_method", "service"),
+        session_id=session_id,
+        intent_mode=run.intent_mode,
+        parent_trace_id=run.parent_trace_id,
+        request_id=run.request_id,
+        repo=run.repo,
+        issue_number=run.issue_number,
+        branch=run.branch,
+        workspace_ref=run.workspace_ref,
+        runtime_version=run.runtime_version,
+        is_ui=run.current_stage in _UI_STAGE_SEQUENCE,
+    )
+    tracer = getattr(container, "tracer", None)
+    trace = None
+    if tracer is not None:
+        trace = tracer.create_trace(
+            user_id=ctx.user_id,
+            session_id=ctx.session_id,
+            name=f"builders.run.{run_id}",
+            parent_trace_id=ctx.parent_trace_id,
+            metadata=ctx.to_trace_metadata(),
+        )
 
     owner, repo = run.repo.split("/")
     issue_number = run.issue_number
@@ -1591,6 +1659,12 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
         if run:
             run._mason_model_override = mason_model
         outer_log.info("[OUTER] loop %d/%d mason_model=%s", outer + 1, MAX_OUTER_LOOPS, mason_model)
+        run.events.append(StageEvent(
+            run_id=run_id, stage=run.current_stage, event="outer_loop_started",
+            actor="system", message=f"loop {outer + 1}/{MAX_OUTER_LOOPS} mason_model={mason_model}",
+        ))
+        if ctx is not None:
+            ctx = ctx.with_(outer_loop=outer)
 
         # Reset run to acceptance_defined if this is a retry (not the first pass)
         if outer > 0:
@@ -1633,7 +1707,7 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
                 break
             if run.status in (RunStatus.PASSED, RunStatus.FAILED, RunStatus.BLOCKED):
                 break
-            await _execute_one_stage(run_id, orch, container, service_auth)
+            await _execute_one_stage(run_id, orch, container, service_auth, ctx=ctx, trace=trace)
 
         run = orch._runs.get(run_id)
         if not run:
@@ -1676,6 +1750,8 @@ async def _execute_full_workflow(run_id: str, orch: Any, container: Any, service
         })
         outer_log.info("[OUTER] all %d loops exhausted — BLOCKED, waiting for human", MAX_OUTER_LOOPS)
 
+    if trace is not None:
+        trace.end()
     logger.info("Workflow complete for run %s", run_id)
 
 

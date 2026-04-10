@@ -73,6 +73,31 @@ jobs:
         if: steps.changed.outputs.files == ''
         run: echo "No Python files changed in this PR — skipping lint."
 
+  security:
+    name: Security Tests
+    runs-on: [self-hosted, stronghold]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: "Warden + Sentinel + Gate"
+        run: pytest tests/security/test_gate.py tests/security/test_gate_sufficiency.py tests/security/test_sentinel_pipeline.py tests/security/test_sentinel_post_call.py tests/security/test_warden_extended.py tests/security/test_warden_heuristics.py tests/security/test_warden_isolation.py tests/security/test_pii_filter.py tests/security/test_semantic_poisoning.py -v --tb=short
+      - name: "Adversarial + prompt injection"
+        run: pytest tests/security/test_adversarial_injection.py tests/security/test_prompt_injection.py -v --tb=short
+      - name: "Auth + rate limiting + strikes"
+        run: pytest tests/security/test_coverage_auth.py tests/security/test_auth_cookie_coverage.py tests/security/test_rate_limiter.py tests/security/test_strikes_coverage.py -v --tb=short
+      - name: "Tool policy + task policy + vault"
+        run: pytest tests/security/test_tool_policy.py tests/security/test_task_policy.py tests/security/test_vault_client.py -v --tb=short
+      - name: "Audit regression (3 rounds)"
+        run: pytest tests/security/test_security_audit_2026_03_30.py tests/security/test_security_audit_round2.py tests/security/test_security_audit_round3.py tests/security/test_security_hardening.py tests/security/test_audit_regression.py -v --tb=short
+      - name: "Schema validation + token optimization"
+        run: pytest tests/security/test_schema_validation.py tests/security/test_schema_repair.py tests/security/test_token_optimization.py tests/security/test_flag_response.py -v --tb=short
+
   test:
     name: Tests
     runs-on: [self-hosted, stronghold]

@@ -50,9 +50,12 @@ def test_budget_none_values_pass() -> None:
     assert p.check_budget("alice", "acme", "P2") is True
 
 
-def test_budget_unknown_tier_passes() -> None:
+def test_budget_unknown_tier_denied() -> None:
+    """SECURITY: unknown tier names must not bypass budget enforcement."""
     p = InMemoryTaskAcceptancePolicy()
-    assert p.check_budget("alice", "acme", "P99", token_budget=999_999) is True
+    assert p.check_budget("alice", "acme", "P99", token_budget=1) is False
+    assert p.check_budget("alice", "acme", "", token_budget=1) is False
+    assert p.check_budget("alice", "acme", "P0'; DROP TABLE users;--", token_budget=1) is False
 
 
 def test_custom_budget_limit() -> None:

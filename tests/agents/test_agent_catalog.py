@@ -95,13 +95,45 @@ def test_from_identity() -> None:
     assert card.scope == "builtin"
 
 
-def test_to_dict() -> None:
-    card = _card("ranger", trust_tier="t1", priority_tier="P1")
+def test_to_dict_includes_all_fields() -> None:
+    """to_dict() must serialize every relevant field, not just a subset."""
+    card = AgentCard(
+        id="ranger", name="ranger", description="search agent",
+        version="2.1.0", reasoning_strategy="react",
+        tools=("web_search", "knowledge"),
+        skills=("summarize",),
+        trust_tier="t1", priority_tier="P1",
+        max_tool_rounds=5, delegation_mode="react",
+        sub_agents=("sub-1",),
+        model="gemini-2.5-pro",
+        model_fallbacks=("mistral-large",),
+        active=True,
+    )
     d = card.to_dict()
     assert d["id"] == "ranger"
+    assert d["name"] == "ranger"
+    assert d["description"] == "search agent"
+    assert d["version"] == "2.1.0"
     assert d["trust_tier"] == "t1"
     assert d["priority_tier"] == "P1"
-    assert "tools" in d["capabilities"]
+    assert d["model"] == "gemini-2.5-pro"
+    assert d["active"] is True
+    caps = d["capabilities"]
+    assert caps["reasoning_strategy"] == "react"
+    assert caps["tools"] == ["web_search", "knowledge"]
+    assert caps["skills"] == ["summarize"]
+    assert caps["max_tool_rounds"] == 5
+    assert caps["delegation_mode"] == "react"
+    assert caps["sub_agents"] == ["sub-1"]
+
+
+def test_from_identity_preserves_priority_tier() -> None:
+    """from_identity must carry priority_tier through (not default to P2)."""
+    identity = AgentIdentity(
+        name="frank", trust_tier="t1", priority_tier="P5",
+    )
+    card = AgentCard.from_identity(identity)
+    assert card.priority_tier == "P5"
 
 
 def test_empty_catalog_returns_nothing() -> None:

@@ -78,9 +78,14 @@ class InMemoryTaskAcceptancePolicy:
         cost_budget: float | None = None,
         wall_clock_seconds: float | None = None,
     ) -> bool:
-        limits = self._budget_limits.get(priority_tier, {})
-        if not limits:
-            return True
+        # Reject unknown tiers (security: prevent bypass via invalid tier names)
+        if priority_tier not in self._budget_limits:
+            logger.warning(
+                "Budget DENIED: user=%s org=%s unknown tier=%s",
+                user_id, org_id, priority_tier,
+            )
+            return False
+        limits = self._budget_limits[priority_tier]
 
         if token_budget is not None and token_budget > limits.get("max_tokens", float("inf")):
             logger.warning(

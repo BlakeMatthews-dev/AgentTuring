@@ -96,19 +96,82 @@ async def test_delegate_agent_not_allowed() -> None:
 
 
 async def test_delegate_network_failure() -> None:
+    """Use respx to deterministically simulate network failure (not dep on unreachable host)."""
+    import respx
+    import httpx
+
     audit = InMemoryAuditLogger()
     reg = GuestPeerRegistry(audit=audit)
     reg.register_peer(_peer())
-    # This will fail because the URL is unreachable
-    result = await reg.delegate(
-        "acme", "ext-peer", "ranger",
-        [{"role": "user", "content": "hi"}], user_id="alice",
-    )
+    with respx.mock:
+        respx.post("http://external-peer:8100/a2a/tasks/create").mock(
+            side_effect=httpx.ConnectError("connection refused"),
+        )
+        result = await reg.delegate(
+            "acme", "ext-peer", "ranger",
+            [{"role": "user", "content": "hi"}], user_id="alice",
+        )
     assert result.status == "failed"
     assert result.error is not None
+    assert "connection refused" in result.error
     assert len(audit.entries) == 1
     assert audit.entries[0]["status"] == "failed"
     assert audit.entries[0]["user_id"] == "alice"
+
+
+async def test_delegate_success_sends_correct_payload() -> None:
+    """Real HTTP layer: verify auth header, URL, and payload shape."""
+    import respx
+    import httpx
+    import json as _json
+
+    audit = InMemoryAuditLogger()
+    reg = GuestPeerRegistry(audit=audit)
+    reg.register_peer(_peer())
+
+    with respx.mock:
+        route = respx.post("http://external-peer:8100/a2a/tasks/create").mock(
+            return_value=httpx.Response(201, json={"task_id": "t-xyz", "status": "submitted"}),
+        )
+        result = await reg.delegate(
+            "acme", "ext-peer", "ranger",
+            [{"role": "user", "content": "hello"}], user_id="alice",
+        )
+
+    assert result.status == "submitted"
+    assert result.task_id == "t-xyz"
+    assert route.called
+    req = route.calls.last.request
+    # Auth header with token
+    assert req.headers["authorization"] == "Bearer sk-external"
+    # Payload shape
+    body = _json.loads(req.content)
+    assert body["agent_id"] == "ranger"
+    assert body["messages"] == [{"role": "user", "content": "hello"}]
+    # Audit
+    assert audit.entries[-1]["status"] == "submitted"
+
+
+async def test_delegate_http_error_recorded() -> None:
+    """HTTP 500 from peer should be recorded as failed, not submitted."""
+    import respx
+    import httpx
+
+    audit = InMemoryAuditLogger()
+    reg = GuestPeerRegistry(audit=audit)
+    reg.register_peer(_peer())
+
+    with respx.mock:
+        respx.post("http://external-peer:8100/a2a/tasks/create").mock(
+            return_value=httpx.Response(500, text="internal error"),
+        )
+        result = await reg.delegate(
+            "acme", "ext-peer", "ranger",
+            [{"role": "user", "content": "hi"}], user_id="alice",
+        )
+
+    assert result.status == "failed"
+    assert audit.entries[-1]["status"] == "failed"
 
 
 def test_audit_logger_protocol() -> None:

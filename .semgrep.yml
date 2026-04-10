@@ -1,0 +1,132 @@
+# Semgrep rules for Stronghold.
+#
+# Uses the public p/python + p/security-audit + p/owasp-top-ten rulesets
+# plus custom rules for Stronghold-specific anti-patterns.
+
+rules:
+  # ── Stronghold-specific ──────────────────────────────────────────
+
+  - id: stronghold-no-cross-tenant-query
+    patterns:
+      - pattern-either:
+          - pattern: |
+              await $CONN.fetch($SQL, ...)
+          - pattern: |
+              await $CONN.fetchrow($SQL, ...)
+          - pattern: |
+              await $CONN.execute($SQL, ...)
+      - pattern-not: |
+          await $CONN.$METHOD($SQL, ..., $ORG_ID, ...)
+    message: >
+      SQL query without org_id parameter — cross-tenant data access risk (C1-C7).
+      All Pg* repositories must scope queries by org_id.
+    severity: ERROR
+    languages: [python]
+    paths:
+      include:
+        - src/stronghold/persistence/
+      exclude:
+        - src/stronghold/persistence/pg_audit.py
+
+  - id: stronghold-no-hs256-jwt
+    patterns:
+      - pattern: |
+          jwt.encode(..., algorithm="HS256", ...)
+      - pattern-not-inside: |
+          def test_$NAME(...):
+              ...
+    message: >
+      HS256 JWT found — use RS256 in production (R18 from security audit).
+      Symmetric signing lets anyone with the API key forge tokens.
+    severity: ERROR
+    languages: [python]
+
+  - id: stronghold-no-system-auth-leak
+    patterns:
+      - pattern: SYSTEM_AUTH
+      - pattern-not-inside: |
+          def test_$NAME(...):
+              ...
+      - pattern-not-inside: |
+          class $CLS(...):
+              ...
+    message: >
+      SYSTEM_AUTH should only be used for internal service-to-service auth,
+      never for external API access (R8).
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - src/stronghold/api/routes/
+
+  - id: stronghold-no-privileged-docker
+    pattern: |
+      privileged: true
+    message: >
+      privileged: true in docker-compose grants full host access (R1, R2).
+    severity: ERROR
+    languages: [yaml]
+    paths:
+      include:
+        - docker-compose*.yml
+        - deploy/
+
+  - id: stronghold-warden-scan-required
+    patterns:
+      - pattern: |
+          await $LLM.complete(...)
+      - pattern-not-inside: |
+          await self.warden.scan(...)
+          ...
+      - pattern-not-inside: |
+          def test_$NAME(...):
+              ...
+    message: >
+      LLM call without prior Warden scan — all LLM input must be scanned.
+    severity: WARNING
+    languages: [python]
+    paths:
+      include:
+        - src/stronghold/agents/
+
+  - id: stronghold-no-innerHTML
+    pattern: |
+      $EL.innerHTML = ...
+    message: >
+      innerHTML assignment is XSS-prone. Use textContent or the esc() helper.
+    severity: ERROR
+    languages: [javascript, html]
+    paths:
+      include:
+        - src/stronghold/dashboard/
+
+  - id: stronghold-no-shell-true
+    pattern: |
+      subprocess.$FN(..., shell=True, ...)
+    message: >
+      subprocess with shell=True is a command injection risk.
+    severity: ERROR
+    languages: [python]
+
+  - id: stronghold-no-yaml-unsafe-load
+    pattern-either:
+      - pattern: yaml.load($DATA)
+      - pattern: yaml.load($DATA, Loader=yaml.Loader)
+      - pattern: yaml.load($DATA, Loader=yaml.FullLoader)
+    message: >
+      yaml.load without SafeLoader is a deserialization vulnerability.
+      Use yaml.safe_load().
+    severity: ERROR
+    languages: [python]
+
+  - id: stronghold-no-pickle-loads
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+    message: >
+      pickle.load/loads is arbitrary code execution on untrusted input.
+    severity: ERROR
+    languages: [python]
+    paths:
+      exclude:
+        - tests/

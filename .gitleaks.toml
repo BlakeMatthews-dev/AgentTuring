@@ -1,0 +1,30 @@
+# Gitleaks config for Stronghold.
+# Extends the default ruleset with Stronghold-specific false-positive allowlist.
+
+title = "Stronghold gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe test and example values"
+paths = [
+    '''tests/''',
+    '''.claude/''',
+    '''_archive/''',
+    '''\.md$''',
+]
+regexes = [
+    '''sk-example-[a-zA-Z0-9-]+''',
+    '''sk-test-[a-zA-Z0-9-]+''',
+    '''sk-ci-test-[a-zA-Z0-9-]+''',
+    '''ghp_example[a-zA-Z0-9]*''',
+    '''ANTHROPIC_API_KEY=sk-ant-api03-''',
+    '''# pragma: allowlist secret''',
+]
+stopwords = [
+    "example",
+    "placeholder",
+    "your-key-here",
+    "REPLACE_ME",
+]

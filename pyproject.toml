@@ -94,3 +94,26 @@ exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
 [tool.bandit]
 targets = ["src/stronghold"]
 severity = "medium"
+
+[tool.vulture]
+paths = ["src/stronghold"]
+min_confidence = 80
+ignore_decorators = ["@router.*", "@app.*", "@pytest.fixture", "@dataclass"]
+exclude = ["src/stronghold/api/routes/*"]  # FastAPI routes look unused to vulture
+
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-private = true
+ignore-semiprivate = true
+fail-under = 70
+exclude = ["tests", "build", "dist"]
+verbose = 1
+quiet = false
+
+# Xenon is CLI-only — configured via ci.yml flags:
+# xenon --max-absolute B --max-modules A --max-average A src/stronghold/
+
+# pip-licenses is CLI-only — configured via ci.yml flags:
+# pip-licenses --fail-on "GPL;AGPL;LGPL" --allow-only "MIT;Apache;BSD;ISC;MPL;Python;PSF;Unlicense"

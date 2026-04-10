@@ -700,10 +700,15 @@ async def _review_pass(container: Any, owner: str, repo: str) -> None:
     prs = [i for i in items if i.get("is_pr", False)]
     reviewed_set = _scheduler_state["reviewed_prs"]
     completed_set = _scheduler_state["completed_issues"]
+    failed_set = _scheduler_state["failed_issues"]
 
-    # Review at most 2 PRs per loop
+    # Review at most 5 PRs per loop. The previous limit of 2 + the
+    # 5-minute scheduler interval meant 8 review_changes_requested
+    # PRs took at least 20 minutes to cycle through, leaving Mason
+    # idle while the queue piled up. 5 keeps the per-tick budget
+    # bounded but moves through small queues in a single tick.
     pipeline = _build_pipeline(container)
-    review_slots = 2
+    review_slots = 5
     for pr_item in prs:
         if review_slots <= 0:
             break
@@ -759,14 +764,43 @@ async def _review_pass(container: Any, owner: str, repo: str) -> None:
                 if result.evidence.get("merged"):
                     _scheduler_state["stats"]["merged"] += 1
             else:
-                # REQUEST_CHANGES — unblock the parent issue for re-dispatch
+                # REQUEST_CHANGES — unblock the parent issue for re-dispatch.
+                # Three previous bugs lived here:
+                #
+                #   1. The discard was gated on `parent_issue in completed_set`.
+                #      In-process scheduler state is lost on every container
+                #      restart, so completed_set is frequently empty even when
+                #      the parent had previously completed → the discard was
+                #      a no-op and the issue stayed permanently un-rotated.
+                #
+                #   2. The discard only touched completed_set. If the parent
+                #      had landed in failed_set on an earlier outer-loop
+                #      retry, it stayed there forever — the rank function
+                #      skips failed_set members.
+                #
+                #   3. There was no fast-path to push the issue back into
+                #      rotation. The fix relies on the next scheduler tick
+                #      re-ranking; combined with bugs #1 and #2 above, the
+                #      loop simply never closed.
+                #
+                # The fix: always discard the parent from BOTH sets if a
+                # parent number was extracted, regardless of its prior
+                # presence. The next scheduler tick will then rank the
+                # issue normally and dispatch it. Mason's _fetch_prior_runs
+                # picks up the Gatekeeper Verdict comment via PR-Q10's
+                # regex broadening so the next analysis sees the rejection
+                # as prior history.
                 _scheduler_state["stats"]["review_changes_requested"] += 1
-                if parent_issue and parent_issue in completed_set:
+                if parent_issue:
+                    was_completed = parent_issue in completed_set
+                    was_failed = parent_issue in failed_set
                     completed_set.discard(parent_issue)
+                    failed_set.discard(parent_issue)
                     logger.info(
                         "Gatekeeper requested changes on PR #%d — "
-                        "re-opening issue #%d for scheduler",
-                        pr_number, parent_issue,
+                        "re-opening issue #%d for scheduler "
+                        "(was_completed=%s was_failed=%s)",
+                        pr_number, parent_issue, was_completed, was_failed,
                     )
 
             review_slots -= 1

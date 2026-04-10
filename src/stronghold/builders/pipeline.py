@@ -8,6 +8,7 @@ The LLM never sees tool definitions.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +22,27 @@ from stronghold.builders.extractors import (
 logger = logging.getLogger("stronghold.builders.pipeline")
 
 MAX_LLM_RETRIES = 3
+
+
+# ── Prior-run signal patterns (module-level so tests can import the
+#    source of truth instead of re-declaring local copies) ──────────
+
+# `## Builders Run \`(run|sched)-<hex>\`` — header comment that Mason
+# posts at the start of every run. The id prefix is `run-` for manual
+# /runs flow and `sched-` for scheduler-dispatched flow. Both must
+# match so _fetch_prior_runs sees scheduler-dispatched history.
+BUILDERS_RUN_PATTERN = re.compile(
+    r"##\s*Builders Run\s*`?((?:run|sched)-[a-f0-9]+)`?"
+)
+
+# `## Gatekeeper Verdict on PR #N` — comment that review_pr posts to
+# the parent issue when Gatekeeper approves or requests changes on a
+# Mason PR. _fetch_prior_runs picks these up so Mason can learn from
+# rejections on the next outer-loop attempt.
+GATEKEEPER_VERDICT_PATTERN = re.compile(
+    r"##\s*Gatekeeper Verdict on PR\s*#(\d+)",
+    re.IGNORECASE,
+)
 
 
 # ── Issue type registry for context-aware onboarding ─────────────────
@@ -495,14 +517,29 @@ class RuntimePipeline:
         *,
         exclude_run_id: str = "",
     ) -> list[dict[str, str]]:
-        """Fetch prior Builders Run comments from the issue.
+        """Fetch prior Builders Run + Gatekeeper Verdict comments.
 
-        Returns list of dicts with run_id and summary for each prior run.
-        Filters to only comments starting with '## Builders Run'.
+        Returns a list of dicts with `run_id` and `summary` for each prior
+        signal Mason should learn from when re-running this issue:
+
+        1. Prior `## Builders Run` comments — ID can be either
+           `run-<hex>` (manual /runs flow) or `sched-<hex>` (scheduler-
+           dispatched flow). The previous version of this regex only
+           matched `run-`, so scheduler-dispatched runs were silently
+           invisible to Frank's prior-history lookup and the
+           "learn from prior failures" feedback loop never closed for
+           anything the scheduler picked up.
+
+        2. Prior `## Gatekeeper Verdict on PR #N` comments — these
+           carry the changes-requested feedback Mason needs to see on
+           the next outer loop. Without this, Mason would re-run the
+           same issue, produce the same broken PR, and Gatekeeper would
+           reject again forever. With this, Mason's analysis sees the
+           verdict in its prior-history block and can adjust.
+
         Excludes the current run if exclude_run_id is set.
         """
         import json as _json
-        import re as _re
 
         result = await self._td.execute(
             "github",
@@ -523,17 +560,37 @@ class RuntimePipeline:
         if not isinstance(comments, list):
             return []
 
-        prior_runs = []
-        run_id_pattern = _re.compile(r"##\s*Builders Run\s*`?(run-[a-f0-9]+)`?")
+        prior_runs: list[dict[str, str]] = []
+
         for comment in comments:
-            body = comment.get("body", "") if isinstance(comment, dict) else ""
-            match = run_id_pattern.search(body)
-            if not match:
+            if not isinstance(comment, dict):
                 continue
-            run_id = match.group(1)
-            if run_id == exclude_run_id:
+            body = comment.get("body", "") or ""
+
+            # Builders Run header — accepts both manual and scheduler
+            # ID prefixes (see BUILDERS_RUN_PATTERN module docstring).
+            run_match = BUILDERS_RUN_PATTERN.search(body)
+            if run_match:
+                run_id = run_match.group(1)
+                if run_id == exclude_run_id:
+                    continue
+                prior_runs.append({"run_id": run_id, "summary": body})
                 continue
-            prior_runs.append({"run_id": run_id, "summary": body})
+
+            # Gatekeeper verdict — synthesize a stable id from the PR
+            # number AND the GitHub comment id so multiple verdicts on
+            # the same PR (e.g., three reject cycles) each get a unique
+            # entry in prior_runs instead of colliding on the same id.
+            gk_match = GATEKEEPER_VERDICT_PATTERN.search(body)
+            if gk_match:
+                pr_number = gk_match.group(1)
+                comment_id = comment.get("id", "x")
+                prior_runs.append(
+                    {
+                        "run_id": f"gatekeeper-pr{pr_number}-{comment_id}",
+                        "summary": body,
+                    }
+                )
 
         return prior_runs
 

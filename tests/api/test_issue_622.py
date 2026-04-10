@@ -83,3 +83,28 @@ class TestIntentClassifierProtocol:
         assert "multi" in detect_doc or "multiple" in detect_doc, (
             "detect_multi_intent method docstring should mention multi-intent detection"
         )
+
+    def test_protocol_completeness_against_requirements(self) -> None:
+        """Verify IntentClassifier protocol includes all required methods per specifications."""
+        # Get all members of the protocol
+        members = inspect.getmembers(IntentClassifier)
+
+        # Extract methods (functions) from members
+        methods = [
+            name
+            for name, member in members
+            if inspect.isfunction(member) or inspect.ismethod(member)
+        ]
+
+        # Verify all required methods from specifications are present
+        required_methods = {"classify", "detect_multi_intent"}
+        assert required_methods.issubset(set(methods)), (
+            f"IntentClassifier protocol is missing required methods: "
+            f"{required_methods - set(methods)}"
+        )
+
+        # Verify no extra methods beyond the protocol specification
+        assert set(methods) == required_methods, (
+            f"IntentClassifier protocol contains unexpected methods: "
+            f"{set(methods) - required_methods}"
+        )

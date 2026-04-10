@@ -1,31 +1,46 @@
-"""Intent classifier protocol."""
+"""IntentClassifier protocol definition."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from stronghold.types.config import TaskTypeConfig
     from stronghold.types.intent import Intent
 
 
-@runtime_checkable
 class IntentClassifier(Protocol):
-    """Classifies user messages into task types with complexity and priority."""
+    """Protocol for intent classification functionality."""
 
-    async def classify(
+    def classify(
         self,
-        messages: list[dict[str, str]],
-        task_types: dict[str, TaskTypeConfig],
-        explicit_priority: str | None = None,
+        messages: list[str],
+        task_types: list[str],
+        explicit_priority: bool = False,
     ) -> Intent:
-        """Classify user messages into intents based on task types with complexity and priority."""
+        """Classify intent from messages.
+
+        Args:
+            messages: List of message strings to analyze
+            task_types: List of task types to consider
+            explicit_priority: Whether to prioritize explicit intents
+
+        Returns:
+            The classified intent
+        """
         ...
 
     def detect_multi_intent(
         self,
         user_text: str,
-        task_types: dict[str, TaskTypeConfig],
+        task_types: list[str],
     ) -> list[str]:
-        """Detect multiple intents in user text and return list of task_type strings if compound request, else empty."""
+        """Detect multiple intents in user text.
+
+        Args:
+            user_text: The user input text to analyze
+            task_types: List of task types to consider
+
+        Returns:
+            List of detected intent strings
+        """
         ...

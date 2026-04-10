@@ -71,16 +71,33 @@ auth:
     enabled: false
     issuer: ""
     audience: stronghold
-  # Entra ID
+  # Entra ID (Azure AD)
   entraId:
     enabled: false
     tenantId: ""
     clientId: ""
+    # Entra ID uses flat "roles" claim; Keycloak uses "realm_access.roles"
+    roleClaim: roles
   # Static key (always available as fallback)
   staticKey: ""
 
-# Secrets (use K8s secrets in production)
+# Secrets backend (ADR-K8S-003, ADR-K8S-011)
+# Options: "k8s" (default), "vault", "sealed-secrets", "eso"
+secretsBackend: k8s
 secretName: stronghold-secrets
+
+# Vault / OpenBao (when secretsBackend=vault or for per-user credentials)
+vault:
+  enabled: false
+  url: ""                          # e.g. https://vault.example.com:8200
+  authMethod: kubernetes            # "kubernetes" | "azure" | "token"
+  mountPath: secret                 # KV v2 mount path
+  role: stronghold-api              # Vault role for K8s/Azure auth
+  kubernetes:
+    authPath: auth/kubernetes
+  azure:
+    authPath: auth/azure
+    resource: "https://management.azure.com/"
 
 resources:
   limits:

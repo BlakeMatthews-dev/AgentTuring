@@ -1,0 +1,100 @@
+# values-aks.yaml
+#
+# Azure AKS overlay for Stronghold.
+# Disables OpenShift-specific resources, enables Ingress with
+# Azure Application Gateway or nginx, configures Entra ID auth,
+# and sets Vault with Azure auth method.
+#
+# Usage:
+#   helm install stronghold deploy/helm/stronghold \
+#     --namespace stronghold-platform \
+#     -f deploy/helm/stronghold/values-aks.yaml \
+#     --set auth.entraId.tenantId=YOUR_TENANT_ID \
+#     --set auth.entraId.clientId=YOUR_CLIENT_ID \
+#     --set vault.url=https://your-vault.vault.azure.net
+
+# ── Platform ─────────────────────────────────────────────────────────
+
+openshift:
+  enabled: false
+
+platform: aks  # Used by sandbox compat layer
+
+priorityClasses:
+  create: true
+
+namespace:
+  create: false
+  name: stronghold-platform
+
+rbac:
+  create: true
+
+# ── Ingress (Azure Application Gateway or nginx) ────────────────────
+
+ingress:
+  enabled: true
+  className: azure-application-gateway  # or "nginx"
+  annotations:
+    kubernetes.io/ingress.class: azure/application-gateway
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: stronghold.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: stronghold-tls
+      hosts:
+        - stronghold.example.com
+
+# ── Auth: Entra ID ──────────────────────────────────────────────────
+
+auth:
+  entraId:
+    enabled: true
+    tenantId: ""       # --set auth.entraId.tenantId=...
+    clientId: ""       # --set auth.entraId.clientId=...
+    # Entra ID uses flat "roles" claim, not Keycloak's "realm_access.roles"
+    roleClaim: roles
+    # Entra ID OIDC issuer
+    # issuer: https://login.microsoftonline.com/{tenantId}/v2.0
+  keycloak:
+    enabled: false
+
+# ── Vault (HashiCorp Vault or Azure Key Vault via Vault) ────────────
+
+vault:
+  enabled: true
+  url: ""              # --set vault.url=https://your-vault:8200
+  authMethod: azure    # "azure" | "kubernetes" | "token"
+  mountPath: secret    # KV v2 mount path
+  role: stronghold-api # Vault role name
+  # Azure auth specific
+  azure:
+    authPath: auth/azure
+    resource: "https://management.azure.com/"
+  # Kubernetes auth specific (if using k8s auth instead of azure)
+  kubernetes:
+    authPath: auth/kubernetes
+
+# ── Storage (Azure Disk) ────────────────────────────────────────────
+
+postgresql:
+  enabled: true
+  auth:
+    username: stronghold
+    password: ""       # --set postgresql.auth.password=...
+    database: stronghold
+  primary:
+    persistence:
+      size: 20Gi
+      storageClassName: managed-csi  # Azure Disk CSI driver (default on AKS)
+
+# ── Sandbox compat ──────────────────────────────────────────────────
+# Browser sandbox uses --no-sandbox Chrome flag instead of SYS_ADMIN
+# capability, which PSA restricted rejects.
+
+env:
+  STRONGHOLD_PLATFORM: aks
+  STRONGHOLD_MCP_NAMESPACE: stronghold-mcp

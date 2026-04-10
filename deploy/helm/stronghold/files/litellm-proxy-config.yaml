@@ -1484,18 +1484,20 @@ environment_variables:
   LANGFUSE_PUBLIC_KEY: pk-lf-conductor
   LANGFUSE_SECRET_KEY: sk-lf-conductor
 
-# MCP Servers — GitHub via OpenAPI-to-MCP conversion
-mcp_servers:
-  github:
-    url: "https://api.github.com"
-    spec_path: "/app/github-openapi.json"
-    auth_type: "bearer_token"
-    auth_value: "placeholder"
-    extra_headers:
-      - "authorization"
-    allowed_tools:
-      - "create_issue"
-      - "get_file_contents"
-      - "create_or_update_file"
-      - "create_pull_request"
-      - "create_branch"
+# MCP Servers — disabled until mcp-deployer sidecar is built.
+# Re-enable when mcpDeployerSidecar.enabled=true and the OpenAPI spec
+# is mounted into the container.
+# mcp_servers:
+#   github:
+#     url: "https://api.github.com"
+#     spec_path: "/app/github-openapi.json"
+#     auth_type: "bearer_token"
+#     auth_value: "placeholder"
+#     extra_headers:
+#       - "authorization"
+#     allowed_tools:
+#       - "create_issue"
+#       - "get_file_contents"
+#       - "create_or_update_file"
+#       - "create_pull_request"
+#       - "create_branch"

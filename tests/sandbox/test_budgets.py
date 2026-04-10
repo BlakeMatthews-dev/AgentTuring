@@ -88,3 +88,25 @@ def test_reap_does_not_go_negative() -> None:
     assert usage["pods"] == 0
     assert usage["cpu_m"] == 0
     assert usage["mem_mb"] == 0
+
+
+def test_pod_limit_at_exact_boundary() -> None:
+    enforcer = SandboxBudgetEnforcer()
+    enforcer.set_budget("acme", TenantBudget(max_pods=2))
+    enforcer.record_spawn("acme", 100, 64)
+    allowed, _ = enforcer.check_spawn("acme", 100, 64)
+    assert allowed is True
+    enforcer.record_spawn("acme", 100, 64)
+    allowed, reason = enforcer.check_spawn("acme", 100, 64)
+    assert allowed is False
+    assert "pod limit" in reason
+
+
+def test_cpu_at_exact_limit_passes() -> None:
+    enforcer = SandboxBudgetEnforcer()
+    enforcer.set_budget("acme", TenantBudget(max_cpu_millicores=1000))
+    enforcer.record_spawn("acme", 500, 64)
+    allowed, _ = enforcer.check_spawn("acme", 500, 64)
+    assert allowed is True
+    allowed, _ = enforcer.check_spawn("acme", 501, 64)
+    assert allowed is False

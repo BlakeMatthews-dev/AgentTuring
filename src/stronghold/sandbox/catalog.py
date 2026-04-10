@@ -69,7 +69,7 @@ class SandboxTemplate:
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     security: SecurityProfile = field(default_factory=SecurityProfile)
     allowed_binaries: tuple[str, ...] = ()  # For shell sandbox
-    writable_paths: tuple[str, ...] = ("/tmp",)
+    writable_paths: tuple[str, ...] = ("/tmp",)  # nosec B108 — container-isolated
     network_egress: bool = False  # Default: no outbound network
     mcp_tool_name: str = ""  # Tool name exposed by the MCP guest server
     env: dict[str, str] = field(default_factory=dict)
@@ -85,8 +85,25 @@ SHELL_TEMPLATE = SandboxTemplate(
     lifecycle=SandboxLifecycle.PER_CALL,
     resources=ResourceLimits(cpu_limit="500m", memory_limit="256Mi"),
     security=SecurityProfile(read_only_root_filesystem=True),
-    allowed_binaries=("bash", "sh", "grep", "sed", "awk", "curl", "jq", "head", "tail", "sort", "uniq", "wc", "cat", "echo", "date", "env"),
-    writable_paths=("/tmp",),
+    allowed_binaries=(
+        "bash",
+        "sh",
+        "grep",
+        "sed",
+        "awk",
+        "curl",
+        "jq",
+        "head",
+        "tail",
+        "sort",
+        "uniq",
+        "wc",
+        "cat",
+        "echo",
+        "date",
+        "env",
+    ),
+    writable_paths=("/tmp",),  # nosec B108
     network_egress=False,
     mcp_tool_name="shell.exec",
 )
@@ -99,7 +116,7 @@ PYTHON_TEMPLATE = SandboxTemplate(
     lifecycle=SandboxLifecycle.PER_CALL,
     resources=ResourceLimits(cpu_limit="1000m", memory_limit="512Mi"),
     security=SecurityProfile(read_only_root_filesystem=True),
-    writable_paths=("/tmp",),
+    writable_paths=("/tmp",),  # nosec B108
     network_egress=False,
     mcp_tool_name="python.exec",
 )
@@ -116,7 +133,7 @@ BROWSER_TEMPLATE = SandboxTemplate(
         read_only_root_filesystem=False,  # Browser needs writable home
         add_capabilities=("SYS_ADMIN",),  # Chrome sandbox
     ),
-    writable_paths=("/tmp", "/home/browser"),
+    writable_paths=("/tmp", "/home/browser"),  # nosec B108
     network_egress=True,  # Browsers need network access
     mcp_tool_name="browser.fetch",
 )
@@ -162,8 +179,12 @@ NETWORK_TEMPLATE = SandboxTemplate(
 
 # All built-in templates
 BUILTIN_TEMPLATES: tuple[SandboxTemplate, ...] = (
-    SHELL_TEMPLATE, PYTHON_TEMPLATE, BROWSER_TEMPLATE,
-    FILESYSTEM_TEMPLATE, K8S_TEMPLATE, NETWORK_TEMPLATE,
+    SHELL_TEMPLATE,
+    PYTHON_TEMPLATE,
+    BROWSER_TEMPLATE,
+    FILESYSTEM_TEMPLATE,
+    K8S_TEMPLATE,
+    NETWORK_TEMPLATE,
 )
 
 
@@ -190,7 +211,10 @@ class SandboxPodCatalog:
         return [t for t in self._templates.values() if t.sandbox_type == sandbox_type]
 
     async def spawn(
-        self, template_name: str, tenant_id: str, user_id: str = "",
+        self,
+        template_name: str,
+        tenant_id: str,
+        user_id: str = "",
         session_id: str = "",
     ) -> dict[str, Any] | None:
         """Spawn a sandbox pod from a template. Returns pod metadata."""
@@ -200,6 +224,7 @@ class SandboxPodCatalog:
             return None
 
         import uuid
+
         pod_id = f"sandbox-{template.sandbox_type}-{uuid.uuid4().hex[:8]}"
 
         metadata = {
@@ -213,7 +238,9 @@ class SandboxPodCatalog:
             "endpoint": f"http://{pod_id}.stronghold-mcp.svc.cluster.local:3000",
         }
         self._active_pods[pod_id] = metadata
-        logger.info("Spawned sandbox pod: %s (template=%s, tenant=%s)", pod_id, template_name, tenant_id)
+        logger.info(
+            "Spawned sandbox pod: %s (template=%s, tenant=%s)", pod_id, template_name, tenant_id
+        )
         return metadata
 
     async def reap(self, pod_id: str) -> bool:

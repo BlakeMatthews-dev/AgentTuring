@@ -102,3 +102,17 @@ def test_to_dict() -> None:
     assert d["trust_tier"] == "t1"
     assert d["priority_tier"] == "P1"
     assert "tools" in d["capabilities"]
+
+
+def test_empty_catalog_returns_nothing() -> None:
+    cat = AgentCatalog()
+    assert cat.list_agents() == []
+    assert cat.resolve("x") is None
+    assert cat.list_by_trust_tier("t1") == []
+
+
+def test_duplicate_deduplicates_in_list() -> None:
+    cat = AgentCatalog()
+    cat.register(_card("ranger", priority_tier="P1"))
+    cat.register(_card("ranger", priority_tier="P2"))
+    assert len(cat.list_agents()) == 1

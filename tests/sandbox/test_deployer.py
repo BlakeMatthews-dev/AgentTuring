@@ -80,3 +80,27 @@ async def test_spawn_with_env_overrides() -> None:
         env_overrides={"CUSTOM_VAR": "value"},
     )
     assert result["status"] == "running"
+
+
+async def test_spawn_endpoint_is_valid_k8s_dns() -> None:
+    deployer = FakeMCPDeployerClient()
+    result = await deployer.spawn("sandbox.shell", tenant_id="acme")
+    endpoint = result["endpoint"]
+    assert endpoint.startswith("http://")
+    assert ".svc.cluster.local:" in endpoint
+    assert result["pod_id"] in endpoint
+
+
+async def test_reap_then_status_not_found() -> None:
+    deployer = FakeMCPDeployerClient()
+    result = await deployer.spawn("sandbox.shell", tenant_id="acme")
+    await deployer.reap(result["pod_id"])
+    status = await deployer.status(result["pod_id"])
+    assert status["status"] == "not_found"
+
+
+async def test_spawn_preserves_session_id() -> None:
+    deployer = FakeMCPDeployerClient()
+    result = await deployer.spawn("sandbox.shell", tenant_id="acme", session_id="sess-123")
+    status = await deployer.status(result["pod_id"])
+    assert status["session_id"] == "sess-123"

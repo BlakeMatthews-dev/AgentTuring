@@ -112,3 +112,22 @@ def test_tool_decorator_infers_types() -> None:
     assert props["count"]["type"] == "integer"
     assert props["rate"]["type"] == "number"
     assert props["active"]["type"] == "boolean"
+
+
+def test_resolve_falls_back_to_builtin_when_tenant_mismatch() -> None:
+    cat = ToolCatalog()
+    cat.register(_entry("shell", scope="builtin", version="1.0.0"))
+    cat.register(_entry("shell", scope="tenant", tenant_id="acme", version="2.0.0"))
+    result = cat.resolve("shell", tenant_id="other-corp")
+    assert result is not None
+    assert result.scope == "builtin"
+    assert result.version == "1.0.0"
+
+
+def test_list_tools_no_args_returns_builtins_only() -> None:
+    cat = ToolCatalog()
+    cat.register(_entry("builtin_tool", scope="builtin"))
+    cat.register(_entry("tenant_tool", scope="tenant", tenant_id="acme"))
+    tools = cat.list_tools()
+    assert len(tools) == 1
+    assert tools[0].definition.name == "builtin_tool"

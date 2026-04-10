@@ -72,3 +72,23 @@ def test_all_tiers_have_defaults() -> None:
     for tier in ("P0", "P1", "P2", "P3", "P4", "P5"):
         # All tiers should have default limits
         assert p.check_budget("alice", "acme", tier, token_budget=1) is True
+
+
+def test_cost_at_exact_limit_passes() -> None:
+    p = InMemoryTaskAcceptancePolicy()
+    p.set_budget_limit("P1", max_cost=5.0)
+    assert p.check_budget("alice", "acme", "P1", cost_budget=5.0) is True
+    assert p.check_budget("alice", "acme", "P1", cost_budget=5.01) is False
+
+
+def test_wall_clock_at_exact_limit_passes() -> None:
+    p = InMemoryTaskAcceptancePolicy()
+    p.set_budget_limit("P0", max_seconds=300)
+    assert p.check_budget("alice", "acme", "P0", wall_clock_seconds=300) is True
+    assert p.check_budget("alice", "acme", "P0", wall_clock_seconds=301) is False
+
+
+def test_multi_dimension_budget_fail() -> None:
+    p = InMemoryTaskAcceptancePolicy()
+    p.set_budget_limit("P2", max_tokens=999999, max_cost=1.0)
+    assert p.check_budget("alice", "acme", "P2", token_budget=100, cost_budget=50.0) is False

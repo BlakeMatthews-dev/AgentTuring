@@ -115,3 +115,24 @@ def test_audit_logger_protocol() -> None:
     from stronghold.a2a.guest_peers import AuditLogger
     audit = InMemoryAuditLogger()
     assert isinstance(audit, AuditLogger)
+
+
+async def test_delegate_empty_allowed_agents_means_all() -> None:
+    audit = InMemoryAuditLogger()
+    reg = GuestPeerRegistry(audit=audit)
+    reg.register_peer(_peer(allowed_agents=()))
+    result = await reg.delegate("acme", "ext-peer", "any-agent", [{"role": "user", "content": "hi"}])
+    assert result.status == "failed"  # network error, not policy rejection
+    assert "not allowed" not in (result.error or "")
+
+
+async def test_audit_entry_has_all_fields() -> None:
+    audit = InMemoryAuditLogger()
+    reg = GuestPeerRegistry(audit=audit)
+    await reg.delegate("acme", "missing", "ranger", [{"role": "user", "content": "hi"}], user_id="alice")
+    entry = audit.entries[0]
+    assert entry["peer_name"] == "missing"
+    assert entry["agent_id"] == "ranger"
+    assert entry["tenant_id"] == "acme"
+    assert entry["user_id"] == "alice"
+    assert entry["status"] == "rejected"

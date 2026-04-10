@@ -1,0 +1,33 @@
+# Postgres init scripts. Mounted into /docker-entrypoint-initdb.d; the
+# official postgres image executes every *.sql file under that directory
+# in lexical order on first boot (see the docker-library/postgres README,
+# "Initialization scripts" section).
+#
+# Port of the SQL from the raw manifest at deploy/k8s/postgres.yaml. The
+# CREATE EXTENSION statements require the pgvector/pgvector:pg17 image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stronghold.fullname" . }}-postgres-init
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+    stronghold.io/priority-tier: P1
+data:
+  001_initial.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    CREATE TABLE IF NOT EXISTS prompts (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        label TEXT,
+        content TEXT NOT NULL,
+        config JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by TEXT NOT NULL DEFAULT 'system',
+        UNIQUE(name, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompts_name ON prompts (name);

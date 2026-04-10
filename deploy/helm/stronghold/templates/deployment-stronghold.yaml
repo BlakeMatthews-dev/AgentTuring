@@ -1,0 +1,140 @@
+# Stronghold API Deployment.
+#
+# Replaces the single-container raw manifest at deploy/k8s/stronghold.yaml
+# and closes BACKLOG R3. The key architectural change versus the raw
+# manifest is the two-container pod: the main `stronghold` container
+# contains NO kubeconfig and cannot talk to the Kubernetes API directly,
+# while the `mcp-deployer` sidecar runs under the least-privilege
+# stronghold-mcp-deployer ServiceAccount (PR-6 RBAC) and exposes a Unix
+# domain socket over a shared emptyDir volume. This matches the
+# Kubernetes "Sidecar containers" pattern documented in the workloads
+# concept guide.
+#
+# PriorityClass is P0 per ADR-K8S-014 — stronghold-api is the chat-critical
+# hot path and is evicted last.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/priority-tier: P0
+spec:
+  replicas: {{ .Values.strongholdApi.replicas }}
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: stronghold-api
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: stronghold-api
+        stronghold.io/priority-tier: P0
+      annotations:
+        # Rollout on config changes. The checksum/config pattern is from
+        # the Helm chart development guide ("Automatically Roll Deployments").
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-stronghold.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+      automountServiceAccountToken: true
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P0" "root" .) }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stronghold
+          image: {{ include "stronghold.image" (dict "image" .Values.strongholdApi.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.strongholdApi.image) }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.strongholdApi.containerPort }}
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/$(POSTGRES_DB)
+            - name: LITELLM_URL
+              value: http://{{ include "stronghold.fullname" . }}-litellm:{{ .Values.litellmProxy.containerPort }}
+            - name: PHOENIX_COLLECTOR_ENDPOINT
+              value: http://{{ include "stronghold.fullname" . }}-phoenix:{{ .Values.phoenixSvc.containerPort }}
+            - name: STRONGHOLD_CONFIG
+              value: {{ .Values.strongholdApi.config.strongholdConfigPath | quote }}
+            - name: MCP_DEPLOYER_SOCKET
+              value: {{ .Values.strongholdApi.mcpDeployerSidecar.socketPath | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.strongholdApi.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.strongholdApi.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.strongholdApi.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.strongholdApi.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.strongholdApi.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.strongholdApi.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.strongholdApi.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: mcp-deployer-socket
+              mountPath: /run/stronghold
+            - name: tmp
+              mountPath: /tmp
+        # Sidecar: mcp-deployer. Runs under its own SA (mcp-deployer)
+        # which has the namespace-scoped Role to deploy MCP servers in
+        # stronghold-mcp. The main container never sees this token.
+        - name: mcp-deployer
+          image: {{ include "stronghold.image" (dict "image" .Values.strongholdApi.mcpDeployerSidecar.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.strongholdApi.mcpDeployerSidecar.image) }}
+          env:
+            - name: MCP_DEPLOYER_SOCKET
+              value: {{ .Values.strongholdApi.mcpDeployerSidecar.socketPath | quote }}
+            - name: MCP_TARGET_NAMESPACE
+              value: {{ .Values.extraNamespaces.mcp.name | quote }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: mcp-deployer-socket
+              mountPath: /run/stronghold
+            - name: mcp-deployer-tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "stronghold.fullname" . }}-config
+        - name: mcp-deployer-socket
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: mcp-deployer-tmp
+          emptyDir:
+            sizeLimit: 32Mi

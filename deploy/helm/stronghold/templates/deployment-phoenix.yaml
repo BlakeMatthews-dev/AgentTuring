@@ -1,0 +1,81 @@
+# Arize Phoenix Deployment.
+#
+# Replaces the raw manifest at deploy/k8s/phoenix.yaml. Per ADR-K8S-014
+# Phoenix is a P1 chat-tools workload: observability for the hot LLM
+# path, evicted before stronghold-api but before the lower tiers.
+#
+# PHOENIX_SQL_DATABASE_URL matches the raw manifest and points at the
+# shared postgres instance (using the `phoenix` database created by the
+# init scripts — or by phoenix on first boot).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-phoenix
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix
+    stronghold.io/priority-tier: P1
+spec:
+  replicas: {{ .Values.phoenixSvc.replicas }}
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: phoenix
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: phoenix
+        stronghold.io/priority-tier: P1
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.phoenix" . }}
+      automountServiceAccountToken: false
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P1" "root" .) }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: phoenix
+          image: {{ include "stronghold.image" (dict "image" .Values.phoenixSvc.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.phoenixSvc.image) }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.phoenixSvc.containerPort }}
+              protocol: TCP
+          env:
+            - name: PHOENIX_SQL_DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/phoenix
+            - name: PHOENIX_WORKING_DIR
+              value: /tmp/phoenix
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.phoenixSvc.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.phoenixSvc.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.phoenixSvc.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.phoenixSvc.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.phoenixSvc.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.phoenixSvc.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.phoenixSvc.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: phoenix-tmp
+              mountPath: /tmp
+      volumes:
+        - name: phoenix-tmp
+          emptyDir:
+            sizeLimit: 512Mi

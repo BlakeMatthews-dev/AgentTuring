@@ -151,3 +151,258 @@ serviceAccounts:
 # separately from workloads).
 rbac:
   create: true
+
+# PodDisruptionBudgets for P0/P1 workloads (ADR-K8S-014, ADR-K8S-015).
+# Only rendered when the component's replica count exceeds 1.
+podDisruptionBudgets:
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# PR-7..PR-10 additions: workload templates (Deployments, StatefulSet,
+# Services, Routes/Ingress, ConfigMaps, Secrets). These extend the PR-6
+# skeleton with the actual runnable workloads per ADR-K8S-013.
+# -----------------------------------------------------------------------------
+
+# Extra namespaces managed by the chart. ADR-K8S-001 specifies three
+# namespaces: stronghold-platform (release namespace), stronghold-mcp
+# (MCP servers), and stronghold-data (stateful workloads). The additional
+# namespaces below are rendered when extraNamespaces.create is true.
+# NOTE: PR-6 pinned the postgres ServiceAccount to the release namespace,
+# so the PR-7 postgres StatefulSet is rendered in the release namespace
+# rather than stronghold-data; relocating both together is a follow-up.
+extraNamespaces:
+  create: false
+  mcp:
+    name: stronghold-mcp
+  data:
+    name: stronghold-data
+
+# Stronghold API — main platform workload (replaces the single-container
+# raw manifest at deploy/k8s/stronghold.yaml). Sidecar-first architecture
+# per R3 resolution: the main container has NO kubeconfig, it communicates
+# with the mcp-deployer sidecar over a Unix domain socket in a shared
+# emptyDir. See ADR-K8S-002 §4 and ADR-K8S-013 §"Hybrid execution model".
+strongholdApi:
+  replicas: 1
+  image:
+    registry: ghcr.io
+    repository: agent-stronghold/stronghold
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  containerPort: 8100
+  mcpDeployerSidecar:
+    image:
+      registry: ghcr.io
+      repository: agent-stronghold/mcp-deployer
+      tag: "0.1.0"
+      pullPolicy: IfNotPresent
+    socketPath: /run/stronghold/mcp-deployer.sock
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 15
+      periodSeconds: 20
+    readiness:
+      path: /health
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  config:
+    routerApiKeySecretName: stronghold-secrets
+    strongholdConfigPath: /app/config/example.yaml
+
+# PostgreSQL StatefulSet (replaces the Deployment in deploy/k8s/postgres.yaml
+# which lacked PV durability — closes the PR-7 durability gap). Image is
+# pinned to pgvector/pgvector:pg17 because the application requires the
+# pgvector and pg_trgm extensions.
+postgresql:
+  image:
+    registry: ""
+    repository: pgvector/pgvector
+    tag: "pg17"
+    pullPolicy: IfNotPresent
+  containerPort: 5432
+  persistence:
+    size: 20Gi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # Name of an externally-managed Secret with POSTGRES_USER /
+  # POSTGRES_PASSWORD / POSTGRES_DB keys. When empty, the chart renders
+  # a stub secret-postgres-credentials.yaml. Production installs should
+  # populate via sealed-secrets or ESO per ADR-K8S-003.
+  existingSecret: ""
+  username: stronghold
+  database: stronghold
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 20
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+
+# LiteLLM proxy — model gateway for Stronghold. The large model config
+# is embedded from files/litellm_config.yaml via .Files.Get.
+litellmProxy:
+  replicas: 1
+  image:
+    registry: ghcr.io
+    repository: berriai/litellm
+    tag: "main-v1.81.12-stable"
+    pullPolicy: IfNotPresent
+  containerPort: 4000
+  exposed: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  probes:
+    liveness:
+      path: /health/liveliness
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readiness:
+      path: /health/readiness
+      initialDelaySeconds: 10
+      periodSeconds: 10
+  envSecretName: litellm-secrets
+  createStubSecret: true
+
+# Arize Phoenix — LLM tracing/observability.
+phoenixSvc:
+  replicas: 1
+  image:
+    registry: ""
+    repository: arizephoenix/phoenix
+    tag: "latest"
+    pullPolicy: Always
+  containerPort: 6006
+  exposed: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  probes:
+    liveness:
+      path: /healthz
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readiness:
+      path: /healthz
+      initialDelaySeconds: 10
+      periodSeconds: 10
+
+# MCP servers (live in stronghold-mcp namespace per ADR-K8S-001).
+mcp:
+  github:
+    enabled: true
+    # WARNING: devMode=true deploys a SHARED-PAT github-mcp pod where every
+    # Stronghold user acts as the same GitHub identity. This is a known security
+    # gap (wrong audit identity, permission escalation, no per-user revocation).
+    # Per ADR-K8S-018/019/020/025, the production path is an in-process Stronghold
+    # tool with per-user vault credential injection. This template is dev-only
+    # and will be removed in v0.9.1 (replaced by src/stronghold/tools/github.py).
+    # Set to true ONLY for dev/homelab clusters where a single PAT is acceptable.
+    devMode: false
+    replicas: 1
+    image:
+      registry: ghcr.io
+      repository: modelcontextprotocol/server-github
+      tag: "latest"
+      pullPolicy: Always
+    containerPort: 3000
+    patSecretName: github-pat
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  devTools:
+    enabled: true
+    replicas: 1
+    image:
+      registry: ""
+      repository: agent-stronghold/dev-tools-mcp
+      tag: "0.1.0"
+      pullPolicy: IfNotPresent
+    containerPort: 8300
+    # The raw manifest mounted /stronghold-repo via hostPath (rejected by
+    # baseline rule 6). Replaced with an optional PVC-backed workspace.
+    workspacePvcName: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy (ADR-K8S-004: default-deny baseline + explicit allow rules)
+# -----------------------------------------------------------------------------
+
+# Network policies are disabled by default. Enable per-environment (e.g.,
+# in values-production.yaml) once a CNI plugin that supports NetworkPolicy
+# enforcement is installed (Calico, Cilium, etc.).
+networkPolicy:
+  enabled: false
+  # When true, the stronghold-api ingress rule allows traffic from any source
+  # (empty `from` selector). When false, only pods in namespaces labelled
+  # networking.k8s.io/ingress=true are allowed (typical for ingress-nginx,
+  # Contour, etc.). Set to true for dev clusters without a labelled ingress NS.
+  ingressOpen: false
+  litellm:
+    # Restrict LiteLLM egress to specific CIDRs (port 443). When empty, all
+    # external IPs are allowed (RFC1918 excluded). Example:
+    #   egressCIDRs:
+    #     - 104.18.0.0/16    # Cloudflare (OpenAI, Anthropic CDN)
+    #     - 142.250.0.0/15   # Google (Vertex AI)
+    egressCIDRs: []
+
+# OpenShift Routes (rendered when openshift.enabled=true).
+route:
+  stronghold:
+    host: stronghold.apps.cluster.example.com
+    tlsTermination: edge
+  litellm:
+    host: litellm.apps.cluster.example.com
+    tlsTermination: edge
+  phoenix:
+    host: phoenix.apps.cluster.example.com
+    tlsTermination: edge
+
+# Vanilla Kubernetes Ingress fallbacks (rendered when
+# openshift.enabled=false AND ingressRoutes.enabled=true). The PR-6
+# top-level `ingress` block is preserved for backward compatibility;
+# ingressRoutes below is the PR-10 per-component fallback.
+ingressRoutes:
+  enabled: false
+  className: nginx
+  stronghold:
+    host: stronghold.example.com
+  litellm:
+    host: litellm.example.com
+  phoenix:
+    host: phoenix.example.com

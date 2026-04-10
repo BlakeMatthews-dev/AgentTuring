@@ -26,3 +26,10 @@ namespace:
 
 rbac:
   create: true
+
+# Enable the shared-PAT github-mcp template for the homelab dev cluster.
+# This is acceptable for a single-user dev cluster but NOT for production.
+# See ADR-K8S-018/019/020/025 for the production credential isolation path.
+mcp:
+  github:
+    devMode: true

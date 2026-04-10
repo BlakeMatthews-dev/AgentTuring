@@ -1,0 +1,89 @@
+{{- if .Values.networkPolicy.enabled }}
+# NetworkPolicy for stronghold-api pods.
+#
+# Ingress: accept traffic from the Ingress controller (or any source when
+# networkPolicy.ingressOpen is true) on the API container port.
+# Egress: postgres, litellm, phoenix, MCP namespace (github-mcp + dev-tools),
+# and kube-dns for service discovery.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-stronghold-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: stronghold-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: {{ .Values.strongholdApi.containerPort }}
+          protocol: TCP
+      {{- if not .Values.networkPolicy.ingressOpen }}
+      from:
+        - namespaceSelector:
+            matchLabels:
+              networking.k8s.io/ingress: "true"
+      {{- end }}
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: {{ .Values.postgresql.containerPort }}
+          protocol: TCP
+    # LiteLLM
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: litellm
+      ports:
+        - port: {{ .Values.litellmProxy.containerPort }}
+          protocol: TCP
+    # Phoenix
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: phoenix
+      ports:
+        - port: {{ .Values.phoenixSvc.containerPort }}
+          protocol: TCP
+    # MCP namespace — github-mcp (port 3000) and dev-tools (port 8300)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.extraNamespaces.mcp.name }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mcp-github
+      ports:
+        - port: {{ .Values.mcp.github.containerPort }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.extraNamespaces.mcp.name }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: mcp-dev-tools
+      ports:
+        - port: {{ .Values.mcp.devTools.containerPort }}
+          protocol: TCP
+    # DNS (kube-system)
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}

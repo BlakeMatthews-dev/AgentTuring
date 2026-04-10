@@ -1,0 +1,1501 @@
+model_list:
+- model_name: mistral-large
+  litellm_params:
+    model: mistral/mistral-large-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 400.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 500000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-codestral
+  litellm_params:
+    model: mistral/codestral-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-devstral
+  litellm_params:
+    model: mistral/devstral-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 200.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 500000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-small
+  litellm_params:
+    model: mistral/mistral-small-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 100.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 500000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cerebras-llama8b
+  litellm_params:
+    model: cerebras/llama3.1-8b
+    api_key: os.environ/CEREBRAS_API_KEY
+    max_budget: 1.0
+    budget_duration: 1d
+    rpm: 30
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemini-flash
+  litellm_params:
+    model: gemini/gemini-2.5-flash
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 5
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemini-3-flash
+  litellm_params:
+    model: gemini/gemini-3-flash-preview
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 5
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemini-flash-lite
+  litellm_params:
+    model: gemini/gemini-2.5-flash-lite
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 10
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemma-27b
+  litellm_params:
+    model: gemini/gemma-3-27b-it
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 28.8
+    budget_duration: 1d
+    rpm: 30
+    tpm: 15000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemma-12b
+  litellm_params:
+    model: gemini/gemma-3-12b-it
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 28.8
+    budget_duration: 1d
+    rpm: 30
+    tpm: 15000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: gemma-4b
+  litellm_params:
+    model: gemini/gemma-3-4b-it
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 28.8
+    budget_duration: 1d
+    rpm: 30
+    tpm: 15000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: imagen-4
+  litellm_params:
+    model: gemini/imagen-4-generate
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.25
+    budget_duration: 1d
+  model_info:
+    input_cost_per_token: 0.01
+    output_cost_per_token: 0.0
+- model_name: imagen-4-fast
+  litellm_params:
+    model: gemini/imagen-4-fast-generate
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.25
+    budget_duration: 1d
+  model_info:
+    input_cost_per_token: 0.01
+    output_cost_per_token: 0.0
+- model_name: imagen-4-ultra
+  litellm_params:
+    model: gemini/imagen-4-ultra-generate
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.25
+    budget_duration: 1d
+  model_info:
+    input_cost_per_token: 0.01
+    output_cost_per_token: 0.0
+- model_name: gemini-embedding
+  litellm_params:
+    model: gemini/gemini-embedding-1
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.1
+    budget_duration: 1d
+    rpm: 100
+    tpm: 30000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-google/gemini-3.1-pro
+  litellm_params:
+    model: openrouter/google/gemini-3.1-pro-preview
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-anthropic/claude-opus-4.6
+  litellm_params:
+    model: openrouter/anthropic/claude-opus-4.6
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-upstage/solar-pro-3:free
+  litellm_params:
+    model: openrouter/upstage/solar-pro-3:free
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-openai/gpt-5.2-pro
+  litellm_params:
+    model: openrouter/openai/gpt-5.2-pro
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-anthropic/claude-opus-4.5
+  litellm_params:
+    model: openrouter/anthropic/claude-opus-4.5
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-google/gemini-3-pro-image
+  litellm_params:
+    model: openrouter/google/gemini-3-pro-image-preview
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-google/gemini-3-pro
+  litellm_params:
+    model: openrouter/google/gemini-3-pro-preview
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-kwaipilot/kat-coder-pro
+  litellm_params:
+    model: openrouter/kwaipilot/kat-coder-pro
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-perplexity/sonar-pro-search
+  litellm_params:
+    model: openrouter/perplexity/sonar-pro-search
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-openai/gpt-5-pro
+  litellm_params:
+    model: openrouter/openai/gpt-5-pro
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-nousresearch/hermes-4-405b
+  litellm_params:
+    model: openrouter/nousresearch/hermes-4-405b
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-anthropic/claude-opus-4.1
+  litellm_params:
+    model: openrouter/anthropic/claude-opus-4.1
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-google/gemini-2.5-pro
+  litellm_params:
+    model: openrouter/google/gemini-2.5-pro
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: openrouter-openai/o3-pro
+  litellm_params:
+    model: openrouter/openai/o3-pro
+    api_key: os.environ/OPENROUTER_API_KEY
+    max_budget: 0.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-command-a-vision-07-2025
+  litellm_params:
+    model: cohere/command-a-vision-07-2025
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.1875
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-c4ai-aya-vision-8b
+  litellm_params:
+    model: cohere/c4ai-aya-vision-8b
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.0625
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-command-a-reasoning-08-2025
+  litellm_params:
+    model: cohere/command-a-reasoning-08-2025
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.1875
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-c4ai-aya-expanse-8b
+  litellm_params:
+    model: cohere/c4ai-aya-expanse-8b
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.0625
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-command-r-08-2024
+  litellm_params:
+    model: cohere/command-r-08-2024
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.125
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-command-r7b-arabic-02-2025
+  litellm_params:
+    model: cohere/command-r7b-arabic-02-2025
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.0625
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-c4ai-aya-expanse-32b
+  litellm_params:
+    model: cohere/c4ai-aya-expanse-32b
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.125
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-command-r7b-12-2024
+  litellm_params:
+    model: cohere/command-r7b-12-2024
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.0625
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cohere-c4ai-aya-vision-32b
+  litellm_params:
+    model: cohere/c4ai-aya-vision-32b
+    api_key: os.environ/COHERE_API_KEY
+    max_budget: 0.125
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@hf/nousresearch/hermes-2-pro-mistral-7b
+  litellm_params:
+    model: cloudflare/@hf/nousresearch/hermes-2-pro-mistral-7b
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 1.290322
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/meta/llama33-70b-fp8-fast
+  litellm_params:
+    model: cloudflare/@cf/meta/llama-3.3-70b-instruct-fp8-fast
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.967741
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/deepseek-ai/deepseek-r1-distill-qwen-32b
+  litellm_params:
+    model: cloudflare/@cf/deepseek-ai/deepseek-r1-distill-qwen-32b
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/qwen/qwen2.5-coder-32b
+  litellm_params:
+    model: cloudflare/@cf/qwen/qwen2.5-coder-32b-instruct
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/aisingapore/gemma-sea-lion-v4-27b
+  litellm_params:
+    model: cloudflare/@cf/aisingapore/gemma-sea-lion-v4-27b-it
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/qwen/qwq-32b
+  litellm_params:
+    model: cloudflare/@cf/qwen/qwq-32b
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/openai/gpt-oss-120b
+  litellm_params:
+    model: cloudflare/@cf/openai/gpt-oss-120b
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/qwen/qwen1.5-0.5b
+  litellm_params:
+    model: cloudflare/@cf/qwen/qwen1.5-0.5b-chat
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/zai-org/glm-4.7-flash
+  litellm_params:
+    model: cloudflare/@cf/zai-org/glm-4.7-flash
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/ibm-granite/granite-4.0-h-micro
+  litellm_params:
+    model: cloudflare/@cf/ibm-granite/granite-4.0-h-micro
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/microsoft/phi-2
+  litellm_params:
+    model: cloudflare/@cf/microsoft/phi-2
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/openai/gpt-oss-20b
+  litellm_params:
+    model: cloudflare/@cf/openai/gpt-oss-20b
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/openchat/openchat-3.5-0106
+  litellm_params:
+    model: cloudflare/@cf/openchat/openchat-3.5-0106
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.645161
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/meta/llama-3-8b
+  litellm_params:
+    model: cloudflare/@cf/meta/llama-3-8b-instruct
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.32258
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cloudflare-@cf/meta/llama31-8b-fp8
+  litellm_params:
+    model: cloudflare/@cf/meta/llama-3.1-8b-instruct-fp8
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    max_budget: 0.32258
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cerebras-gpt-oss-120b
+  litellm_params:
+    model: cerebras/gpt-oss-120b
+    api_key: os.environ/CEREBRAS_API_KEY
+    max_budget: 0.333333
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cerebras-zai-glm-4.7
+  litellm_params:
+    model: cerebras/zai-glm-4.7
+    api_key: os.environ/CEREBRAS_API_KEY
+    max_budget: 0.333333
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cerebras-qwen-3-235b-a22b-2507
+  litellm_params:
+    model: cerebras/qwen-3-235b-a22b-instruct-2507
+    api_key: os.environ/CEREBRAS_API_KEY
+    max_budget: 0.166666
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: cerebras-llama3.1-8b
+  litellm_params:
+    model: cerebras/llama3.1-8b
+    api_key: os.environ/CEREBRAS_API_KEY
+    max_budget: 0.166666
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-large-2411
+  litellm_params:
+    model: mistral/mistral-large-2411
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-pixtral-large-2411
+  litellm_params:
+    model: mistral/pixtral-large-2411
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-pixtral-large
+  litellm_params:
+    model: mistral/pixtral-large-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-large-pixtral-2411
+  litellm_params:
+    model: mistral/mistral-large-pixtral-2411
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-codestral-2508
+  litellm_params:
+    model: mistral/codestral-2508
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-large-2512
+  litellm_params:
+    model: mistral/mistral-large-2512
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-large
+  litellm_params:
+    model: mistral/mistral-large-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 83.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-codestral-embed
+  litellm_params:
+    model: mistral/codestral-embed
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 0.09999999999999999
+    budget_duration: 30d
+    rpm: 100
+    tpm: 30000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-medium-2505
+  litellm_params:
+    model: mistral/mistral-medium-2505
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 55.555555
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-medium-2508
+  litellm_params:
+    model: mistral/mistral-medium-2508
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 55.555555
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-mistral-medium
+  litellm_params:
+    model: mistral/mistral-medium-latest
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 55.555555
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-devstral-small-2507
+  litellm_params:
+    model: mistral/devstral-small-2507
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 55.555555
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: mistral-devstral-medium-2507
+  litellm_params:
+    model: mistral/devstral-medium-2507
+    api_key: os.environ/MISTRAL_API_KEY
+    max_budget: 55.555555
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.5-pro
+  litellm_params:
+    model: gemini/gemini-2.5-pro
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-pro
+  litellm_params:
+    model: gemini/gemini-pro-latest
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-3-pro
+  litellm_params:
+    model: gemini/gemini-3-pro-preview
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-3.1-pro
+  litellm_params:
+    model: gemini/gemini-3.1-pro-preview
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-3.1-pro-customtools
+  litellm_params:
+    model: gemini/gemini-3.1-pro-preview-customtools
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-3-pro-image
+  litellm_params:
+    model: gemini/gemini-3-pro-image-preview
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.444444
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-imagen-4.0-ultra-generate-001
+  litellm_params:
+    model: gemini/imagen-4.0-ultra-generate-001
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.25
+    budget_duration: 1d
+    rpm: 5
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.5-flash
+  litellm_params:
+    model: gemini/gemini-2.5-flash
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 5
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.5-flash-lite
+  litellm_params:
+    model: gemini/gemini-2.5-flash-lite
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 10
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.5-flash-image
+  litellm_params:
+    model: gemini/gemini-2.5-flash-image
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.333333
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.5-flash-lite-09-2025
+  litellm_params:
+    model: gemini/gemini-2.5-flash-lite-preview-09-2025
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.333333
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-3-flash
+  litellm_params:
+    model: gemini/gemini-3-flash-preview
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.04
+    budget_duration: 1d
+    rpm: 5
+    tpm: 250000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.0-flash-lite-001
+  litellm_params:
+    model: gemini/gemini-2.0-flash-lite-001
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.222222
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemini-2.0-flash-lite
+  litellm_params:
+    model: gemini/gemini-2.0-flash-lite
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.222222
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: google-gemma-3-27b
+  litellm_params:
+    model: gemini/gemma-3-27b-it
+    api_key: os.environ/GEMINI_API_KEY
+    max_budget: 0.222222
+    budget_duration: 1d
+    rpm: 30
+    tpm: 15000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-moonshotai/kimi-k2-0905
+  litellm_params:
+    model: groq/moonshotai/kimi-k2-instruct-0905
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-canopylabs/orpheus-v1-english
+  litellm_params:
+    model: groq/canopylabs/orpheus-v1-english
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-groq/compound
+  litellm_params:
+    model: groq/groq/compound
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-canopylabs/orpheus-arabic-saudi
+  litellm_params:
+    model: groq/canopylabs/orpheus-arabic-saudi
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-llama33-70b
+  litellm_params:
+    model: groq/llama-3.3-70b-versatile
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.065217
+    budget_duration: 1d
+    rpm: 30
+    tpm: 131072
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-moonshotai/kimi-k2
+  litellm_params:
+    model: groq/moonshotai/kimi-k2-instruct
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-qwen/qwen3-32b
+  litellm_params:
+    model: groq/qwen/qwen3-32b
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-groq/compound-mini
+  litellm_params:
+    model: groq/groq/compound-mini
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.021739
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-llama31-8b-instant
+  litellm_params:
+    model: groq/llama-3.1-8b-instant
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.021739
+    budget_duration: 1d
+    rpm: 30
+    tpm: 131072
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-openai/gpt-oss-20b
+  litellm_params:
+    model: groq/openai/gpt-oss-20b
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-allam-2-7b
+  litellm_params:
+    model: groq/allam-2-7b
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.021739
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-openai/gpt-oss-120b
+  litellm_params:
+    model: groq/openai/gpt-oss-120b
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.043478
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: groq-llama/llama-4-scout-17b-16e
+  litellm_params:
+    model: groq/meta-llama/llama-4-scout-17b-16e-instruct
+    api_key: os.environ/GROQ_API_KEY
+    max_budget: 0.021739
+    budget_duration: 1d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-r1-distill-llama-70b
+  litellm_params:
+    model: openai/DeepSeek-R1-Distill-Llama-70B
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 10.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-llama33-swallow-70b-v0.4
+  litellm_params:
+    model: openai/Llama-3.3-Swallow-70B-Instruct-v0.4
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 10.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-llama33-70b
+  litellm_params:
+    model: openai/Meta-Llama-3.3-70B-Instruct
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 10.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-qwen3-32b
+  litellm_params:
+    model: openai/Qwen3-32B
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-r1-0528
+  litellm_params:
+    model: openai/DeepSeek-R1-0528
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-v3-0324
+  litellm_params:
+    model: openai/DeepSeek-V3-0324
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-v3.1
+  litellm_params:
+    model: openai/DeepSeek-V3.1
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-v3.1-terminus
+  litellm_params:
+    model: openai/DeepSeek-V3.1-Terminus
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-v3.1-cb
+  litellm_params:
+    model: openai/DeepSeek-V3.1-cb
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-deepseek-v3.2
+  litellm_params:
+    model: openai/DeepSeek-V3.2
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-qwen3-235b
+  litellm_params:
+    model: openai/Qwen3-235B
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-gpt-oss-120b
+  litellm_params:
+    model: openai/gpt-oss-120b
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 6.666666
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-llama31-8b
+  litellm_params:
+    model: openai/Meta-Llama-3.1-8B-Instruct
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 3.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-minimax-m2.5
+  litellm_params:
+    model: openai/MiniMax-M2.5
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 3.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: sambanova-e5-mistral-7b
+  litellm_params:
+    model: openai/E5-Mistral-7B-Instruct
+    api_key: os.environ/SAMBANOVA_API_KEY
+    api_base: https://api.sambanova.ai/v1
+    max_budget: 3.333333
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: deepseek-deepseek
+  litellm_params:
+    model: deepseek/deepseek-chat
+    api_key: os.environ/DEEPSEEK_API_KEY
+    max_budget: 25.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: deepseek-deepseek-reasoner
+  litellm_params:
+    model: deepseek/deepseek-reasoner
+    api_key: os.environ/DEEPSEEK_API_KEY
+    max_budget: 25.0
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-google/imagen-4.0-ultra
+  litellm_params:
+    model: together_ai/google/imagen-4.0-ultra
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 0.25
+    budget_duration: 30d
+    rpm: 5
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-black-forest-labs/flux.1-pro
+  litellm_params:
+    model: together_ai/black-forest-labs/FLUX.1-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-qwen/qwen-image-2.0-pro
+  litellm_params:
+    model: together_ai/Qwen/Qwen-Image-2.0-Pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-bytedance/seedance-1.0-pro
+  litellm_params:
+    model: together_ai/ByteDance/Seedance-1.0-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-rundiffusion/juggernaut-pro-flux
+  litellm_params:
+    model: together_ai/RunDiffusion/Juggernaut-pro-flux
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-black-forest-labs/flux.1.1-pro
+  litellm_params:
+    model: together_ai/black-forest-labs/FLUX.1.1-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-black-forest-labs/flux.1-kontext-pro
+  litellm_params:
+    model: together_ai/black-forest-labs/FLUX.1-kontext-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-openai/sora-2-pro
+  litellm_params:
+    model: together_ai/openai/sora-2-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-kwaivgi/kling-1.6-pro
+  litellm_params:
+    model: together_ai/kwaivgI/kling-1.6-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-kwaivgi/kling-2.1-pro
+  litellm_params:
+    model: together_ai/kwaivgI/kling-2.1-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-google/gemini-3-pro-image
+  litellm_params:
+    model: together_ai/google/gemini-3-pro-image
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-black-forest-labs/flux.2-pro
+  litellm_params:
+    model: together_ai/black-forest-labs/FLUX.2-pro
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-llama/llama31-405b
+  litellm_params:
+    model: together_ai/meta-llama/Llama-3.1-405B-Instruct
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 3.636363
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+- model_name: together-llama/llama33-70b-turbo
+  litellm_params:
+    model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
+    api_key: os.environ/TOGETHER_API_KEY
+    max_budget: 2.727272
+    budget_duration: 30d
+    rpm: 60
+    tpm: 100000
+  model_info:
+    input_cost_per_token: 1.0e-06
+    output_cost_per_token: 1.0e-06
+# ── Zhipu AI / Z.ai (GLM models) ──────────────────
+- model_name: zhipu-glm-4.7
+  litellm_params:
+    model: openai/glm-4.7
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+- model_name: zhipu-glm-5
+  litellm_params:
+    model: openai/glm-5
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+- model_name: zhipu-glm-5-turbo
+  litellm_params:
+    model: openai/glm-5-turbo
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+- model_name: zhipu-glm-4.6
+  litellm_params:
+    model: openai/glm-4.6
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+- model_name: zhipu-glm-4.5
+  litellm_params:
+    model: openai/glm-4.5
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+- model_name: zhipu-glm-4.5-air
+  litellm_params:
+    model: openai/glm-4.5-air
+    api_key: os.environ/ZAI_API_KEY
+    api_base: https://api.z.ai/api/coding/paas/v4
+litellm_settings:
+  max_budget: 2000
+  budget_duration: 30d
+  drop_params: true
+  routing_strategy: usage-based-routing-v2
+  default_fallbacks:
+  - mistral-small
+  success_callback:
+  - langfuse
+  failure_callback:
+  - langfuse
+  request_timeout: 60
+  num_retries: 2
+  retry_after: 5
+  cache: true
+  cache_params:
+    type: local
+    ttl: 300
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/LITELLM_DATABASE_URL
+  enable_jwt_auth: false
+  ui_access_mode: admin_only
+environment_variables:
+  LANGFUSE_HOST: http://172.18.0.1:3100
+  LANGFUSE_PUBLIC_KEY: pk-lf-conductor
+  LANGFUSE_SECRET_KEY: sk-lf-conductor
+
+# MCP Servers — GitHub via OpenAPI-to-MCP conversion
+mcp_servers:
+  github:
+    url: "https://api.github.com"
+    spec_path: "/app/github-openapi.json"
+    auth_type: "bearer_token"
+    auth_value: "placeholder"
+    extra_headers:
+      - "authorization"
+    allowed_tools:
+      - "create_issue"
+      - "get_file_contents"
+      - "create_or_update_file"
+      - "create_pull_request"
+      - "create_branch"

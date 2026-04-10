@@ -173,7 +173,7 @@ class Conduit:
                         "task_type": intent.task_type,
                         "classified_by": intent.classified_by,
                         "complexity": intent.complexity,
-                        "priority": intent.priority,
+                        "tier": intent.tier,
                     }
                 )
 
@@ -209,7 +209,7 @@ class Conduit:
                 {
                     "task_type": intent.task_type,
                     "complexity": intent.complexity,
-                    "priority": intent.priority,
+                    "tier": intent.tier,
                     "classified_by": intent.classified_by,
                     "user_id": auth.user_id,
                     "session_id": session_id or "",
@@ -591,7 +591,7 @@ class Conduit:
                 "agent": agent.identity.name,
                 "intent": intent.task_type,
                 "complexity": intent.complexity,
-                "priority": intent.priority,
+                "tier": intent.tier,
                 "total_latency_ms": str(_elapsed_ms),
                 "session_id": session_id or "",
                 "is_sticky_followup": str(
@@ -624,7 +624,7 @@ class Conduit:
                 "intent": {
                     "task_type": intent.task_type,
                     "complexity": intent.complexity,
-                    "priority": intent.priority,
+                    "tier": intent.tier,
                     "classified_by": intent.classified_by,
                 },
                 "model": model_to_use,

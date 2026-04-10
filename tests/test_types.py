@@ -86,7 +86,7 @@ class TestIntent:
         intent = Intent()
         assert intent.task_type == "chat"
         assert intent.complexity == "simple"
-        assert intent.priority == "normal"
+        assert intent.tier == "P2"
 
     def test_tier_order(self) -> None:
         assert TIER_ORDER["small"] < TIER_ORDER["medium"]
@@ -253,7 +253,7 @@ class TestConfigTypes:
     def test_routing_config_defaults(self) -> None:
         rc = RoutingConfig()
         assert rc.quality_weight == 0.6
-        assert "normal" in rc.priority_multipliers
+        assert "P2" in rc.priority_multipliers
 
     def test_task_type_config(self) -> None:
         ttc = TaskTypeConfig(keywords=["code"])

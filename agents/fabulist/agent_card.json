@@ -1,0 +1,23 @@
+{
+  "id": "fabulist",
+  "name": "fabulist",
+  "description": "Children's storybook creator. Writes and illustrates stories through guided creative collaboration.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "react",
+    "tools": [
+      "canvas"
+    ],
+    "skills": [],
+    "max_tool_rounds": 20
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P2",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-flash",
+    "mistral-large"
+  ],
+  "active": true
+}

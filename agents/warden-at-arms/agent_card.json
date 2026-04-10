@@ -1,0 +1,24 @@
+{
+  "id": "warden-at-arms",
+  "name": "warden-at-arms",
+  "description": "Real-world interaction. Device control, APIs, runbooks.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "react",
+    "tools": [
+      "ha_control",
+      "ha_list_devices",
+      "ha_notify",
+      "api_call",
+      "runbook_execute"
+    ],
+    "skills": [],
+    "max_tool_rounds": 3
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P1",
+  "model": "auto",
+  "model_fallbacks": [],
+  "active": true
+}

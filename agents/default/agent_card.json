@@ -1,0 +1,18 @@
+{
+  "id": "default",
+  "name": "default",
+  "description": "General-purpose assistant. Handles questions, analysis, brainstorming, and conversation.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "direct",
+    "tools": [],
+    "skills": [],
+    "max_tool_rounds": 3
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P1",
+  "model": "auto",
+  "model_fallbacks": [],
+  "active": true
+}

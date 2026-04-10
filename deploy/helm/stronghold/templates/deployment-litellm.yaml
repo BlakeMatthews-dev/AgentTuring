@@ -74,7 +74,7 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: false  # TODO: fix images to run as non-root
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false  # LiteLLM writes Prisma migrations inline
             capabilities:
               drop: ["ALL"]
           volumeMounts:

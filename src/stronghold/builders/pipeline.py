@@ -509,6 +509,192 @@ class RuntimePipeline:
             "git", {"command": command, "workspace": workspace},
         )
 
+    # Maximum allowed line-loss ratio. If the LLM's rewrite drops more
+    # than this fraction of the original file's lines, the write is
+    # rejected and the caller should retry with stronger instructions.
+    # 0.30 = "losing more than 30% of lines is almost certainly the LLM
+    # dropping existing content it doesn't understand."
+    _MAX_LINE_LOSS_RATIO = 0.30
+
+    async def _safe_write_file(
+        self,
+        path: str,
+        new_content: str,
+        workspace: str,
+        *,
+        original_content: str,
+    ) -> tuple[bool, str]:
+        """Write a file with a deletion guard.
+
+        Compares the line count of new_content against original_content.
+        If the new version lost more than _MAX_LINE_LOSS_RATIO of lines,
+        the write is REJECTED: the original file is restored and an error
+        message is returned so the caller can feed it back to the LLM.
+
+        Returns (accepted, message).
+          - (True, "")        — write accepted, file updated
+          - (False, reason)   — write rejected, file restored to original
+        """
+        original_lines = len(original_content.splitlines()) if original_content else 0
+        new_lines = len(new_content.splitlines()) if new_content else 0
+
+        # New files (no original) or very small files: always accept
+        if original_lines <= 10:
+            await self._write_file(path, new_content, workspace)
+            return True, ""
+
+        lost = original_lines - new_lines
+        loss_ratio = lost / original_lines if original_lines > 0 else 0.0
+
+        if loss_ratio > self._MAX_LINE_LOSS_RATIO:
+            # Reject — restore the original content
+            await self._write_file(path, original_content, workspace)
+            reason = (
+                f"REJECTED: your rewrite of {path} dropped {lost} of "
+                f"{original_lines} lines ({loss_ratio:.0%} loss). "
+                f"You MUST preserve ALL existing code. Only ADD or MODIFY "
+                f"the minimum lines needed to make the test pass. "
+                f"The original file has been restored — try again."
+            )
+            logger.warning(
+                "Deletion guard rejected write to %s: %d→%d lines (%.0f%% loss)",
+                path, original_lines, new_lines, loss_ratio * 100,
+            )
+            return False, reason
+
+        await self._write_file(path, new_content, workspace)
+        return True, ""
+
+    # ── Search/replace edit format ─────────────────────────────────
+    #
+    # The LLM produces edits in this format:
+    #
+    #   <<<< SEARCH
+    #   exact lines from the original file
+    #   ====
+    #   replacement lines
+    #   >>>> REPLACE
+    #
+    # Multiple edit blocks can appear in one response.
+    # An empty SEARCH section means "append to end of file".
+    # The pipeline applies each block in order via str.replace().
+
+    _EDIT_SEARCH = "<<<< SEARCH"
+    _EDIT_SEP = "===="
+    _EDIT_REPLACE = ">>>> REPLACE"
+
+    @staticmethod
+    def _parse_edit_blocks(
+        llm_output: str,
+    ) -> list[tuple[str, str]]:
+        """Parse search/replace edit blocks from LLM output.
+
+        Returns a list of (search_text, replace_text) tuples.
+        An empty search_text means "append to end of file".
+        """
+        blocks: list[tuple[str, str]] = []
+        lines = llm_output.splitlines(keepends=True)
+        i = 0
+        while i < len(lines):
+            line = lines[i].rstrip()
+            if line.strip() == RuntimePipeline._EDIT_SEARCH:
+                # Collect SEARCH section
+                search_lines: list[str] = []
+                i += 1
+                while i < len(lines) and lines[i].rstrip().strip() != RuntimePipeline._EDIT_SEP:
+                    search_lines.append(lines[i])
+                    i += 1
+                # Skip separator
+                if i < len(lines):
+                    i += 1
+                # Collect REPLACE section
+                replace_lines: list[str] = []
+                while i < len(lines) and lines[i].rstrip().strip() != RuntimePipeline._EDIT_REPLACE:
+                    replace_lines.append(lines[i])
+                    i += 1
+                # Skip end marker
+                if i < len(lines):
+                    i += 1
+                search = "".join(search_lines).rstrip("\n")
+                replace = "".join(replace_lines).rstrip("\n")
+                blocks.append((search, replace))
+            else:
+                i += 1
+        return blocks
+
+    @staticmethod
+    def _apply_edit_blocks(
+        original: str,
+        blocks: list[tuple[str, str]],
+    ) -> tuple[str, list[str]]:
+        """Apply search/replace blocks to the original content.
+
+        Returns (new_content, warnings).  Warnings are emitted for
+        search strings that weren't found in the original.
+        """
+        content = original
+        warnings: list[str] = []
+        for search, replace in blocks:
+            if not search.strip():
+                # Empty search = append to end of file
+                content = content.rstrip() + "\n\n" + replace + "\n"
+            elif search in content:
+                content = content.replace(search, replace, 1)
+            else:
+                # Fuzzy: try stripping leading whitespace differences
+                stripped_search = "\n".join(
+                    ln.strip() for ln in search.splitlines()
+                )
+                stripped_content = "\n".join(
+                    ln.strip() for ln in content.splitlines()
+                )
+                if stripped_search in stripped_content:
+                    # Find the original indented version and replace
+                    orig_lines = content.splitlines(keepends=True)
+                    search_lines_stripped = [
+                        ln.strip() for ln in search.splitlines()
+                    ]
+                    for j in range(len(orig_lines)):
+                        if orig_lines[j].strip() == search_lines_stripped[0]:
+                            match = True
+                            for k, sl in enumerate(search_lines_stripped):
+                                if j + k >= len(orig_lines):
+                                    match = False
+                                    break
+                                if orig_lines[j + k].strip() != sl:
+                                    match = False
+                                    break
+                            if match:
+                                # Get the indentation of the first line
+                                indent = orig_lines[j][
+                                    : len(orig_lines[j])
+                                    - len(orig_lines[j].lstrip())
+                                ]
+                                replace_indented = "\n".join(
+                                    indent + ln if ln.strip() else ln
+                                    for ln in replace.splitlines()
+                                )
+                                before = "".join(orig_lines[:j])
+                                after = "".join(
+                                    orig_lines[
+                                        j + len(search_lines_stripped) :
+                                    ]
+                                )
+                                content = (
+                                    before + replace_indented + "\n" + after
+                                )
+                                break
+                    else:
+                        warnings.append(
+                            f"SEARCH block not found (even with fuzzy match): "
+                            f"{search[:100]}..."
+                        )
+                else:
+                    warnings.append(
+                        f"SEARCH block not found in file: {search[:100]}..."
+                    )
+        return content, warnings
+
     async def _fetch_prior_runs(
         self,
         owner: str,
@@ -1086,30 +1272,101 @@ class RuntimePipeline:
                 if tracker.has_failed:
                     break
 
-                # Ask LLM to implement/fix
+                # Ask LLM to implement/fix — uses edit mode for
+                # existing files, full-file mode for new files only.
                 test_code_current = await self._read_file(test_file, ws)
+                impl_feedback = ""
                 for fpath in affected_files:
                     source = await self._read_file(fpath, ws)
-                    template = await self._get_prompt("builders.mason.implement")
-                    raw_prompt = self._render(
-                        template,
-                        test_code=test_code_current,
-                        pytest_output=output[:3000],
-                        file_path=fpath,
-                        source_code=source,
-                        issue_content=issue_content,
-                        feedback_block="",
-                    )
-                    impl_prompt = self._prepend_onboarding(raw_prompt, run)
-                    try:
-                        new_source = await self._llm_extract(
-                            impl_prompt, self._mason_model, extract_python_code, f"impl c{i + 1}a{impl_attempt + 1}",
+                    source_lines = len(source.splitlines()) if source else 0
+
+                    if source_lines > 10:
+                        # ── EDIT MODE: existing file with real content ──
+                        # Ask for targeted search/replace edits, NOT the
+                        # full file. This prevents the LLM from dropping
+                        # existing code it doesn't understand (Bug 7).
+                        edit_prompt = (
+                            f"These tests are failing:\n\n"
+                            f"```python\n{test_code_current}\n```\n\n"
+                            f"Test output:\n```\n{output[:3000]}\n```\n\n"
+                            f"Current source file `{fpath}` ({source_lines} lines):\n"
+                            f"```python\n{source}\n```\n\n"
+                            f"Issue description:\n{issue_content[:500]}\n\n"
+                            f"{impl_feedback}"
+                            f"\n"
+                            f"Make the MINIMUM edit to make the tests pass.\n"
+                            f"You MUST NOT rewrite the entire file.\n"
+                            f"Output your changes as one or more edit blocks:\n\n"
+                            f"<<<< SEARCH\n"
+                            f"exact lines from the file to find\n"
+                            f"====\n"
+                            f"replacement lines\n"
+                            f">>>> REPLACE\n\n"
+                            f"To APPEND new code at the end of the file, "
+                            f"use an empty SEARCH section:\n\n"
+                            f"<<<< SEARCH\n"
+                            f"====\n"
+                            f"new code to append\n"
+                            f">>>> REPLACE\n\n"
+                            f"Rules:\n"
+                            f"- Each SEARCH block must match EXACTLY in the file\n"
+                            f"- Do NOT include the entire file content\n"
+                            f"- Only change what is needed to make the test pass\n"
+                            f"- Preserve all existing functions, classes, imports\n"
                         )
-                        await self._write_file(fpath, new_source, ws)
-                        if fpath not in files_written:
-                            files_written.append(fpath)
-                    except ExtractionError as e:
-                        logger.error("Impl failed for %s: %s", fpath, e)
+                        edit_prompt = self._prepend_onboarding(edit_prompt, run)
+                        try:
+                            raw_edits = await self._llm_call(edit_prompt, self._mason_model)
+                            blocks = self._parse_edit_blocks(raw_edits)
+                            if blocks:
+                                new_content, warnings = self._apply_edit_blocks(source, blocks)
+                                for w in warnings:
+                                    logger.warning("[TDD] Edit warning: %s", w)
+                                accepted, reason = await self._safe_write_file(
+                                    fpath, new_content, ws, original_content=source,
+                                )
+                                if not accepted:
+                                    impl_feedback = reason
+                                elif fpath not in files_written:
+                                    files_written.append(fpath)
+                            else:
+                                # LLM didn't produce edit blocks — try
+                                # extracting a full file and guard it
+                                logger.info("[TDD] No edit blocks found, falling back to full-file extract")
+                                new_source = extract_python_code(raw_edits)
+                                accepted, reason = await self._safe_write_file(
+                                    fpath, new_source, ws, original_content=source,
+                                )
+                                if not accepted:
+                                    impl_feedback = reason
+                                elif fpath not in files_written:
+                                    files_written.append(fpath)
+                        except ExtractionError as e:
+                            logger.error("Impl failed for %s: %s", fpath, e)
+                    else:
+                        # ── FULL-FILE MODE: new or very small file ──
+                        # The file doesn't exist yet (or is a stub).
+                        # Let the LLM produce the complete content.
+                        template = await self._get_prompt("builders.mason.implement")
+                        raw_prompt = self._render(
+                            template,
+                            test_code=test_code_current,
+                            pytest_output=output[:3000],
+                            file_path=fpath,
+                            source_code=source,
+                            issue_content=issue_content,
+                            feedback_block=impl_feedback,
+                        )
+                        impl_prompt = self._prepend_onboarding(raw_prompt, run)
+                        try:
+                            new_source = await self._llm_extract(
+                                impl_prompt, self._mason_model, extract_python_code, f"impl c{i + 1}a{impl_attempt + 1}",
+                            )
+                            await self._write_file(fpath, new_source, ws)
+                            if fpath not in files_written:
+                                files_written.append(fpath)
+                        except ExtractionError as e:
+                            logger.error("Impl failed for %s: %s", fpath, e)
 
                 # Fix test bugs (AttributeError/TypeError) if any
                 test_output = await self._run_pytest(ws, test_file)

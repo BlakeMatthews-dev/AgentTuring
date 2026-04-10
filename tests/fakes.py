@@ -503,6 +503,76 @@ class FakeToolPolicy:
     ) -> bool:
         self.task_checks.append((user_id, org_id, agent_name))
         return (user_id, org_id, agent_name) not in self._denied_tasks
+class FakeVaultClient:
+    """In-memory vault for tests (ADR-K8S-018).
+
+    Stores secrets as ``{org_id}/{user_id}/{service}/{key}`` -> value.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, str] = {}
+        self._version: dict[str, int] = {}
+
+    def _path(self, org_id: str, user_id: str, service: str, key: str) -> str:
+        return f"{org_id}/{user_id}/{service}/{key}"
+
+    async def get_user_secret(
+        self, org_id: str, user_id: str, service: str, key: str,
+    ) -> Any:
+        from stronghold.protocols.vault import VaultSecret
+
+        path = self._path(org_id, user_id, service, key)
+        if path not in self._store:
+            raise LookupError(f"No secret at {path}")
+        return VaultSecret(
+            value=self._store[path],
+            service=service,
+            key=key,
+            version=self._version.get(path),
+        )
+
+    async def put_user_secret(
+        self, org_id: str, user_id: str, service: str, key: str, value: str,
+    ) -> Any:
+        from stronghold.protocols.vault import VaultSecret
+
+        path = self._path(org_id, user_id, service, key)
+        ver = self._version.get(path, 0) + 1
+        self._store[path] = value
+        self._version[path] = ver
+        return VaultSecret(value=value, service=service, key=key, version=ver)
+
+    async def delete_user_secret(
+        self, org_id: str, user_id: str, service: str, key: str,
+    ) -> None:
+        path = self._path(org_id, user_id, service, key)
+        self._store.pop(path, None)
+        self._version.pop(path, None)
+
+    async def list_user_services(
+        self, org_id: str, user_id: str,
+    ) -> list[str]:
+        prefix = f"{org_id}/{user_id}/"
+        services = set()
+        for k in self._store:
+            if k.startswith(prefix):
+                parts = k[len(prefix):].split("/")
+                if parts:
+                    services.add(parts[0])
+        return sorted(services)
+
+    async def revoke_user(
+        self, org_id: str, user_id: str,
+    ) -> int:
+        prefix = f"{org_id}/{user_id}/"
+        to_delete = [k for k in self._store if k.startswith(prefix)]
+        for k in to_delete:
+            del self._store[k]
+            self._version.pop(k, None)
+        return len(to_delete)
+
+    async def close(self) -> None:
+        pass
 
 
 # ── Test container factory ───────────────────────────────────────────

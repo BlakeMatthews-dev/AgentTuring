@@ -99,7 +99,7 @@ resources:
 # each ServiceAccount runs under the named SCC (ADR-K8S-002, ADR-K8S-006).
 # Set to false for vanilla Kubernetes distros (EKS, GKE, AKS, RKE2, k3s).
 openshift:
-  enabled: true
+  enabled: false
   # SCC each Stronghold ServiceAccount gets bound to. restricted-v2 is the
   # OpenShift 4.14+ default and is the only SCC referenced by the chart
   # baseline per ADR-K8S-002 §4. Do not change unless you know what you're

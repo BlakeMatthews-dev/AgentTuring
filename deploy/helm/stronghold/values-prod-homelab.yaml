@@ -1,21 +1,17 @@
 # values-prod-homelab.yaml
 #
-# Targets the OKD/CRC development cluster running on the homelab.
-# This overlay enables OpenShift-specific resources (SCC bindings, Routes in
-# later PRs) and installs the cluster-scoped PriorityClasses exactly once.
-#
-# PR-6 is chart skeleton only — ServiceAccounts, RBAC, PriorityClasses, and
-# SCC bindings. Workload values (image tags, replicas, resources, storage)
-# are added in PR-7..PR-12 as the individual component templates land.
+# Targets the k3s v1.31 cluster on VM 301 (stronghold-k3s-host, 10.10.42.31).
+# Pivoted from OKD/CRC to k3s after CRC kept dying on libvirtd restarts.
+# This overlay disables OpenShift-specific resources and enables vanilla
+# Kubernetes defaults.
 #
 # Usage:
-#   helm install stronghold deploy/helm/stronghold \
-#     --namespace stronghold-platform \
+#   helm upgrade --install stronghold deploy/helm/stronghold \
+#     --namespace stronghold-platform --create-namespace \
 #     -f deploy/helm/stronghold/values-prod-homelab.yaml
 
 openshift:
-  enabled: true
-  scc: restricted-v2
+  enabled: false
 
 priorityClasses:
   create: true
@@ -27,9 +23,45 @@ namespace:
 rbac:
   create: true
 
+# Extra namespaces for MCP server isolation (ADR-K8S-001).
+extraNamespaces:
+  create: true
+
+# NetworkPolicies enforced by Calico v3.29.1 (installed on this cluster).
+networkPolicy:
+  enabled: true
+
+# Ingress via k3s default (traefik ingress controller is disabled on this
+# cluster, so NodePort is the primary access path for now).
+ingressRoutes:
+  enabled: false
+
 # Enable the shared-PAT github-mcp template for the homelab dev cluster.
 # This is acceptable for a single-user dev cluster but NOT for production.
 # See ADR-K8S-018/019/020/025 for the production credential isolation path.
 mcp:
   github:
     devMode: true
+
+# Homelab resource tuning (single-node, 32GB RAM, 10 vCPU).
+strongholdApi:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+postgresql:
+  persistence:
+    size: 20Gi
+    storageClassName: local-path
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi

@@ -22,7 +22,7 @@ concurrency:
 jobs:
   cleanroom-lint:
     name: Cleanroom string lint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stronghold]
     steps:
       - uses: actions/checkout@v4
         with:

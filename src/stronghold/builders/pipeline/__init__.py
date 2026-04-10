@@ -292,6 +292,15 @@ class RuntimePipeline:
         self._mason_model = mason_model
         self._auditor_model = auditor_model
 
+        # Delegate to extracted leaf modules (Phase 5)
+        from stronghold.builders.pipeline.prompts import PromptLibrary
+        from stronghold.builders.pipeline.pytest_runner import PytestRunner
+        from stronghold.builders.pipeline.workspace import WorkspaceOps
+
+        self._workspace = WorkspaceOps(tool_dispatcher)
+        self._pytest_runner = PytestRunner(tool_dispatcher)
+        self._prompt_lib = PromptLibrary(prompt_manager)
+
     # ── Helpers ──────────────────────────────────────────────────────
 
     async def load_onboarding(self, workspace: str) -> str:
@@ -383,41 +392,18 @@ class RuntimePipeline:
         return f"## Codebase Context\n\n{context}\n\n---\n\n{prompt}"
 
     async def _get_prompt(self, name: str) -> str:
-        """Get a prompt from the library. Falls back to defaults if not in manager."""
-        if self._pm:
-            try:
-                content = await self._pm.get(name)
-                if content:
-                    return content
-            except Exception:
-                pass
-        # Fallback to hardcoded defaults
-        from stronghold.builders.prompts import BUILDER_PROMPT_DEFAULTS
-        return BUILDER_PROMPT_DEFAULTS.get(name, "")
+        return await self._prompt_lib.get(name)
 
     async def _compose_prompt(self, *fragment_names: str) -> str:
-        """Compose a prompt from named fragments in the prompt library."""
-        parts = []
-        for name in fragment_names:
-            content = await self._get_prompt(name)
-            if content:
-                parts.append(content)
-        return "\n\n---\n\n".join(parts)
+        return await self._prompt_lib.compose(*fragment_names)
 
     @staticmethod
     def _render(template: str, **kwargs: str) -> str:
-        """Replace {{variable}} placeholders in a prompt template."""
-        result = template
-        for key, value in kwargs.items():
-            result = result.replace("{{" + key + "}}", str(value))
-        return result
+        from stronghold.builders.pipeline.prompts import PromptLibrary
+        return PromptLibrary.render(template, **kwargs)
 
     async def seed_prompts(self) -> None:
-        """Seed default builder prompts into the prompt library.
-
-        Always updates to latest defaults — prompt refinements in code
-        take effect immediately. Use the API to override with custom versions.
-        """
+        """Seed default builder prompts into the prompt library."""
         if not self._pm:
             return
         from stronghold.builders.prompts import BUILDER_PROMPT_DEFAULTS
@@ -508,48 +494,26 @@ class RuntimePipeline:
             f"Failed to extract {what} after {MAX_LLM_RETRIES} attempts: {last_error}"
         )
 
+    # ── Delegations to extracted leaf modules ───────────────────────────
+
     async def _read_file(self, path: str, workspace: str) -> str:
-        """Read a file from workspace. Returns content or empty string."""
-        result = await self._td.execute(
-            "file_ops", {"action": "read", "path": path, "workspace": workspace},
-        )
-        if result.startswith("Error:"):
-            return ""
-        return result
+        return await self._workspace.read_file(path, workspace)
 
     async def _write_file(self, path: str, content: str, workspace: str) -> str:
-        """Write a file to workspace. Returns result string."""
-        return await self._td.execute(
-            "file_ops",
-            {"action": "write", "path": path, "content": content, "workspace": workspace},
-        )
+        return await self._workspace.write_file(path, content, workspace)
 
     async def _list_files(self, path: str, workspace: str) -> str:
-        """List directory contents. Returns result string."""
-        return await self._td.execute(
-            "file_ops", {"action": "list", "path": path, "workspace": workspace},
-        )
+        return await self._workspace.list_files(path, workspace)
 
     async def _run_pytest(self, workspace: str, path: str = "tests/") -> str:
-        """Run pytest with workspace src/ taking priority over installed package."""
-        # sys.path.insert(0, ...) beats site-packages; PYTHONPATH alone does not
-        cmd = (
-            f"python -c \"import sys; sys.path.insert(0, '{workspace}/src'); "
-            f"import pytest; pytest.main(['{path}', '-v'])\""
-        )
-        return await self._td.execute(
-            "shell", {"command": cmd, "workspace": workspace},
-        )
+        return await self._pytest_runner.run(workspace, path)
 
     async def _run_quality_gate(self, gate: str, workspace: str) -> str:
         """Run a quality gate tool. Returns output string."""
         return await self._td.execute(gate, {"workspace": workspace})
 
     async def _git_command(self, command: str, workspace: str) -> str:
-        """Run a git command in workspace."""
-        return await self._td.execute(
-            "git", {"command": command, "workspace": workspace},
-        )
+        return await self._workspace.git_command(command, workspace)
 
     async def _fetch_prior_runs(
         self,
@@ -2941,32 +2905,22 @@ class RuntimePipeline:
 
     # ── Utilities ────────────────────────────────────────────────────
 
+    # ── Delegations to PytestRunner ─────────────────────────────────────
+
     @staticmethod
     def _count_passing(pytest_output: str) -> int:
-        """Count passing tests from pytest output."""
-        import re
-        match = re.search(r"(\d+)\s+passed", pytest_output)
-        return int(match.group(1)) if match else 0
+        from stronghold.builders.pipeline.pytest_runner import PytestRunner
+        return PytestRunner.count_passing(pytest_output)
 
     @staticmethod
     def _count_failing(pytest_output: str) -> int:
-        """Count failing tests from pytest output."""
-        import re
-        failed = re.search(r"(\d+)\s+failed", pytest_output)
-        errors = re.search(r"(\d+)\s+error", pytest_output)
-        return (int(failed.group(1)) if failed else 0) + (int(errors.group(1)) if errors else 0)
+        from stronghold.builders.pipeline.pytest_runner import PytestRunner
+        return PytestRunner.count_failing(pytest_output)
 
     @staticmethod
     def _parse_violation_files(output: str) -> list[str]:
-        """Extract file paths from ruff/mypy output."""
-        import re
-
-        paths: list[str] = []
-        for match in re.finditer(r"(src/\S+\.py)", output):
-            path = match.group(1)
-            if path not in paths:
-                paths.append(path)
-        return paths
+        from stronghold.builders.pipeline.pytest_runner import PytestRunner
+        return PytestRunner.parse_violation_files(output)
 
     @staticmethod
     def _extract_files_from_issue_body(issue_body: str) -> list[str]:

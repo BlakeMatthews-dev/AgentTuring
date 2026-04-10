@@ -1,6 +1,6 @@
 spec_version: "0.1.0"
 name: ranger
-version: 1.0.0
+version: 1.1.0
 description: Read-only information retrieval. Untrusted output.
 soul: SOUL.md
 reasoning:
@@ -16,6 +16,7 @@ tools:
   - google_search
   - database_query
   - knowledge_search
+  - browser_fetch
 memory:
   learnings: true
   episodic: false
@@ -32,6 +33,8 @@ trust_tier: t1
 permissions:
   max_tool_calls_per_request: 10
   rate_limit: 60/minute
+
+visibility: public
 
 capabilities: |
   You are an **information retrieval specialist**. You can:

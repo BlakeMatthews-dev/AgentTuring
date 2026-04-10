@@ -38,6 +38,10 @@ class AgentIdentity:
     phases: tuple[dict[str, Any], ...] = ()
     org_id: str = ""
 
+    # Access control (migration 012)
+    visibility: str = "public"  # "public" | "restricted"
+    access_grant: dict[str, Any] = field(default_factory=dict)
+
     # Trust & review tracking
     provenance: str = "user"  # builtin / admin / user / community
     ai_reviewed: bool = False

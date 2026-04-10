@@ -2752,53 +2752,5 @@ class RuntimePipeline:
 
     @staticmethod
     def _extract_files_from_issue_body(issue_body: str) -> list[str]:
-        """Extract file paths from a Quartermaster-style '## Files' section.
-
-        Quartermaster decompositions and other well-formed sub-issues
-        include an explicit list of files that should be created or
-        modified, as a markdown bullet list under a '## Files' header
-        (sometimes '## Files to create' or '## Files to modify').
-
-        Example issue body fragment::
-
-            ## Files
-            - src/stronghold/analytics/suggestions.py
-            - src/stronghold/api/routes/optimization.py
-            - tests/api/test_optimization.py
-
-        Returns the list of paths in document order, deduplicated.
-        Returns [] if no '## Files' section is present.
-
-        This is the source of truth for the implementation pipeline:
-        if Quartermaster (or a human author) said the issue requires
-        these files, the impl phase must create them. Frank's LLM
-        guess at affected_files is secondary and may hallucinate
-        existing-but-wrong paths.
-        """
-        import re
-
-        match = re.search(
-            r"^##\s+Files(?:\s+to\s+(?:create|modify|change))?\s*\n"
-            r"((?:[ \t]*[-*][ \t]+\S.*\n?)+)",
-            issue_body,
-            re.MULTILINE | re.IGNORECASE,
-        )
-        if not match:
-            return []
-
-        block = match.group(1)
-        paths: list[str] = []
-        for line in block.splitlines():
-            line = line.strip()
-            if not line.startswith(("-", "*")):
-                continue
-            # Strip the bullet marker, surrounding backticks, and any
-            # trailing inline annotation like " (new)" or " — desc".
-            entry = line.lstrip("-*").strip().strip("`").strip()
-            # Stop at the first whitespace so trailing prose doesn't
-            # get glued to the path.
-            entry = entry.split()[0] if entry else ""
-            entry = entry.strip("`,;")
-            if entry and entry not in paths:
-                paths.append(entry)
-        return paths
+        from stronghold.builders.pipeline.github_helpers import extract_files_from_issue_body
+        return extract_files_from_issue_body(issue_body)

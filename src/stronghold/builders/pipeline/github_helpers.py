@@ -29,6 +29,35 @@ GATEKEEPER_VERDICT_PATTERN = re.compile(
 )
 
 
+def extract_files_from_issue_body(issue_body: str) -> list[str]:
+    """Extract file paths from a Quartermaster-style '## Files' section.
+
+    Returns the list of paths in document order, deduplicated.
+    Returns [] if no '## Files' section is present.
+    """
+    match = re.search(
+        r"^##\s+Files(?:\s+to\s+(?:create|modify|change))?\s*\n"
+        r"((?:[ \t]*[-*][ \t]+\S.*\n?)+)",
+        issue_body,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not match:
+        return []
+
+    block = match.group(1)
+    paths: list[str] = []
+    for line in block.splitlines():
+        line = line.strip()
+        if not line.startswith(("-", "*")):
+            continue
+        entry = line.lstrip("-*").strip().strip("`").strip()
+        entry = entry.split()[0] if entry else ""
+        entry = entry.strip("`,;")
+        if entry and entry not in paths:
+            paths.append(entry)
+    return paths
+
+
 async def fetch_prior_runs(
     td: Any,
     owner: str,

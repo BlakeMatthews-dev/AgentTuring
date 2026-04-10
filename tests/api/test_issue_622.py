@@ -51,3 +51,35 @@ class TestIntentClassifierProtocol:
         assert sig.return_annotation == "list[str]", (
             f"detect_multi_intent method has incorrect return type: {sig.return_annotation}"
         )
+
+    def test_protocol_method_documentation(self) -> None:
+        """Verify IntentClassifier protocol methods are properly documented."""
+        # Verify classify method has docstring
+        classify_method = IntentClassifier.classify
+        assert classify_method.__doc__ is not None, (
+            "classify method is missing docstring documentation"
+        )
+        assert len(classify_method.__doc__.strip()) > 0, "classify method has empty docstring"
+
+        # Verify detect_multi_intent method has docstring
+        detect_method = IntentClassifier.detect_multi_intent
+        assert detect_method.__doc__ is not None, (
+            "detect_multi_intent method is missing docstring documentation"
+        )
+        assert len(detect_method.__doc__.strip()) > 0, (
+            "detect_multi_intent method has empty docstring"
+        )
+
+        # Verify docstrings contain key documentation elements
+        classify_doc = classify_method.__doc__.lower()
+        assert "intent" in classify_doc, "classify method docstring should mention 'intent'"
+        assert "messages" in classify_doc, "classify method docstring should mention 'messages'"
+        assert "task" in classify_doc, "classify method docstring should mention 'task'"
+
+        detect_doc = detect_method.__doc__.lower()
+        assert "intent" in detect_doc, (
+            "detect_multi_intent method docstring should mention 'intent'"
+        )
+        assert "multi" in detect_doc or "multiple" in detect_doc, (
+            "detect_multi_intent method docstring should mention multi-intent detection"
+        )

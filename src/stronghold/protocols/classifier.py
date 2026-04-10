@@ -19,7 +19,7 @@ class IntentClassifier(Protocol):
         task_types: dict[str, TaskTypeConfig],
         explicit_priority: str | None = None,
     ) -> Intent:
-        """Classify the user's intent."""
+        """Classify user messages into intents based on task types with complexity and priority."""
         ...
 
     def detect_multi_intent(
@@ -27,5 +27,5 @@ class IntentClassifier(Protocol):
         user_text: str,
         task_types: dict[str, TaskTypeConfig],
     ) -> list[str]:
-        """Returns list of task_type strings if compound request, else empty."""
+        """Detect multiple intents in user text and return list of task_type strings if compound request, else empty."""
         ...

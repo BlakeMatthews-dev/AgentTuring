@@ -108,3 +108,105 @@ def test_filesystem_watcher_detects_new_file() -> None:
         assert result.definition.name == "hello"
     finally:
         cat.stop_watching()
+
+
+# ── Coverage gap tests ──────────────────────────────────────────────
+
+
+def test_load_directory_skips_invalid_yaml() -> None:
+    """Invalid skill files are logged and skipped, not fatal."""
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    # Missing required fields
+    (Path(tmp) / "bad.md").write_text("not a skill file at all")
+    # Valid skill alongside
+    (Path(tmp) / "good.md").write_text(
+        "---\nname: good\ndescription: valid\ngroups: [chat]\n"
+        "parameters:\n  type: object\n  properties: {}\n---\nOK\n"
+    )
+    cat = SkillCatalog()
+    count = cat.load_directory(tmp)
+    assert count == 1  # only the good one
+    assert cat.resolve("good") is not None
+    assert cat.resolve("bad") is None
+
+
+def test_load_directory_handles_read_exception() -> None:
+    """Files that raise on read are skipped, not fatal."""
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    (Path(tmp) / "ok.md").write_text(
+        "---\nname: ok\ndescription: ok\ngroups: [chat]\n"
+        "parameters:\n  type: object\n  properties: {}\n---\nok\n"
+    )
+    # Non-readable file — simulate by making it a directory with .md extension
+    (Path(tmp) / "broken.md").mkdir()
+    cat = SkillCatalog()
+    # Should not raise
+    count = cat.load_directory(tmp)
+    assert count == 1
+
+
+def test_start_watching_idempotent() -> None:
+    """Calling start_watching twice should not spawn a second thread."""
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    cat = SkillCatalog()
+    cat.start_watching(tmp, poll_interval=0.1)
+    thread1 = cat._watcher_thread
+    cat.start_watching(tmp, poll_interval=0.1)  # Should be no-op
+    thread2 = cat._watcher_thread
+    assert thread1 is thread2
+    cat.stop_watching()
+
+
+def test_stop_watching_without_start_is_noop() -> None:
+    cat = SkillCatalog()
+    cat.stop_watching()  # should not raise
+
+
+def test_watcher_nonexistent_dir_does_not_crash() -> None:
+    """Watcher pointed at a missing dir should log and continue."""
+    cat = SkillCatalog()
+    cat.start_watching("/nonexistent/skill/path", poll_interval=0.05)
+    import time
+    time.sleep(0.15)
+    cat.stop_watching()
+    # No crash is the assertion
+
+
+def test_watcher_updates_existing_skill() -> None:
+    """Modifying a skill file on disk should reload it in the catalog."""
+    import tempfile
+    import time
+    tmp = tempfile.mkdtemp()
+    skill_file = Path(tmp) / "ping.md"
+    skill_file.write_text(
+        "---\nname: ping\ndescription: v1\ngroups: [chat]\n"
+        "parameters:\n  type: object\n  properties: {}\n---\nv1\n"
+    )
+    cat = SkillCatalog()
+    cat.load_directory(tmp)
+    v1 = cat.resolve("ping")
+    assert v1 is not None
+    assert v1.definition.description == "v1"
+
+    cat.start_watching(tmp, poll_interval=0.05)
+    try:
+        # Wait past mtime granularity
+        time.sleep(1.1)
+        skill_file.write_text(
+            "---\nname: ping\ndescription: v2\ngroups: [chat]\n"
+            "parameters:\n  type: object\n  properties: {}\n---\nv2\n"
+        )
+        # Poll until watcher detects
+        for _ in range(40):
+            v = cat.resolve("ping")
+            if v is not None and v.definition.description == "v2":
+                break
+            time.sleep(0.05)
+        final = cat.resolve("ping")
+        assert final is not None
+        assert final.definition.description == "v2"
+    finally:
+        cat.stop_watching()

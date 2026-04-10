@@ -131,3 +131,69 @@ def test_list_tools_no_args_returns_builtins_only() -> None:
     tools = cat.list_tools()
     assert len(tools) == 1
     assert tools[0].definition.name == "builtin_tool"
+
+
+# ── Coverage: load_plugins ──────────────────────────────────────────
+
+
+def test_load_plugins_no_plugins_installed() -> None:
+    """load_plugins with no entry points should not crash."""
+    cat = ToolCatalog()
+    before = len(cat._entries)
+    cat.load_plugins()  # No stronghold.tools entry points in test env
+    after = len(cat._entries)
+    # May or may not find plugins, but must not crash
+    assert after >= before
+
+
+def test_load_plugins_handles_broken_plugin(monkeypatch) -> None:
+    """A plugin that raises on load should be logged, not fatal."""
+    from unittest.mock import MagicMock
+
+    class BrokenEP:
+        name = "broken"
+        def load(self):
+            raise RuntimeError("plugin broken")
+
+    class FakeEPs:
+        def select(self, group):
+            return [BrokenEP()]
+
+    monkeypatch.setattr(
+        "stronghold.tools.catalog.entry_points", lambda: FakeEPs(),
+    )
+    cat = ToolCatalog()
+    cat.load_plugins()  # Should not raise
+
+
+def test_load_plugins_registers_catalog_entry() -> None:
+    """Plugins with _catalog_entry attribute get registered."""
+    from unittest.mock import MagicMock
+    import pytest
+
+    test_entry = CatalogEntry(
+        definition=ToolDefinition(name="plugin_tool"),
+        version="1.0.0",
+        scope="builtin",
+    )
+
+    class FakeFn:
+        _catalog_entry = test_entry
+
+    class FakeEP:
+        name = "my-plugin"
+        def load(self):
+            return FakeFn
+
+    class FakeEPs:
+        def select(self, group):
+            return [FakeEP()]
+
+    cat = ToolCatalog()
+    from unittest.mock import patch
+    with patch("stronghold.tools.catalog.entry_points", return_value=FakeEPs()):
+        cat.load_plugins()
+
+    result = cat.resolve("plugin_tool")
+    assert result is not None
+    assert result.version == "1.0.0"

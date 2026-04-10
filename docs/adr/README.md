@@ -28,6 +28,20 @@ otherwise.
 | [015](ADR-K8S-015-priority-tier-eviction-order.md) | PriorityClass numeric values and eviction order | Concrete numeric values (1_000_000 down to 100_000, spaced by 200_000) for the six PriorityClasses, with the eviction rationale and an observational verification procedure. |
 | [016](ADR-K8S-016-gitops-controller.md) | GitOps controller: OpenShift GitOps | OpenShift GitOps Operator (Red Hat-packaged Argo CD) tracks the Stronghold chart with manual sync, `selfHeal: false`, and `prune: false` so drift is visible but never auto-corrected. |
 | [017](ADR-K8S-017-architecture-diagram-pipeline.md) | Architecture diagram pipeline | Two tracks: generated-from-chart SVGs (accuracy, CI-gated) and hand-authored D2 sources (narrative), both rendered by a single `make diagrams` target. |
+| [018](ADR-K8S-018-per-user-credential-vault.md) | Per-user credential vault (OpenBao) | Deploy OpenBao (LF fork of Vault, MPL 2.0) in `stronghold-system` with K8s auth, per-user secret paths, and audit to Phoenix. |
+| [019](ADR-K8S-019-tool-policy-layer.md) | Tool Policy Layer (Casbin) | Embedded Casbin with two gates: per-tool-call and per-task-creation, policy data in YAML + postgres, decisions logged to Phoenix. |
+| [020](ADR-K8S-020-mcp-server-gateway-orchestrator.md) | Stronghold as MCP server, gateway, and orchestrator | Three MCP roles: server (exposes catalogs), gateway (mediates guest servers with governance), orchestrator (multi-tool chains with per-step governance). |
+| [021](ADR-K8S-021-tool-catalog.md) | Tool Catalog | Python decorator API, multi-tenant cascade, MCP `tools/list` filtered by Tool Policy, semver versioning, customer plugin entry points. |
+| [022](ADR-K8S-022-skill-catalog.md) | Skill Catalog | Markdown + YAML frontmatter, multi-tenant cascade, hot reload via filesystem watcher + postgres, exposed as MCP `prompts/list`. |
+| [023](ADR-K8S-023-resource-catalog.md) | Resource Catalog | URI-addressable read-only state (`stronghold://user/<id>/...`), resolver pattern with per-call vault credential injection, MCP `resources/list`. |
+| [024](ADR-K8S-024-mcp-transport-auth-discovery.md) | MCP transport, auth, and discovery | HTTP+SSE transport, OAuth 2.0 + Dynamic Client Registration, API token fallback, per-user identity propagation. |
+| [025](ADR-K8S-025-sandboxed-primitive-mcp-guests.md) | Sandboxed primitive MCP guests pattern | Three legitimate use cases for guest server pods (unsafe ops, customer-supplied, public-data); everything else is in-process with vault credentials. |
+| [026](ADR-K8S-026-sandbox-pod-catalog.md) | Sandbox Pod Catalog | Six pre-defined sandbox templates (shell, python, browser, filesystem, k8s, network) spawnable by mcp-deployer with per-template security profiles. |
+| [027](ADR-K8S-027-agent-catalog.md) | Agent Catalog | A2A Agent Cards, Python strategy implementations, postgres registry with version + tenant scope, trust-tier assignment. |
+| [028](ADR-K8S-028-stronghold-as-a2a-peer.md) | Stronghold as A2A peer | A2A endpoint on Stronghold-API with tasks/create, tasks/get, tasks/stream, tasks/cancel; task state in postgres. |
+| [029](ADR-K8S-029-a2a-guest-peers.md) | A2A guest peers (outbound delegation) | Outbound delegation to external A2A peers with per-tenant trust relationships, policy gating, and per-call audit. |
+| [030](ADR-K8S-030-task-acceptance-policy.md) | Task acceptance policy | Casbin policy surface at the A2A boundary for task creation gating with budget enforcement (token, cost, wall-clock) integrated with six-tier priorities. |
+| [031](ADR-K8S-031-builder-capabilities.md) | Builder capabilities (Forge) | Forge generates skill artifacts, agent strategies, and MCP server scaffolds; all outputs start at skull trust tier with promotion workflow. |
 
 ## Reading order for new contributors
 
@@ -46,7 +60,12 @@ order:
    without crosstalk.
 7. **016 (GitOps)** — how cluster state is reconciled against the
    chart.
-8. The remaining ADRs in any order as needed.
+8. **018 (vault)**, **019 (tool policy)**, **020 (MCP server)** — the
+   governance stack that secures tool access.
+9. **021 (tools)**, **022 (skills)**, **023 (resources)** — the three
+   catalogs that populate the MCP server.
+10. **027 (agents)** and **028 (A2A)** — the agent surface.
+11. The remaining ADRs in any order as needed.
 
 ## Status legend
 

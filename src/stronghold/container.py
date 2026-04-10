@@ -70,6 +70,7 @@ class Container:
     llm: LiteLLMClient
     tool_registry: InMemoryToolRegistry
     tool_dispatcher: ToolDispatcher
+    tool_policy: ToolPolicyProtocol | None = None
     agent_store: InMemoryAgentStore = field(default_factory=lambda: InMemoryAgentStore({}))
     rate_limiter: Any = field(default_factory=InMemoryRateLimiter)  # RateLimiter protocol
     reactor: Reactor = field(default_factory=Reactor)
@@ -312,6 +313,14 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
+    # Tool policy (Casbin-based, ADR-K8S-019)
+    try:
+        tool_policy: ToolPolicyProtocol | None = create_tool_policy()
+        logger.info("Tool policy loaded")
+    except Exception:
+        logger.warning("Tool policy config not found, running without policy enforcement")
+        tool_policy = None
+
     # Register all Mason tools
     from stronghold.tools.file_ops import FILE_OPS_TOOL_DEF, FileOpsExecutor  # noqa: PLC0415
     from stronghold.tools.github import GITHUB_TOOL_DEF, GitHubToolExecutor  # noqa: PLC0415
@@ -465,6 +474,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         llm=llm,
         tool_registry=tool_registry,
         tool_dispatcher=tool_dispatcher,
+        tool_policy=tool_policy,
         agent_store=InMemoryAgentStore(agents, prompt_manager),
         rate_limiter=rate_limiter,
         reactor=reactor,

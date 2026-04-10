@@ -473,6 +473,38 @@ class FakeMcpDeployer:
         return self._healthy
 
 
+class FakeToolPolicy:
+    """In-memory tool policy for tests.
+
+    Default: allow everything. Call ``deny_tool`` or ``deny_task``
+    to block specific combinations.
+    """
+
+    def __init__(self) -> None:
+        self._denied_tools: set[tuple[str, str, str]] = set()
+        self._denied_tasks: set[tuple[str, str, str]] = set()
+        self.tool_checks: list[tuple[str, str, str]] = []
+        self.task_checks: list[tuple[str, str, str]] = []
+
+    def deny_tool(self, user_id: str, org_id: str, tool_name: str) -> None:
+        self._denied_tools.add((user_id, org_id, tool_name))
+
+    def deny_task(self, user_id: str, org_id: str, agent_name: str) -> None:
+        self._denied_tasks.add((user_id, org_id, agent_name))
+
+    def check_tool_call(
+        self, user_id: str, org_id: str, tool_name: str,
+    ) -> bool:
+        self.tool_checks.append((user_id, org_id, tool_name))
+        return (user_id, org_id, tool_name) not in self._denied_tools
+
+    def check_task_creation(
+        self, user_id: str, org_id: str, agent_name: str,
+    ) -> bool:
+        self.task_checks.append((user_id, org_id, agent_name))
+        return (user_id, org_id, agent_name) not in self._denied_tasks
+
+
 # ── Test container factory ───────────────────────────────────────────
 # Use these instead of constructing Container manually.
 

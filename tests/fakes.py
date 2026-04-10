@@ -414,6 +414,61 @@ class FakeAgentPodDiscovery:
         self._closed = True
 
 
+class FakeMcpDeployer:
+    """In-memory `McpDeployerClient` for tests.
+
+    Records every call so test assertions can pin the exact sequence
+    of deployer requests Mason produced. Use ``set_unhealthy``,
+    ``set_unreachable_for_deploy``, and ``set_denied_for_tool`` to
+    drive the failure paths.
+    """
+
+    def __init__(self) -> None:
+        self.deploy_calls: list[tuple[str, str]] = []
+        self.stop_calls: list[str] = []
+        self.health_calls = 0
+        self._deployments: dict[str, str] = {}  # name -> tool_name
+        self._healthy = True
+        self._unreachable_deploy = False
+        self._denied_tools: set[str] = set()
+
+    def set_unhealthy(self) -> None:
+        self._healthy = False
+
+    def set_unreachable_for_deploy(self) -> None:
+        self._unreachable_deploy = True
+
+    def set_denied_for_tool(self, tool_name: str) -> None:
+        self._denied_tools.add(tool_name)
+
+    async def deploy_tool_mcp(self, tool_name: str, image: str) -> str:
+        self.deploy_calls.append((tool_name, image))
+        if not tool_name:
+            raise ValueError("tool_name must not be empty")
+        if not image:
+            raise ValueError("image must not be empty")
+        if ":" not in image:
+            raise ValueError(f"image must include a tag: {image!r}")
+        if tool_name in self._denied_tools:
+            raise PermissionError(f"Role denies deploy for tool {tool_name!r}")
+        if self._unreachable_deploy:
+            raise RuntimeError("deployer unreachable")
+        deployment_name = f"mcp-{tool_name}-{len(self._deployments)}"
+        self._deployments[deployment_name] = tool_name
+        return deployment_name
+
+    async def stop_tool_mcp(self, deployment_name: str) -> None:
+        self.stop_calls.append(deployment_name)
+        if not deployment_name:
+            raise ValueError("deployment_name must not be empty")
+        # Idempotent — unknown name is a no-op, not an error.
+        self._deployments.pop(deployment_name, None)
+
+    async def health(self) -> bool:
+        self.health_calls += 1
+        return self._healthy
+
+
 # ── Test container factory ───────────────────────────────────────────
 # Use these instead of constructing Container manually.
 

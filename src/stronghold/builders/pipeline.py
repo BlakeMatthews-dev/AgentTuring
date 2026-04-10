@@ -427,8 +427,43 @@ class RuntimePipeline:
             except Exception:
                 pass
 
-    async def _llm_call(self, prompt: str, model: str) -> str:
-        """Single LLM call. No tools. Returns text content."""
+    async def _llm_call(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        ctx: Any | None = None,
+        trace: Any | None = None,
+    ) -> str:
+        """Single LLM call. No tools. Returns text content.
+
+        When ``trace`` is provided, wraps the call in a ``llm.complete`` span
+        with model/prompt attributes for Phoenix observability.
+        """
+        if trace is not None and ctx is not None:
+            with trace.span("llm.complete") as span:
+                span.set_attributes(ctx.to_span_attrs() | {
+                    "model_name": model,
+                    "model_fallback_chain": list(self.MODEL_ROTATION),
+                    "prompt_size_chars": len(prompt),
+                })
+                span.set_input(prompt[:4000])
+                response = await self._llm.complete(
+                    [{"role": "user", "content": prompt}],
+                    model,
+                    fallback_models=self.MODEL_ROTATION,
+                )
+                choices = response.get("choices", [])
+                text = (choices[0].get("message", {}).get("content", "") or "") if choices else ""
+                usage = response.get("usage", {}) or {}
+                span.set_output(text[:4000])
+                span.set_usage(
+                    input_tokens=usage.get("prompt_tokens", 0),
+                    output_tokens=usage.get("completion_tokens", 0),
+                    model=model,
+                )
+                return text
+
         response = await self._llm.complete(
             [{"role": "user", "content": prompt}],
             model,
@@ -445,6 +480,9 @@ class RuntimePipeline:
         model: str,
         extractor: Any,
         what: str,
+        *,
+        ctx: Any | None = None,
+        trace: Any | None = None,
     ) -> Any:
         """Call LLM, extract structured output, retry on parse failure."""
         last_error = ""
@@ -456,7 +494,8 @@ class RuntimePipeline:
                     f"Try again. Follow the format instructions exactly.\n\n"
                     f"{prompt}"
                 )
-            text = await self._llm_call(full_prompt, model)
+            extract_ctx = ctx.with_(extraction_attempt=attempt + 1) if ctx else None
+            text = await self._llm_call(full_prompt, model, ctx=extract_ctx, trace=trace)
             try:
                 return extractor(text)
             except ExtractionError as e:

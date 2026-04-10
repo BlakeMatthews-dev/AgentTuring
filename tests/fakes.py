@@ -286,7 +286,6 @@ class FakeSecretBackend:
     def __init__(self) -> None:
         from collections import defaultdict
 
-
         self._values: dict[str, SecretResult] = {}
         self._denied: set[str] = set()
         self._closed = False
@@ -333,6 +332,82 @@ class FakeSecretBackend:
         # Then drain any explicitly-pushed changes.
         for result in self._pending_changes.pop(ref, []):
             yield result
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self._closed = True
+
+
+class FakeAgentPodDiscovery:
+    """In-memory `AgentPodDiscovery` for tests.
+
+    State is keyed by ``(tenant_id, user_id, agent_type)``. Use
+    ``set_permission_denied_for_tenant`` to assert tenant isolation.
+    """
+
+    def __init__(self) -> None:
+        from stronghold.protocols.agent_pod import AgentPodInfo
+
+        self._pods: dict[tuple[str, str, str], AgentPodInfo] = {}
+        self._denied_tenants: set[str] = set()
+        self._closed = False
+        self.get_calls: list[tuple[str, str, str]] = []
+        self.register_calls: list[tuple[str, str, str, str, str, int]] = []
+        self.unregister_calls: list[tuple[str, str, str, str]] = []
+        self.close_calls = 0
+
+    def set_permission_denied_for_tenant(self, tenant_id: str) -> None:
+        self._denied_tenants.add(tenant_id)
+
+    async def get_user_pod(
+        self,
+        tenant_id: str,
+        user_id: str,
+        agent_type: str,
+    ) -> Any:
+        self.get_calls.append((tenant_id, user_id, agent_type))
+        if tenant_id in self._denied_tenants:
+            raise PermissionError(f"Cedar denied discovery for tenant {tenant_id!r}")
+        return self._pods.get((tenant_id, user_id, agent_type))
+
+    async def register_pod(
+        self,
+        tenant_id: str,
+        user_id: str,
+        agent_type: str,
+        pod_name: str,
+        ip: str,
+        generation: int,
+    ) -> None:
+        from stronghold.protocols.agent_pod import AgentPodInfo
+
+        self.register_calls.append(
+            (tenant_id, user_id, agent_type, pod_name, ip, generation),
+        )
+        if tenant_id in self._denied_tenants:
+            raise PermissionError(f"Cedar denied register for tenant {tenant_id!r}")
+        key = (tenant_id, user_id, agent_type)
+        existing = self._pods.get(key)
+        if existing is not None and existing.generation > generation:
+            return  # Out-of-order callback — keep the newer generation.
+        self._pods[key] = AgentPodInfo(ip=ip, generation=generation, pod_name=pod_name)
+
+    async def unregister_pod(
+        self,
+        tenant_id: str,
+        user_id: str,
+        agent_type: str,
+        pod_name: str,
+    ) -> None:
+        self.unregister_calls.append((tenant_id, user_id, agent_type, pod_name))
+        if tenant_id in self._denied_tenants:
+            raise PermissionError(f"Cedar denied unregister for tenant {tenant_id!r}")
+        key = (tenant_id, user_id, agent_type)
+        existing = self._pods.get(key)
+        # Only evict if the pod_name matches — protects against the
+        # delete-then-respawn race documented on #770.
+        if existing is not None and existing.pod_name == pod_name:
+            self._pods.pop(key, None)
 
     async def close(self) -> None:
         self.close_calls += 1

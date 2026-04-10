@@ -375,6 +375,15 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry.register(RUN_MYPY_DEF, qg.make_executor("mypy src/stronghold/ --strict"))
     tool_registry.register(RUN_BANDIT_DEF, qg.make_executor("bandit -r src/stronghold/ -ll"))
 
+    # Browser fetch tool (Ranger + Ranger Elite)
+    from stronghold.tools.browser_fetch import (  # noqa: PLC0415
+        BROWSER_FETCH_TOOL_DEF,
+        BrowserFetchExecutor,
+    )
+
+    browser_fetch = BrowserFetchExecutor()
+    tool_registry.register(BROWSER_FETCH_TOOL_DEF, browser_fetch.execute)
+
     # Create the LLM client — the ONLY connection to LiteLLM
     llm = LiteLLMClient(
         base_url=config.litellm_url,

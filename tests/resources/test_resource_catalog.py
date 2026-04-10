@@ -5,7 +5,7 @@ from __future__ import annotations
 from stronghold.resources.catalog import ResourceCatalog, ResourceEntry, ResolvedResource
 
 
-async def _mock_resolver(path: str, credentials: dict[str, str]) -> str:
+async def _test_resolver(path: str, credentials: dict[str, str]) -> str:
     token = credentials.get("github_token", "none")
     return f'{{"path": "{path}", "token": "{token}"}}'
 
@@ -22,7 +22,7 @@ async def test_register_and_resolve_global() -> None:
             description="System health",
             scope="global",
         ),
-        _mock_resolver,
+        _test_resolver,
     )
     result = await cat.resolve("stronghold://global/system/health")
     assert result is not None
@@ -37,7 +37,7 @@ async def test_resolve_with_credentials() -> None:
             description="User GitHub repos",
             scope="user",
         ),
-        _mock_resolver,
+        _test_resolver,
     )
     result = await cat.resolve(
         "stronghold://user/alice/github/repos",
@@ -67,7 +67,7 @@ async def test_user_namespace_isolation() -> None:
             uri_template="stronghold://user/{user_id}/secrets",
             scope="user",
         ),
-        _mock_resolver,
+        _test_resolver,
     )
     # Alice can access her own path
     result = await cat.resolve("stronghold://user/alice/secrets", user_id="alice")
@@ -89,7 +89,7 @@ async def test_tenant_namespace_isolation() -> None:
             uri_template="stronghold://tenant/{tenant_id}/config",
             scope="tenant",
         ),
-        _mock_resolver,
+        _test_resolver,
     )
     result = await cat.resolve("stronghold://tenant/acme/config", tenant_id="acme")
     assert result is not None
@@ -102,15 +102,15 @@ async def test_list_resources() -> None:
     cat = ResourceCatalog()
     cat.register(
         ResourceEntry(uri_template="stronghold://global/health", scope="global"),
-        _mock_resolver,
+        _test_resolver,
     )
     cat.register(
         ResourceEntry(uri_template="stronghold://user/{user_id}/keys", scope="user"),
-        _mock_resolver,
+        _test_resolver,
     )
     cat.register(
         ResourceEntry(uri_template="stronghold://tenant/{tenant_id}/config", scope="tenant"),
-        _mock_resolver,
+        _test_resolver,
     )
 
     # Global only
@@ -144,8 +144,28 @@ async def test_mime_type_preserved() -> None:
             scope="global",
             mime_type="text/markdown",
         ),
-        _mock_resolver,
+        _test_resolver,
     )
     result = await cat.resolve("stronghold://global/docs")
     assert result is not None
     assert result.mime_type == "text/markdown"
+
+
+async def test_path_traversal_blocked() -> None:
+    """Prevent path traversal attacks via ../ in user URIs."""
+    cat = ResourceCatalog()
+    cat.register(
+        ResourceEntry(uri_template="stronghold://user/{user_id}/data", scope="user"),
+        _test_resolver,
+    )
+    # Alice tries to access bob's data via path traversal
+    result = await cat.resolve("stronghold://user/alice/../bob/data", user_id="alice")
+    # Should be denied because the path doesn't start with "alice/"
+    assert result is None
+
+
+async def test_empty_catalog_returns_empty_list() -> None:
+    cat = ResourceCatalog()
+    assert cat.list_resources() == []
+    result = await cat.resolve("stronghold://global/anything")
+    assert result is None

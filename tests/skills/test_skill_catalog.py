@@ -94,17 +94,20 @@ def test_filesystem_watcher_detects_new_file() -> None:
 
     tmp = tempfile.mkdtemp()
     cat = SkillCatalog()
-    cat.start_watching(tmp, poll_interval=0.1)
+    cat.start_watching(tmp, poll_interval=0.05)
     try:
-        # Write a skill file
         skill_file = Path(tmp) / "hello.md"
         skill_file.write_text(
             "---\nname: hello\ndescription: Say hello\ngroups: [chat]\nparameters:\n  type: object\n  properties:\n    target:\n      type: string\n---\nHello!\n"
         )
-        # Give watcher time to detect
-        time.sleep(0.5)
-        result = cat.resolve("hello")
-        assert result is not None
+        # Poll until watcher picks it up (max 2s, not a fixed sleep)
+        result = None
+        for _ in range(40):
+            result = cat.resolve("hello")
+            if result is not None:
+                break
+            time.sleep(0.05)
+        assert result is not None, "Watcher did not detect new file within 2s"
         assert result.definition.name == "hello"
     finally:
         cat.stop_watching()

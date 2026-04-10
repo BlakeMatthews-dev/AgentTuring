@@ -102,3 +102,19 @@ def test_to_dict() -> None:
     assert d["trust_tier"] == "t1"
     assert d["priority_tier"] == "P1"
     assert "tools" in d["capabilities"]
+
+
+def test_empty_catalog() -> None:
+    cat = AgentCatalog()
+    assert cat.list_agents() == []
+    assert cat.resolve("nonexistent") is None
+
+
+def test_register_overwrites_same_scope() -> None:
+    """Re-registering the same agent at same scope adds another entry; resolve picks latest."""
+    cat = AgentCatalog()
+    cat.register(_card("ranger", priority_tier="P1"))
+    cat.register(_card("ranger", priority_tier="P2"))
+    # list_agents deduplicates by name, keeping the later one (same scope priority)
+    agents = cat.list_agents()
+    assert len(agents) == 1

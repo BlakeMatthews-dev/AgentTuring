@@ -62,6 +62,29 @@ def test_custom_budget_limit() -> None:
     assert p.check_budget("alice", "acme", "P5", token_budget=200) is False
 
 
+def test_budget_at_exact_limit_passes() -> None:
+    """Token budget exactly at limit should pass."""
+    p = InMemoryTaskAcceptancePolicy()
+    p.set_budget_limit("P0", max_tokens=100)
+    assert p.check_budget("alice", "acme", "P0", token_budget=100) is True
+
+
+def test_budget_one_over_limit_fails() -> None:
+    """Token budget one over limit should fail."""
+    p = InMemoryTaskAcceptancePolicy()
+    p.set_budget_limit("P0", max_tokens=100)
+    assert p.check_budget("alice", "acme", "P0", token_budget=101) is False
+
+
+def test_denied_agent_with_valid_budget_still_denied() -> None:
+    """Agent deny is checked separately from budget."""
+    p = InMemoryTaskAcceptancePolicy()
+    p.deny_agent("mallory", "acme", "forge")
+    assert p.check_task_creation("mallory", "acme", "forge") is False
+    # Budget check would pass, but agent check fails first
+    assert p.check_budget("mallory", "acme", "P2", token_budget=1) is True
+
+
 def test_protocol_compliance() -> None:
     p = InMemoryTaskAcceptancePolicy()
     assert isinstance(p, TaskAcceptancePolicy)

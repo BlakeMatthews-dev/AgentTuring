@@ -25,6 +25,10 @@ spec:
             matchLabels:
               {{- include "stronghold.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: stronghold-api
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: litellm
       ports:
         - port: {{ .Values.postgresql.containerPort }}
           protocol: TCP

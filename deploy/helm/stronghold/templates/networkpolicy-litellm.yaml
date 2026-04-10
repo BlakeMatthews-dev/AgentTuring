@@ -39,6 +39,15 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # PostgreSQL (LiteLLM uses Prisma for usage tracking)
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: {{ .Values.postgresql.containerPort }}
+          protocol: TCP
     # Cloud LLM providers — allow all external by default, or restrict to
     # specific CIDRs when networkPolicy.litellm.egressCIDRs is set.
     {{- if .Values.networkPolicy.litellm.egressCIDRs }}

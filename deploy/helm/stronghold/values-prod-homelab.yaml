@@ -57,7 +57,6 @@ strongholdApi:
 postgresql:
   persistence:
     size: 20Gi
-    storageClassName: local-path
   resources:
     requests:
       cpu: 250m

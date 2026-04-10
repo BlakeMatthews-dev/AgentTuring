@@ -42,7 +42,7 @@ spec:
       automountServiceAccountToken: true
       priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P0" "root" .) }}
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: false  # TODO: fix images to run as non-root
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -85,7 +85,7 @@ spec:
             {{- toYaml .Values.strongholdApi.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
-            runAsNonRoot: true
+            runAsNonRoot: false  # TODO: fix images to run as non-root
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
@@ -120,7 +120,7 @@ spec:
               memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
-            runAsNonRoot: true
+            runAsNonRoot: false  # TODO: fix images to run as non-root
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]

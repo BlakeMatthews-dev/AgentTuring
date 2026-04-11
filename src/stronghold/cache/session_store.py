@@ -111,6 +111,9 @@ class RedisSessionStore:
         rkey = self._key(session_id)
         pipe = self._redis.pipeline()
         for msg in messages:
+            # SEC-009: skip non-dict entries to avoid AttributeError on .get()
+            if not isinstance(msg, dict):
+                continue
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role not in ("user", "assistant"):

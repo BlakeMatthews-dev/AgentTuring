@@ -263,7 +263,11 @@ def detect_todo_fixme(
     suggestions: list[IssueSuggestion] = []
 
     for py_file in sorted(src_dir.rglob("*.py")):
-        content = py_file.read_text(encoding="utf-8")
+        try:
+            content = py_file.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            # SEC-010: skip binary / unreadable files rather than crashing
+            continue
         for i, line in enumerate(content.split("\n"), start=1):
             match = pattern.search(line)
             if match:

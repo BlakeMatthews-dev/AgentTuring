@@ -503,6 +503,23 @@ class FakeToolPolicy:
     ) -> bool:
         self.task_checks.append((user_id, org_id, agent_name))
         return (user_id, org_id, agent_name) not in self._denied_tasks
+
+
+class FakeIntentClassifier:
+    """Minimal intent classifier for tests (issue #620).
+
+    Returns a constant ``{"intent": "unknown", "confidence": 0.5}`` so
+    callers that just need *some* classifier can wire one in without
+    pulling the production keyword/LLM pipeline. ``classify`` is a
+    ``@staticmethod`` so ``inspect.signature(FakeIntentClassifier.classify)``
+    sees a single ``text`` parameter (no implicit ``self``).
+    """
+
+    @staticmethod
+    async def classify(text: str) -> dict[str, Any]:
+        return {"intent": "unknown", "confidence": 0.5}
+
+
 class FakeVaultClient:
     """In-memory vault for tests (ADR-K8S-018).
 

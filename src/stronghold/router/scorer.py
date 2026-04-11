@@ -29,7 +29,7 @@ def score_candidate(
 
     quality_weight = routing_cfg.quality_weight
     cost_weight = routing_cfg.cost_weight
-    priority_mult = routing_cfg.priority_multipliers.get(intent.priority, 1.0)
+    priority_mult = routing_cfg.priority_multipliers.get(intent.tier, 1.0)
 
     # Floor the quality exponent so it never collapses to q^0
     quality_exponent = max(0.1, quality_weight * priority_mult)

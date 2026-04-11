@@ -1,0 +1,14 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    # PodSecurity admission labels (Kubernetes 1.25+). Vanilla-k8s overlay
+    # relies on these to get a security posture equivalent to the
+    # restricted-v2 SCC bound on OpenShift (ADR-K8S-007).
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

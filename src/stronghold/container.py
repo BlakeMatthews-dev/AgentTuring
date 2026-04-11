@@ -70,6 +70,11 @@ class Container:
     llm: LiteLLMClient
     tool_registry: InMemoryToolRegistry
     tool_dispatcher: ToolDispatcher
+    tool_policy: ToolPolicyProtocol | None = None
+    tool_catalog: Any = None
+    skill_catalog: Any = None
+    resource_catalog: Any = None
+    vault_client: Any = None
     agent_store: InMemoryAgentStore = field(default_factory=lambda: InMemoryAgentStore({}))
     rate_limiter: Any = field(default_factory=InMemoryRateLimiter)  # RateLimiter protocol
     reactor: Reactor = field(default_factory=Reactor)
@@ -312,6 +317,23 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
+    # Tool policy (Casbin-based, ADR-K8S-019)
+    try:
+        tool_policy: ToolPolicyProtocol | None = create_tool_policy()
+        logger.info("Tool policy loaded")
+    except Exception:
+        logger.warning("Tool policy config not found, running without policy enforcement")
+        tool_policy = None
+
+    # Catalogs (ADR-K8S-021/022/023)
+    from stronghold.tools.catalog import ToolCatalog  # noqa: PLC0415
+    from stronghold.skills.catalog import SkillCatalog  # noqa: PLC0415
+    from stronghold.resources.catalog import ResourceCatalog  # noqa: PLC0415
+
+    tool_catalog = ToolCatalog()
+    skill_catalog = SkillCatalog()
+    resource_catalog = ResourceCatalog()
+
     # Register all Mason tools
     from stronghold.tools.file_ops import FILE_OPS_TOOL_DEF, FileOpsExecutor  # noqa: PLC0415
     from stronghold.tools.github import GITHUB_TOOL_DEF, GitHubToolExecutor  # noqa: PLC0415
@@ -377,7 +399,14 @@ async def create_container(config: StrongholdConfig) -> Container:
     # Tool executor: use registered tools first, fall back to HTTP MCP
     dev_tools = HTTPToolExecutor(base_url="http://dev-tools-mcp:8300")
 
-    async def _tool_exec(name: str, args: dict) -> str:  # type: ignore[type-arg]
+    async def _tool_exec(name: str, args: dict, *, auth: Any = None) -> str:  # type: ignore[type-arg]
+        # Policy gate (ADR-K8S-019): check before any execution
+        if tool_policy is not None and auth is not None:
+            user_id = getattr(auth, "user_id", "")
+            org_id = getattr(auth, "org_id", "")
+            if not tool_policy.check_tool_call(user_id, org_id, name):
+                raise PermissionError(f"Tool call denied by policy: {name}")
+
         # Try registered native tools first
         if name in tool_registry:
             return await tool_dispatcher.execute(name, args)
@@ -465,6 +494,10 @@ async def create_container(config: StrongholdConfig) -> Container:
         llm=llm,
         tool_registry=tool_registry,
         tool_dispatcher=tool_dispatcher,
+        tool_policy=tool_policy,
+        tool_catalog=tool_catalog,
+        skill_catalog=skill_catalog,
+        resource_catalog=resource_catalog,
         agent_store=InMemoryAgentStore(agents, prompt_manager),
         rate_limiter=rate_limiter,
         reactor=reactor,

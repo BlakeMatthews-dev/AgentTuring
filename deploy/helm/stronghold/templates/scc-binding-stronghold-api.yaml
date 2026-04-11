@@ -1,0 +1,44 @@
+{{- if (include "stronghold.openshiftEnabled" .) }}
+# SCC binding for the stronghold-api ServiceAccount.
+#
+# On OpenShift, to grant a ServiceAccount permission to run pods under a
+# specific SecurityContextConstraints, you create a ClusterRole with the
+# `use` verb on the named SCC and bind it via a RoleBinding in the SA's
+# namespace. This is the idiomatic pattern from the OpenShift
+# "Managing Security Context Constraints" documentation.
+#
+# Per ADR-K8S-002 §4 and ADR-K8S-006 §2, the only SCC bound from the
+# baseline chart is `restricted-v2` — never `anyuid`, never `privileged`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "stronghold.fullname" . }}-scc-use-{{ .Values.openshift.scc }}-stronghold-api
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/rbac-tier: stronghold-api
+rules:
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    resourceNames:
+      - {{ .Values.openshift.scc | quote }}
+    verbs: ["use"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "stronghold.fullname" . }}-scc-{{ .Values.openshift.scc }}-stronghold-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/rbac-tier: stronghold-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "stronghold.fullname" . }}-scc-use-{{ .Values.openshift.scc }}-stronghold-api
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+    namespace: {{ include "stronghold.namespace" . }}
+{{- end }}

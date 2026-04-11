@@ -36,8 +36,8 @@ class TestRoutingConfig:
     def test_defaults(self) -> None:
         rc = RoutingConfig()
         assert rc.reserve_pct == 0.05
-        assert "normal" in rc.priority_multipliers
+        assert "P2" in rc.priority_multipliers
 
     def test_custom_multipliers(self) -> None:
-        rc = RoutingConfig(priority_multipliers={"low": 0.5, "high": 2.0})
-        assert rc.priority_multipliers["low"] == 0.5
+        rc = RoutingConfig(priority_multipliers={"P4": 0.5, "P0": 2.0})
+        assert rc.priority_multipliers["P4"] == 0.5

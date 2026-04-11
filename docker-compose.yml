@@ -8,7 +8,6 @@
 services:
   stronghold:
     build: .
-    privileged: true  # Required for Kind K8s cluster access (MCP deployer)
     restart: unless-stopped
     ports:
       - "0.0.0.0:8100:8100"
@@ -36,7 +35,6 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17
-    privileged: true  # Required for pgvector extension setup
     restart: unless-stopped
     environment:
       - POSTGRES_USER=stronghold

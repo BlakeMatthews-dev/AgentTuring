@@ -1,0 +1,187 @@
+{{- if .Values.vault.enabled }}
+# OpenBao / HashiCorp Vault deployment in stronghold-system namespace.
+# ADR-K8S-018: per-user credential vault with K8s auth.
+#
+# For production, operators should use the official OpenBao or Vault
+# Helm chart instead. This template provides a minimal single-node
+# deployment for development and homelab use.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.vault.namespace | default "stronghold-system" }}
+  labels:
+    app.kubernetes.io/part-of: stronghold
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/component: vault
+    app.kubernetes.io/part-of: stronghold
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/component: vault
+        app.kubernetes.io/part-of: stronghold
+    spec:
+      serviceAccountName: vault
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vault
+          image: {{ .Values.vault.image.repository | default "openbao/openbao" }}:{{ .Values.vault.image.tag | default "2.2.0" }}
+          args:
+            - server
+            - -config=/vault/config/vault.hcl
+          ports:
+            - containerPort: 8200
+              name: http
+              protocol: TCP
+          env:
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:8200"
+            - name: VAULT_API_ADDR
+              value: "http://vault.{{ .Values.vault.namespace | default "stronghold-system" }}.svc.cluster.local:8200"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["IPC_LOCK"]  # Required for Vault mlock
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: vault-config
+              mountPath: /vault/config
+            - name: vault-data
+              mountPath: /vault/data
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+              port: 8200
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true
+              port: 8200
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: vault-config
+          configMap:
+            name: vault-config
+        - name: vault-data
+          emptyDir: {}  # Use PVC for production persistence
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+data:
+  vault.hcl: |
+    ui = false
+    disable_mlock = true
+
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = 1  # TLS terminated at Ingress/Service mesh
+    }
+
+    storage "file" {
+      path = "/vault/data"
+    }
+
+    # Kubernetes auth method (configured post-deploy via vault CLI)
+    # vault auth enable kubernetes
+    # vault write auth/kubernetes/config \
+    #   kubernetes_host=https://kubernetes.default.svc \
+    #   kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+    # Audit to stdout (captured by k8s logging → Phoenix)
+    audit {
+      type = "file"
+      options {
+        file_path = "/dev/stdout"
+        log_raw   = false
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/part-of: stronghold
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8200
+      targetPort: 8200
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: vault
+---
+# NetworkPolicy: vault only accepts traffic from stronghold-api
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vault
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: stronghold
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: stronghold-api
+      ports:
+        - port: 8200
+          protocol: TCP
+  egress:
+    - to: []  # Vault needs no egress (file storage backend)
+{{- end }}

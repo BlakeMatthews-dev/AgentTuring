@@ -59,7 +59,21 @@ class NoopEmbeddingClient:
 
 
 class FakeEmbeddingClient:
-    """Returns deterministic vectors based on text hash. For testing hybrid search."""
+    """Returns deterministic vectors based on text hash. For testing hybrid search.
+
+    Uses hashlib.md5 (NOT Python's built-in hash()) so the output is
+    stable across processes. The previous version used hash() which is
+    randomized per process via PYTHONHASHSEED — this caused the
+    test_find_relevant_embeds_uncached_learnings test to flake roughly
+    1 run in 256, because some hash seeds happened to produce an
+    all-zero embedding for the query string, which then tripped the
+    `all(v == 0.0)` noop-client check in HybridLearningStore.find_relevant
+    and early-returned without populating the embedding cache.
+
+    Switching to md5 keeps the fake deterministic across runs and
+    eliminates the all-zero vector path entirely (md5 of any non-empty
+    string has non-zero bits).
+    """
 
     def __init__(self, dimension: int = 8) -> None:
         self._dimension = dimension
@@ -69,8 +83,16 @@ class FakeEmbeddingClient:
         return self._dimension
 
     async def embed(self, text: str) -> list[float]:
-        h = hash(text) % (10**9)
-        return [float((h >> i) & 1) for i in range(self._dimension)]
+        import hashlib
+
+        digest = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).digest()  # noqa: S324
+        # Pull bits from the digest deterministically. The +0.001
+        # ensures the vector is never strict-all-zero (which would
+        # trip the noop-client check in find_relevant).
+        return [
+            float(((digest[i % len(digest)] >> (i % 8)) & 1) + 0.001)
+            for i in range(self._dimension)
+        ]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [await self.embed(t) for t in texts]

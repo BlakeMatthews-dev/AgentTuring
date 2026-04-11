@@ -31,6 +31,7 @@ rules:
   - "MUST-NEVER bake text into AI-generated images"
   - "MUST-NEVER mix art styles across layers in the same scene"
 trust_tier: t1
+priority_tier: P2
 permissions:
   max_tool_calls_per_request: 20
   rate_limit: 30/minute

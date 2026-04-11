@@ -1,0 +1,29 @@
+{{- if and (not (include "stronghold.openshiftEnabled" .)) .Values.ingressRoutes.enabled }}
+# Vanilla Kubernetes Ingress fallback for the stronghold-api.
+#
+# Used on EKS/GKE/AKS/RKE2/k3s per ADR-K8S-007. OpenShift installs
+# render templates/route-stronghold.yaml instead; the two are mutually
+# exclusive via the `openshift.enabled` gate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "stronghold.fullname" . }}-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/priority-tier: P0
+spec:
+  ingressClassName: {{ .Values.ingressRoutes.className | quote }}
+  rules:
+    - host: {{ .Values.ingressRoutes.stronghold.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "stronghold.fullname" . }}-api
+                port:
+                  name: http
+{{- end }}

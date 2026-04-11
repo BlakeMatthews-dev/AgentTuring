@@ -22,6 +22,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: load config, create container, start reactor."""
     import asyncio
 
+    from stronghold.log_config import configure_logging  # noqa: PLC0415
+
+    configure_logging()
     config = load_config()
     container = await create_container(config)
     app.state.container = container

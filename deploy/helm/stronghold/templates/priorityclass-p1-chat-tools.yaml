@@ -1,0 +1,19 @@
+{{- if .Values.priorityClasses.create }}
+# P1 chat-tools — conversational with long-running tool calls.
+#
+# Kept-warm tool pods for browser automation, deep-search MCPs, etc.
+# Targets <5s p99. Evicted after P2-P5 but before P0. See ADR-K8S-014.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: stronghold-p1
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    stronghold.io/priority-tier: P1
+value: {{ .Values.priorityClasses.values.p1 }}
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Stronghold P1 chat-tools tier. Kept-warm tool pods serving
+  conversational turns that invoke long-running tools. See ADR-K8S-014.
+{{- end }}

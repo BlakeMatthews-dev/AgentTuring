@@ -17,10 +17,12 @@ class RoutingConfig(BaseModel):
     reserve_pct: float = 0.05
     priority_multipliers: dict[str, float] = Field(
         default_factory=lambda: {
-            "low": 0.8,
-            "normal": 1.0,
-            "high": 1.2,
-            "critical": 1.5,
+            "P0": 1.5,
+            "P1": 1.2,
+            "P2": 1.0,
+            "P3": 0.9,
+            "P4": 0.8,
+            "P5": 0.7,
         }
     )
 

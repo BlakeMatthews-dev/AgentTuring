@@ -30,7 +30,7 @@ class TestFallback:
 
     def test_raises_when_all_in_reserve(self) -> None:
         engine = RouterEngine(FakeQuotaTracker(usage_pct=0.96))
-        intent = build_intent(priority="normal")
+        intent = build_intent(tier="P2")
         models = {"m": build_model_config(provider="p")}
         providers = {"p": build_provider_config(free_tokens=1_000_000)}
         config = build_routing_config()

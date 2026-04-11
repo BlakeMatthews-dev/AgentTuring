@@ -3,11 +3,12 @@
 Every request enters Stronghold through the Conduit. It orchestrates:
 1. Intent classification (what does the user want?)
 2. Ambiguity resolution (is the request clear enough?)
-3. Model selection (which LLM should handle this?)
-4. Quota pre-check (can we afford this request?)
-5. Sufficiency analysis (does the request have enough detail?)
-6. Agent dispatch (route to the right specialist)
-7. Response formatting (OpenAI-compatible output)
+3. Execution tier determination (what priority tier?)
+4. Model selection (which LLM should handle this?)
+5. Quota pre-check (can we afford this request?)
+6. Sufficiency analysis (does the request have enough detail?)
+7. Agent dispatch (route to the right specialist)
+8. Response formatting (OpenAI-compatible output)
 
 The Conduit never executes tasks directly — it decides and delegates.
 When it can't decide, it routes to the Arbiter agent for clarification.
@@ -17,15 +18,99 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from stronghold.types.model import ModelConfig, ProviderConfig
 from stronghold.types.reactor import Event
 
 if TYPE_CHECKING:
     from stronghold.container import Container
+    from stronghold.types.intent import Intent
 
 logger = logging.getLogger("stronghold.conduit")
+
+# ── Execution tier constants ──
+_TIER_LEVELS = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4, "P5": 5}
+_LEVEL_TO_TIER = {v: k for k, v in _TIER_LEVELS.items()}
+# Critical tiers that must never be downgraded by cluster pressure.
+_CRITICAL_TIERS = frozenset({"P0", "P1"})
+
+
+@runtime_checkable
+class _HasPriorityTier(Protocol):
+    """Duck-type for anything carrying a priority_tier attribute."""
+
+    priority_tier: str
+
+
+def _get_cluster_pressure() -> bool:
+    """Return True when the cluster is under pressure.
+
+    Stub: always returns False. Will be wired to real metrics later.
+    """
+    return False
+
+
+def _apply_tenant_policy(tier: str, _tenant_id: str | None = None) -> str:
+    """Apply tenant-specific tier policy overrides.
+
+    Stub: returns tier unchanged. Will consult tenant config later.
+    """
+    return tier
+
+
+def determine_execution_tier(
+    intent: Intent,
+    agent: Any = None,
+) -> Intent:
+    """Apply the override stack to determine the final execution tier.
+
+    Override stack (each step can override the previous):
+      1. classifier.suggested_tier  -- from Intent.tier after classification
+      2. agent.priority_tier        -- agent definition override
+      3. tenant policy              -- (stub: no-op)
+      4. cluster pressure           -- downgrades P2-P5 by one level
+
+    Returns a *new* Intent with ``tier`` set to the final value.
+    The caller should also record ``suggested_tier`` for tracing.
+    """
+    suggested_tier: str = intent.tier
+
+    # ── Step 1: start with classifier suggestion ──
+    current_tier = suggested_tier
+
+    # ── Step 2: agent override ──
+    if agent is not None and hasattr(agent, "priority_tier"):
+        agent_tier: str = agent.priority_tier
+        if agent_tier in _TIER_LEVELS and agent_tier != current_tier:
+            logger.debug(
+                "Agent priority_tier override: %s -> %s",
+                current_tier,
+                agent_tier,
+            )
+            current_tier = agent_tier
+
+    # ── Step 3: tenant policy (stub) ──
+    current_tier = _apply_tenant_policy(current_tier)
+
+    # ── Step 4: cluster pressure ──
+    if _get_cluster_pressure() and current_tier not in _CRITICAL_TIERS:
+        level = _TIER_LEVELS.get(current_tier)
+        if level is not None and level < 5:
+            downgraded = _LEVEL_TO_TIER[level + 1]
+            logger.debug(
+                "Cluster pressure downgrade: %s -> %s",
+                current_tier,
+                downgraded,
+            )
+            current_tier = downgraded
+
+    if current_tier == suggested_tier:
+        return intent
+
+    return replace(intent, tier=current_tier)
+
 
 # Words that signal consent in response to a data-sharing question.
 _CONSENT_AFFIRMATIVE = frozenset(
@@ -173,7 +258,7 @@ class Conduit:
                         "task_type": intent.task_type,
                         "classified_by": intent.classified_by,
                         "complexity": intent.complexity,
-                        "priority": intent.priority,
+                        "tier": intent.tier,
                     }
                 )
 
@@ -200,6 +285,21 @@ class Conduit:
                     },
                 )
 
+        # ── 2b. Determine execution tier ──
+        target_agent_name = c.intent_registry.get_agent_for_intent(intent.task_type)
+        _agent_for_tier = (
+            c.agents.get(target_agent_name) if target_agent_name else None
+        )
+        suggested_tier = intent.tier
+        with trace.span("conduit.determine_tier") as ts:
+            intent = determine_execution_tier(intent, agent=_agent_for_tier)
+            ts.set_output(
+                {
+                    "suggested_tier": suggested_tier,
+                    "final_tier": intent.tier,
+                }
+            )
+
         trace.update({"task_type": intent.task_type, "classified_by": intent.classified_by})
 
         # ── 3. Reactor: post-classify event ──
@@ -209,7 +309,7 @@ class Conduit:
                 {
                     "task_type": intent.task_type,
                     "complexity": intent.complexity,
-                    "priority": intent.priority,
+                    "tier": intent.tier,
                     "classified_by": intent.classified_by,
                     "user_id": auth.user_id,
                     "session_id": session_id or "",
@@ -218,7 +318,7 @@ class Conduit:
         )
 
         # ── 4. Session stickiness ──
-        target_agent_name = c.intent_registry.get_agent_for_intent(intent.task_type)
+        # target_agent_name already resolved above (moved earlier for tier determination)
 
         if session_id and not target_agent_name and not intent_hint:
             async with self._session_lock:
@@ -591,7 +691,7 @@ class Conduit:
                 "agent": agent.identity.name,
                 "intent": intent.task_type,
                 "complexity": intent.complexity,
-                "priority": intent.priority,
+                "tier": intent.tier,
                 "total_latency_ms": str(_elapsed_ms),
                 "session_id": session_id or "",
                 "is_sticky_followup": str(
@@ -624,7 +724,7 @@ class Conduit:
                 "intent": {
                     "task_type": intent.task_type,
                     "complexity": intent.complexity,
-                    "priority": intent.priority,
+                    "tier": intent.tier,
                     "classified_by": intent.classified_by,
                 },
                 "model": model_to_use,

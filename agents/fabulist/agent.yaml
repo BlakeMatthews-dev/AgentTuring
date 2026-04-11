@@ -31,6 +31,7 @@ rules:
   - "MUST-NEVER rush through the creative process — the brainstorming IS the experience"
   - "MUST-NEVER generate text-heavy illustrations — canvas text handles all words"
 trust_tier: t1
+priority_tier: P2
 permissions:
   max_tool_calls_per_request: 25
   rate_limit: 30/minute

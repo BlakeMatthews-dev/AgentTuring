@@ -107,7 +107,7 @@ class ClassifierEngine:
         return Intent(
             task_type=task_type,
             complexity=complexity,  # type: ignore[arg-type]
-            priority=priority,  # type: ignore[arg-type]
+            tier=priority,  # type: ignore[arg-type]
             min_tier=min_tier,
             preferred_strengths=preferred,
             classified_by=classified_by,

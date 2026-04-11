@@ -88,6 +88,7 @@ rules:
   - "MUST-NEVER bundle unrelated changes in one PR"
   - "MUST-NEVER ignore review feedback from Auditor"
 trust_tier: t1
+priority_tier: P5
 permissions:
   max_tool_calls_per_request: 50
   rate_limit: 20/minute

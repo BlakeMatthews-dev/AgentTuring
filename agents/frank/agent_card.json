@@ -1,0 +1,27 @@
+{
+  "id": "frank",
+  "name": "frank",
+  "description": "The Architect. Analyzes issues, designs solutions, writes acceptance criteria in Gherkin, and creates validated test suites. Hands off to Mason (the Builder) only when the tests are solid.\n",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "react",
+    "tools": [
+      "github",
+      "file_ops",
+      "shell",
+      "workspace",
+      "run_pytest"
+    ],
+    "skills": [],
+    "max_tool_rounds": 10
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P5",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-pro",
+    "mistral-large"
+  ],
+  "active": true
+}

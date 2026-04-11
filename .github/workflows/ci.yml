@@ -16,6 +16,7 @@ on:
   pull_request:
     branches:
       - 'feature/**'
+      - integration
       - develop
 
 concurrency:
@@ -25,17 +26,16 @@ concurrency:
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stronghold]
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history needed for diff against base branch
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -73,9 +73,231 @@ jobs:
         if: steps.changed.outputs.files == ''
         run: echo "No Python files changed in this PR — skipping lint."
 
+      - name: Post failure report to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat <<COMMENT
+          ## :warning: Lint & Type Check FAILED
+
+          **Job:** Lint & Type Check
+          **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          Check which step failed:
+          - **Ruff check**: lint violation
+          - **Ruff format**: formatting issue (run \`ruff format\`)
+          - **Mypy strict**: type error
+          - **Bandit**: security pattern in changed files
+
+          **Action required:** Fix lint/type issues before this PR can merge.
+          COMMENT
+          )"
+
+  security:
+    name: Security Tests
+    runs-on: [self-hosted, stronghold]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: "Warden + Sentinel + Gate"
+        run: pytest tests/security/test_gate.py tests/security/test_gate_sufficiency.py tests/security/test_sentinel_pipeline.py tests/security/test_sentinel_post_call.py tests/security/test_warden_extended.py tests/security/test_warden_heuristics.py tests/security/test_warden_isolation.py tests/security/test_pii_filter.py tests/security/test_semantic_poisoning.py -v --tb=short
+      - name: "Adversarial + prompt injection"
+        run: pytest tests/security/test_adversarial_injection.py tests/security/test_prompt_injection.py -v --tb=short
+      - name: "Auth + rate limiting + strikes"
+        run: pytest tests/security/test_coverage_auth.py tests/security/test_auth_cookie_coverage.py tests/security/test_rate_limiter.py tests/security/test_strikes_coverage.py -v --tb=short
+      - name: "Tool policy + task policy + vault"
+        run: pytest tests/security/test_tool_policy.py tests/security/test_task_policy.py tests/security/test_vault_client.py -v --tb=short
+      - name: "Audit regression (3 rounds)"
+        run: pytest tests/security/test_security_audit_2026_03_30.py tests/security/test_security_audit_round2.py tests/security/test_security_audit_round3.py tests/security/test_security_hardening.py tests/security/test_audit_regression.py -v --tb=short
+      - name: "Schema validation + token optimization"
+        run: pytest tests/security/test_schema_validation.py tests/security/test_schema_repair.py tests/security/test_token_optimization.py tests/security/test_flag_response.py -v --tb=short
+
+      - name: Post failure report to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat <<COMMENT
+          ## :shield: Security Tests FAILED
+
+          **Job:** Security Tests
+          **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          One or more security test categories failed. Check the run logs for details.
+          The failing step name indicates which category broke.
+
+          **Action required:** Fix the failing tests before this PR can merge.
+          COMMENT
+          )"
+
+  sast:
+    name: SAST & Supply Chain
+    runs-on: [self-hosted, stronghold]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: pip install -e ".[dev]" pip-audit
+
+      - name: "Bandit SAST (full codebase)"
+        run: bandit -r src/stronghold/ -ll -q --skip B608
+
+      - name: "pip-audit (dependency CVEs)"
+        run: pip-audit --strict --desc 2>&1 || true
+        # Non-blocking for now — known CVEs tracked in BACKLOG.md D4
+
+      - name: "Secret detection (hardcoded keys, tokens, passwords)"
+        run: |
+          echo "Scanning for hardcoded secrets..."
+          FOUND=0
+          # API keys (real patterns, not example/test values)
+          if grep -rn --include='*.py' --exclude='connectors.py' -E '(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9]{20})' src/stronghold/ | grep -v 'sk-example\|sk-test\|sk-ci-test\|sk-stronghold-prod'; then
+            echo "::error::Hardcoded API keys found in source code"
+            FOUND=1
+          fi
+          # AWS keys
+          if grep -rn --include='*.py' -E 'AKIA[0-9A-Z]{16}' src/stronghold/; then
+            echo "::error::AWS access key found in source code"
+            FOUND=1
+          fi
+          # Private keys (skip regex patterns, type hints, and string literals that are obviously detection patterns)
+          if grep -rn --include='*.py' 'BEGIN.*PRIVATE KEY' src/stronghold/ | grep -v 're.compile\|Pattern\[\|# detection-pattern'; then
+            echo "::error::Private key found in source code"
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then exit 1; fi
+          echo "No hardcoded secrets found."
+
+      - name: "Unsafe deserialization check"
+        run: |
+          if grep -rn --include='*.py' -E 'pickle\.loads|yaml\.load\(' src/stronghold/ | grep -v 'safe_load\|Loader=SafeLoader'; then
+            echo "::error::Unsafe deserialization found"
+            exit 1
+          fi
+          echo "No unsafe deserialization found."
+
+      - name: "SQL injection patterns"
+        run: |
+          if grep -rn --include='*.py' -E 'f".*SELECT|f".*INSERT|f".*UPDATE|f".*DELETE' src/stronghold/ | grep -v 'test_\|#.*noqa\|# confirmed safe'; then
+            echo "::warning::Potential SQL injection via f-string (review manually)"
+          fi
+          echo "SQL injection scan complete."
+
+      - name: "innerHTML / XSS patterns (templates)"
+        run: |
+          if grep -rn 'innerHTML\s*=' src/stronghold/ --include='*.py' --include='*.html' | grep -v 'textContent\|esc(\|# safe:'; then
+            echo "::warning::innerHTML usage found — verify XSS safety"
+          fi
+          echo "XSS scan complete."
+
+      - name: "SSRF patterns (unvalidated URLs)"
+        run: |
+          if grep -rn --include='*.py' -E 'httpx\.(get|post|put|delete)\(.*\bf["\x27]' src/stronghold/ | grep -v 'test_\|# ssrf-safe'; then
+            echo "::warning::Potential SSRF — httpx call with f-string URL"
+          fi
+          echo "SSRF scan complete."
+
+      - name: "Privileged container check (docker-compose)"
+        run: |
+          if grep -n 'privileged:\s*true' docker-compose.yml 2>/dev/null; then
+            echo "::error::privileged: true found in docker-compose.yml (R1/R2)"
+            exit 1
+          fi
+          echo "No privileged containers."
+
+      - name: "Weak crypto check"
+        run: |
+          FOUND=0
+          if grep -rn --include='*.py' -E 'md5\(|sha1\(' src/stronghold/ | grep -v 'hashlib.sha256\|# non-crypto'; then
+            echo "::warning::Weak hash (MD5/SHA1) found — use SHA-256+"
+          fi
+          if grep -rn --include='*.py' 'algorithm.*HS256' src/stronghold/ | grep -v 'test_\|# HS256-ok'; then
+            echo "::warning::HS256 JWT — consider RS256 for production (R18)"
+          fi
+          echo "Crypto scan complete."
+
+      - name: "Eval/exec check"
+        run: |
+          if grep -rn --include='*.py' -E '^\s*(eval|exec)\(' src/stronghold/ | grep -v 'test_\|# safe-eval\|connectors\.py'; then
+            echo "::error::eval()/exec() found in production code"
+            exit 1
+          fi
+          echo "No eval/exec found."
+
+      - name: "CDN SRI hash check (D3)"
+        run: |
+          MISSING=0
+          for f in src/stronghold/dashboard/*.html; do
+            if grep -q '<script.*src=.*cdn' "$f" 2>/dev/null; then
+              if ! grep -q 'integrity=' "$f"; then
+                echo "::warning::$f has CDN scripts without SRI integrity hashes (D3)"
+                MISSING=1
+              fi
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::warning::Some CDN scripts lack SRI hashes — see BACKLOG.md D3"
+          fi
+          echo "SRI scan complete."
+
+      - name: "Unauthenticated route check (D6)"
+        run: |
+          if grep -rn --include='*.py' 'app\.mount.*static\|StaticFiles' src/stronghold/api/ | grep -v 'test_'; then
+            echo "::warning::Static file mounts found — verify auth gating (D6)"
+          fi
+          echo "Auth route scan complete."
+
+      - name: "Lock file presence check (D2)"
+        run: |
+          if [ ! -f requirements.txt ] && [ ! -f requirements.lock ] && [ ! -f uv.lock ]; then
+            echo "::warning::No lock file (requirements.txt/uv.lock) — supply chain risk (D2)"
+          fi
+          echo "Lock file check complete."
+
+      - name: Post failure report to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat <<COMMENT
+          ## :rotating_light: SAST & Supply Chain FAILED
+
+          **Job:** SAST & Supply Chain
+          **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          Static analysis found issues. Check the failed step name for category:
+          - **Bandit**: code vulnerability (must fix)
+          - **pip-audit**: dependency CVE (update package)
+          - **Secret detection**: hardcoded credential (must remove)
+          - **Unsafe deserialization**: pickle/yaml.load (must fix)
+          - **SQL injection**: f-string SQL (must use parameterized)
+          - **innerHTML/XSS**: DOM injection risk (review)
+          - **SSRF**: unvalidated URL (review)
+          - **Privileged container**: docker-compose (must fix)
+          - **Weak crypto**: MD5/SHA1/HS256 (review)
+          - **eval/exec**: dynamic code execution (must fix)
+          - **CDN SRI**: missing integrity hash (review)
+          - **Auth routes**: unauthenticated static mount (review)
+          - **Lock file**: missing requirements.txt (add)
+
+          **Action required:** Fix blocking issues (marked "must fix") before merge.
+          COMMENT
+          )"
+
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, stronghold]
     needs: lint
 
     services:
@@ -86,26 +308,26 @@ jobs:
           POSTGRES_PASSWORD: stronghold
           POSTGRES_DB: stronghold
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
+          --security-opt apparmor=unconfined
           --health-cmd "pg_isready -U stronghold"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://stronghold:stronghold@localhost:5432/stronghold
+      DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
       ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
       LITELLM_URL: http://localhost:4000
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -156,3 +378,20 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+      - name: Post failure report to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat <<COMMENT
+          ## :x: Tests FAILED
+
+          **Job:** Tests
+          **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          The test suite failed. Check the run logs for the specific test failures.
+
+          **Action required:** Fix failing tests before this PR can merge.
+          COMMENT
+          )"

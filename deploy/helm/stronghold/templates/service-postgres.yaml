@@ -1,0 +1,25 @@
+# Headless Service for the postgres StatefulSet. clusterIP: None gives
+# each pod a stable DNS record of the form
+#   <pod>.<service>.<namespace>.svc.cluster.local
+# per the Kubernetes "Headless Services" documentation, which is the
+# standard pattern for stateful single-writer workloads.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stronghold.fullname" . }}-postgres
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+    stronghold.io/priority-tier: P1
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "stronghold.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: {{ .Values.postgresql.containerPort }}
+      targetPort: postgres
+      protocol: TCP

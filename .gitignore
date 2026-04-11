@@ -38,6 +38,10 @@ htmlcov/
 # Allow documentation that discusses the secrets approach (no actual secrets)
 !docs/adr/*secrets*.md
 !docs/**/*secrets*.md
+# Allow the secrets-protocol source files (no actual secrets, just types)
+!src/stronghold/protocols/secrets.py
+!tests/config/test_secrets.py
+!tests/fakes.py
 
 # OS
 .DS_Store

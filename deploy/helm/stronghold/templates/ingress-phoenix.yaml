@@ -1,0 +1,24 @@
+{{- if and (not (include "stronghold.openshiftEnabled" .)) .Values.ingressRoutes.enabled .Values.phoenixSvc.exposed }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "stronghold.fullname" . }}-phoenix
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix
+    stronghold.io/priority-tier: P1
+spec:
+  ingressClassName: {{ .Values.ingressRoutes.className | quote }}
+  rules:
+    - host: {{ .Values.ingressRoutes.phoenix.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "stronghold.fullname" . }}-phoenix
+                port:
+                  name: http
+{{- end }}

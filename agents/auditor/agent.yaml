@@ -35,6 +35,7 @@ rules:
   - "MUST-NEVER approve PRs with critical or high severity findings"
   - "MUST-NEVER leave vague comments without specific file/line references"
 trust_tier: t1
+priority_tier: P3
 permissions:
   max_tool_calls_per_request: 20
   rate_limit: 30/minute

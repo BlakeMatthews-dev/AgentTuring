@@ -1,0 +1,46 @@
+{{- if .Values.rbac.create }}
+# Minimal Role for the postgres StatefulSet service account.
+#
+# Postgres itself does not need any Kubernetes API access at runtime — it
+# only needs to exist as a ServiceAccount so its pod is not running under
+# the cluster `default` SA (ADR-K8S-002 §5). The narrow read-only Role
+# below exists only so the backup operator (Velero / OADP, added in a
+# later PR) can introspect the StatefulSet from a dedicated backup SA
+# without grafting extra permissions onto the postgres SA itself.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "stronghold.serviceAccountName.postgres" . }}
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+    stronghold.io/rbac-tier: postgres
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ .Values.secretName | quote }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "stronghold.serviceAccountName.postgres" . }}
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+    stronghold.io/rbac-tier: postgres
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "stronghold.serviceAccountName.postgres" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stronghold.serviceAccountName.postgres" . }}
+    namespace: {{ include "stronghold.namespace" . }}
+{{- end }}

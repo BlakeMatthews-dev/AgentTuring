@@ -45,14 +45,29 @@ from stronghold.tools import tool
     version="1.2.0",
     description="Full-text search across a repository's files",
     tags=["code", "search"],
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "openWorldHint": False,
+    },
 )
 def search_codebase(query: str, repo: str, max_results: int = 20) -> list[dict]:
     ...
 ```
 
-The decorator registers the function, its metadata, and its input schema
-(derived from the function signature and type hints) into an in-process
-catalog singleton at import time.
+The decorator registers the function, its metadata, its input schema
+(derived from the function signature and type hints), and its MCP tool
+annotations into an in-process catalog singleton at import time.
+
+Tool annotations (per MCP 2025-03-26) are emitted on `tools/list` so
+MCP clients can make UI and safety decisions. `readOnlyHint` tells the
+client the tool does not modify state. `destructiveHint` tells the
+client the tool may delete or overwrite data and should prompt for
+confirmation. `openWorldHint` tells the client the tool accesses
+external systems beyond the Stronghold boundary. Tools may also return
+`structuredContent` (machine-readable JSON) alongside human-readable
+content, enabling programmatic consumption of tool results by
+downstream agents and MCP clients.
 
 ### Multi-tenant cascade
 

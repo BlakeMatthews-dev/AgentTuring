@@ -1,0 +1,25 @@
+{{- if and (include "stronghold.openshiftEnabled" .) .Values.phoenixSvc.exposed }}
+# Optional Route for Arize Phoenix. Off by default; enable for teams
+# that need external access to the tracing UI.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "stronghold.fullname" . }}-phoenix
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix
+    stronghold.io/priority-tier: P1
+spec:
+  host: {{ .Values.route.phoenix.host | quote }}
+  to:
+    kind: Service
+    name: {{ include "stronghold.fullname" . }}-phoenix
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.phoenix.tlsTermination }}
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+{{- end }}

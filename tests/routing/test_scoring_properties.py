@@ -49,7 +49,7 @@ class TestQualityMonotonicity:
 class TestQualityExponentFloor:
     def test_exponent_never_zero(self) -> None:
         # Low priority with low quality_weight should still produce nonzero exponent
-        intent = build_intent(priority="low")
+        intent = build_intent(tier="P4")
         config = build_routing_config(quality_weight=0.1)
         model = build_model_config(quality=0.5)
         provider = build_provider_config()
@@ -80,8 +80,8 @@ class TestScoreEdgeCases:
         config = build_routing_config()
         provider = build_provider_config()
         model = build_model_config(quality=0.9)
-        high = score_candidate("m", model, provider, build_intent(priority="critical"), config, 0.5)
-        low = score_candidate("m", model, provider, build_intent(priority="low"), config, 0.5)
+        high = score_candidate("m", model, provider, build_intent(tier="P0"), config, 0.5)
+        low = score_candidate("m", model, provider, build_intent(tier="P4"), config, 0.5)
         # Higher priority increases quality exponent, which penalizes sub-1.0 quality more
         # This is correct: critical is pickier, so same model scores lower
         assert high.score != low.score

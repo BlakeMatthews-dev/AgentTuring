@@ -187,6 +187,7 @@ async def list_agents(request: Request) -> JSONResponse:
                 "reasoning_strategy": agent.identity.reasoning_strategy,
                 "tools": list(agent.identity.tools),
                 "trust_tier": agent.identity.trust_tier,
+                "priority_tier": agent.identity.priority_tier,
             }
             for agent in container.agents.values()
             if not org_id or not agent.identity.org_id or agent.identity.org_id == org_id

@@ -401,8 +401,8 @@ class TestRunPrDiagnostics:
         assert result["has_critical_issues"] is True
         assert len(result["issues"]) == 3
 
-    async def test_tool_executor_exceptions_are_swallowed(self):
-        """Each check catches exceptions independently."""
+    async def test_tool_executor_exceptions_report_as_failures(self):
+        """Broken tool_executor = quality gate failure, not silent pass."""
         call_count = 0
 
         async def tool_executor(tool_name, args):
@@ -412,8 +412,10 @@ class TestRunPrDiagnostics:
 
         strategy = BuildersLearningStrategy()
         result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
-        assert result["all_passed"] is True
-        assert result["issues"] == []
+        assert result["all_passed"] is False
+        assert result["has_critical_issues"] is True
+        assert len(result["issues"]) == 3
+        assert all("tool_executor failed" in issue for issue in result["issues"])
         assert call_count == 3  # all three checks attempted
 
 

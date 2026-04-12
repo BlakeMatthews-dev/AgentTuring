@@ -276,24 +276,24 @@ class BuildersLearningStrategy:
             )
             if ruff and "error" in str(ruff).lower():
                 issues.append(f"ruff: {str(ruff)[:200]}")
-        except Exception:
-            pass
+        except Exception as e:
+            issues.append(f"ruff: tool_executor failed: {e}")
         try:
             mypy = await tool_executor(
                 "shell", {"command": "mypy src/stronghold/ --strict 2>&1 | tail -3"}
             )
             if mypy and "error" in str(mypy).lower():
                 issues.append(f"mypy: {str(mypy)[:200]}")
-        except Exception:
-            pass
+        except Exception as e:
+            issues.append(f"mypy: tool_executor failed: {e}")
         try:
             tests = await tool_executor(
                 "shell", {"command": "pytest tests/ -x -q --tb=line 2>&1 | tail -5"}
             )
             if tests and "failed" in str(tests).lower():
                 issues.append(f"pytest: {str(tests)[:200]}")
-        except Exception:
-            pass
+        except Exception as e:
+            issues.append(f"pytest: tool_executor failed: {e}")
 
         has_critical = len(issues) > 0
         return {

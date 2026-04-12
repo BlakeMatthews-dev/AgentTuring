@@ -11,32 +11,50 @@ import pytest
 from stronghold.orchestrator.engine import OrchestratorEngine, WorkItem, WorkStatus
 
 
+class FakeAgentResponse:
+    def __init__(self, content: str = "done") -> None:
+        self.content = content
+        self.tool_history: list[dict[str, Any]] = []
+
+
+class FakeAgent:
+    """Fake agent that records handle() calls."""
+
+    def __init__(self, response: str = "done", fail: bool = False) -> None:
+        self._response = response
+        self._fail = fail
+        self.calls: list[dict[str, Any]] = []
+
+    async def handle(
+        self,
+        messages: list[dict[str, Any]],
+        auth: Any,
+        **kwargs: Any,
+    ) -> FakeAgentResponse:
+        self.calls.append({"messages": messages})
+        if self._fail:
+            raise RuntimeError("agent execution failed")
+        return FakeAgentResponse(self._response)
+
+
 class FakeContainer:
     """Minimal container stub for orchestrator tests."""
 
-    def __init__(self, response: dict[str, Any] | None = None, fail: bool = False) -> None:
-        self._response = response or {"content": "done"}
+    def __init__(self, response: str = "done", fail: bool = False) -> None:
+        self._response = response
         self._fail = fail
-        self.calls: list[dict[str, Any]] = []
-        self.agents = {"mason": True, "auditor": True, "ranger": True}
+        mason = FakeAgent(response, fail)
+        auditor = FakeAgent(response, fail)
+        ranger = FakeAgent(response, fail)
+        self.agents: dict[str, FakeAgent] = {"mason": mason, "auditor": auditor, "ranger": ranger}
         self.reactor = FakeReactor()
 
-    async def route_request(
-        self,
-        messages: list[dict[str, Any]],
-        *,
-        auth: Any = None,
-        session_id: str | None = None,
-        intent_hint: str = "",
-        status_callback: Any = None,
-    ) -> dict[str, Any]:
-        self.calls.append({
-            "messages": messages,
-            "intent_hint": intent_hint,
-        })
-        if self._fail:
-            raise RuntimeError("agent execution failed")
-        return self._response
+    @property
+    def calls(self) -> list[dict[str, Any]]:
+        all_calls: list[dict[str, Any]] = []
+        for agent in self.agents.values():
+            all_calls.extend(agent.calls)
+        return all_calls
 
 
 class FakeReactor:
@@ -96,7 +114,7 @@ class TestDispatch:
 
 class TestExecution:
     async def test_worker_executes_and_completes(self) -> None:
-        container = FakeContainer(response={"content": "PR created"})
+        container = FakeContainer(response="PR created")
         engine = OrchestratorEngine(container, max_concurrent=1)
         await engine.start()
 
@@ -107,7 +125,6 @@ class TestExecution:
             intent_hint="code_gen",
         )
 
-        # Wait for execution
         for _ in range(50):
             item = engine.get("exec-1")
             if item and item.status in (WorkStatus.COMPLETED, WorkStatus.FAILED):
@@ -119,9 +136,9 @@ class TestExecution:
         item = engine.get("exec-1")
         assert item is not None
         assert item.status == WorkStatus.COMPLETED
-        assert item.result == {"content": "PR created"}
+        assert item.result["choices"][0]["message"]["content"] == "PR created"
+        assert item.result["agent"] == "mason"
         assert len(container.calls) == 1
-        assert container.calls[0]["intent_hint"] == "code_gen"
 
     async def test_worker_handles_failure(self) -> None:
         container = FakeContainer(fail=True)

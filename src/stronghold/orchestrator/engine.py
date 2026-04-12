@@ -234,20 +234,39 @@ class OrchestratorEngine:
                 self._running.discard(work_id)
 
     async def _execute(self, item: WorkItem) -> dict[str, Any]:
-        """Execute a work item through the Conduit pipeline.
+        """Execute a work item by calling the agent directly.
 
-        This is where governance happens — the request flows through:
-        Warden scan -> Classify -> Route to agent -> Agent.handle() ->
-        Strategy.reason() with tools -> Sentinel post-call -> Response
+        Skips classification (we already know the agent). Goes straight to
+        Agent.handle() which runs the full pipeline:
+        Warden scan -> context build -> strategy.reason() (tool loop) ->
+        Sentinel post-call -> learning extraction -> response
         """
         from stronghold.types.auth import SYSTEM_AUTH  # noqa: PLC0415
 
-        result: dict[str, Any] = await self._container.route_request(
-            messages=item.messages,
-            auth=SYSTEM_AUTH,
-            intent_hint=item.intent_hint or item.agent_name,
+        agent = self._container.agents.get(item.agent_name)
+        if agent is None:
+            msg = f"Agent '{item.agent_name}' not loaded"
+            raise LookupError(msg)
+
+        response = await agent.handle(
+            item.messages,
+            SYSTEM_AUTH,
         )
-        return result
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": response.content,
+                    },
+                }
+            ],
+            "agent": item.agent_name,
+            "tool_history": [
+                {"tool": t["tool_name"], "round": t["round"]}
+                for t in getattr(response, "tool_history", [])
+            ],
+        }
 
     def _emit_event(self, name: str, data: dict[str, Any]) -> None:
         """Emit an event to the reactor for downstream processing."""

@@ -19,11 +19,16 @@ concurrency:
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
 
       - name: Set up venv
         run: |
@@ -63,10 +68,15 @@ jobs:
 
   security:
     name: Security Tests
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     needs: lint
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
       - name: Set up venv
         run: |
           python3 -m venv .venv
@@ -88,10 +98,15 @@ jobs:
 
   sast:
     name: SAST & Supply Chain
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     needs: lint
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
       - name: Set up venv
         run: |
           python3 -m venv .venv
@@ -159,7 +174,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     needs: lint
 
     env:
@@ -168,6 +183,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
 
       - name: Set up venv
         run: |

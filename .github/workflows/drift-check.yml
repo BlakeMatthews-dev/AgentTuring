@@ -23,7 +23,7 @@ concurrency:
 jobs:
   drift:
     name: Full Repo Quality Check
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:

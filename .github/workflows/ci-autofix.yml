@@ -16,7 +16,7 @@ concurrency:
 jobs:
   autofix:
     name: Dispatch repair
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     if: >-
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.event == 'pull_request' &&

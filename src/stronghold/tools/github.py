@@ -89,6 +89,11 @@ _BOT_REGISTRY: dict[str, dict[str, str]] = {
         "installation_id": "123362160",
         "key_path": "~/.conductor-secrets/mason.pem",
     },
+    "quartermaster": {
+        "app_id": "3355040",
+        "installation_id": "",  # Set after org install
+        "key_path": "~/.conductor-secrets/quartermaster.pem",
+    },
 }
 
 

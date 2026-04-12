@@ -7,7 +7,7 @@ and reports which stage broke.
 
 Default pipeline (configurable):
   1. quartermaster  — decompose epic into atomic issues (skip if already atomic)
-  2. frank          — scaffold protocols, fakes, file structure
+  2. archie          — scaffold protocols, fakes, file structure
   3. mason          — TDD: write tests, then implementation
   4. auditor        — review PR, post violation comments
   5. gatekeeper     — final lint/format/merge-readiness check
@@ -105,7 +105,7 @@ BUILDER_PIPELINE = [
     ),
     PipelineStage(
         name="scaffold",
-        agent_name="frank",
+        agent_name="archie",
         prompt_template=(
             "Read issue #{issue_number}: {title}\n\n"
             "Create the scaffolding for this implementation:\n"

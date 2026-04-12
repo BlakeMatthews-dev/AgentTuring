@@ -7,7 +7,7 @@ and reports which stage broke.
 
 Default pipeline (configurable):
   1. quartermaster  — decompose epic into atomic issues (skip if already atomic)
-  2. frank          — scaffold protocols, fakes, file structure
+  2. archie          — scaffold protocols, fakes, file structure
   3. mason          — TDD: write tests, then implementation
   4. auditor        — review PR, post violation comments
   5. gatekeeper     — final lint/format/merge-readiness check
@@ -105,7 +105,7 @@ BUILDER_PIPELINE = [
     ),
     PipelineStage(
         name="scaffold",
-        agent_name="frank",
+        agent_name="archie",
         prompt_template=(
             "Read issue #{issue_number}: {title}\n\n"
             "Create the scaffolding for this implementation:\n"
@@ -212,13 +212,16 @@ class BuilderPipeline:
                 logger.info("Pipeline %s: skipping %s (atomic issue)", run_id, stage.name)
                 continue
 
-            if stage.skip_if == "review_clean" and "no violations" in prev_output.lower():
+            _clean_signals = ("no violations", "lgtm", "approved", "all checks pass", "clean")
+            if stage.skip_if == "review_clean" and any(
+                s in prev_output.lower() for s in _clean_signals
+            ):
                 stage.status = StageStatus.SKIPPED
                 logger.info("Pipeline %s: skipping %s (review clean)", run_id, stage.name)
                 continue
 
-            # Check agent exists
-            if stage.agent_name not in self._engine._container.agents:
+            # Check agent exists (use engine's public accessor, not internal state)
+            if not self._engine.has_agent(stage.agent_name):
                 stage.status = StageStatus.SKIPPED
                 logger.warning(
                     "Pipeline %s: skipping %s (agent '%s' not loaded)",
@@ -257,22 +260,43 @@ class BuilderPipeline:
                 },
             )
 
-            # Wait for completion
+            # Wait for completion with exponential backoff (not 1s polling)
             import asyncio
 
-            for _ in range(600):  # 10 minutes max per stage
+            _poll_interval = 1.0
+            _elapsed = 0.0
+            _stage_timeout = 600.0  # 10 minutes max per stage
+            while _elapsed < _stage_timeout:
                 current = self._engine.get(work_id)
                 if current and current.status.value in ("completed", "failed", "cancelled"):
                     break
-                await asyncio.sleep(1)
+                await asyncio.sleep(_poll_interval)
+                _elapsed += _poll_interval
+                _poll_interval = min(_poll_interval * 1.5, 10.0)  # back off to 10s max
 
             current = self._engine.get(work_id)
-            if current is None or current.status.value == "failed":
+            if current is None:
                 stage.status = StageStatus.FAILED
-                stage.error = current.error if current else "Work item lost"
+                stage.error = "Work item lost"
+                stage.completed_at = datetime.now(UTC)
+                run.status = f"failed at {stage.name}"
+                logger.error("Pipeline %s: %s FAILED: work item lost", run_id, stage.name)
+                break
+            if current.status.value == "failed":
+                stage.status = StageStatus.FAILED
+                stage.error = current.error
                 stage.completed_at = datetime.now(UTC)
                 run.status = f"failed at {stage.name}"
                 logger.error("Pipeline %s: %s FAILED: %s", run_id, stage.name, stage.error)
+                break
+            if _elapsed >= _stage_timeout:
+                # Timed out — cancel the work item and fail the stage
+                self._engine.cancel(work_id)
+                stage.status = StageStatus.FAILED
+                stage.error = f"Stage timed out after {_stage_timeout:.0f}s"
+                stage.completed_at = datetime.now(UTC)
+                run.status = f"failed at {stage.name}"
+                logger.error("Pipeline %s: %s TIMED OUT", run_id, stage.name)
                 break
 
             stage.status = StageStatus.COMPLETED

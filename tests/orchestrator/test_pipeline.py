@@ -37,7 +37,7 @@ class FakeContainer:
     """Minimal container with a configurable agent registry."""
 
     def __init__(self, agent_names: list[str] | None = None) -> None:
-        names = agent_names or ["quartermaster", "frank", "mason", "auditor", "gatekeeper"]
+        names = agent_names or ["quartermaster", "archie", "mason", "auditor", "gatekeeper"]
         self.agents: dict[str, object] = {n: object() for n in names}
 
 
@@ -61,12 +61,18 @@ class FakeEngine:
             },
         )
         self.dispatched: list[dict[str, Any]] = []
+        self.has_agent = lambda name: name in self._container.agents
+        self._cancelled: list[str] = []
 
     def dispatch(self, **kwargs: Any) -> None:
         self.dispatched.append(kwargs)
 
     def get(self, work_id: str) -> FakeWorkItem | None:
         return self._results.get(work_id, self._default)
+
+    def cancel(self, work_id: str) -> bool:
+        self._cancelled.append(work_id)
+        return True
 
 
 # ── PipelineStage tests ─────────────────────────────────────────────
@@ -320,7 +326,7 @@ class TestBuilderPipeline:
             await pipeline.execute(issue_number=77, title="Meta test", skip_decompose=True)
 
         first = engine.dispatched[0]
-        assert first["agent_name"] == "frank"
+        assert first["agent_name"] == "archie"
         assert first["trigger"] == "pipeline"
         assert first["priority_tier"] == "P5"
         assert first["intent_hint"] == "code_gen"

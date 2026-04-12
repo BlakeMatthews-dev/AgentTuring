@@ -87,6 +87,9 @@ class OrchestratorEngine:
     ) -> None:
         self._container = container
         self._max_concurrent = max_concurrent
+        # Expose a stable read-only check — pipeline should use this,
+        # not reach through to _container.agents directly.
+        self.has_agent = lambda name: name in container.agents
         self._items: dict[str, WorkItem] = {}
         self._queue: asyncio.PriorityQueue[tuple[int, str]] = asyncio.PriorityQueue()
         self._running: set[str] = set()

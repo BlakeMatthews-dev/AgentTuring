@@ -62,14 +62,84 @@ GITHUB_TOOL_DEF = ToolDefinition(
 )
 
 
+def _get_app_installation_token() -> str:
+    """Generate a short-lived installation token from GitHub App credentials.
+
+    Requires:
+        GITHUB_APP_ID (or defaults to 3354708)
+        GITHUB_APP_PRIVATE_KEY_PATH (or defaults to well-known path)
+        GITHUB_APP_INSTALLATION_ID (or defaults to 123359098)
+
+    Returns empty string if any credential is missing (falls back to PAT).
+    """
+    try:
+        import jwt as pyjwt  # noqa: PLC0415
+    except ImportError:
+        logger.debug("PyJWT not installed — GitHub App auth unavailable")
+        return ""
+
+    import time  # noqa: PLC0415
+
+    app_id = os.environ.get("GITHUB_APP_ID", "3354708")
+    key_path = os.environ.get(
+        "GITHUB_APP_PRIVATE_KEY_PATH",
+        os.path.expanduser("~/.conductor-secrets/gatekeeper.pem"),
+    )
+    installation_id = os.environ.get("GITHUB_APP_INSTALLATION_ID", "123359098")
+
+    if not app_id or not installation_id:
+        return ""
+
+    try:
+        with open(key_path) as f:
+            private_key = f.read()
+    except FileNotFoundError:
+        logger.debug("GitHub App private key not found at %s", key_path)
+        return ""
+
+    now = int(time.time())
+    jwt_token = pyjwt.encode(
+        {"iat": now - 60, "exp": now + 600, "iss": app_id},
+        private_key,
+        algorithm="RS256",
+    )
+
+    try:
+        import httpx  # noqa: PLC0415
+
+        resp = httpx.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        token = resp.json().get("token", "")
+        if token:
+            logger.info("GitHub App installation token generated (stronghold-ci-gatekeeper[bot])")
+        return token
+    except Exception:
+        logger.warning("Failed to generate GitHub App installation token", exc_info=True)
+        return ""
+
+
 class GitHubToolExecutor:
     """Executes GitHub operations via the REST API.
 
     Implements the ToolExecutor protocol.
+
+    Auth priority:
+    1. GitHub App installation token (posts as stronghold-ci-gatekeeper[bot])
+    2. Explicit token param
+    3. GITHUB_TOKEN env var (PAT — posts as the user)
     """
 
     def __init__(self, token: str = "") -> None:
-        self._token = token or os.environ.get("GITHUB_TOKEN", "")
+        # Prefer App installation token so actions show as the bot, not the user
+        app_token = _get_app_installation_token()
+        self._token = app_token or token or os.environ.get("GITHUB_TOKEN", "")
         self._base_url = "https://api.github.com"
 
     @property

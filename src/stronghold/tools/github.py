@@ -91,7 +91,7 @@ _BOT_REGISTRY: dict[str, dict[str, str]] = {
     },
     "quartermaster": {
         "app_id": "3355040",
-        "installation_id": "",  # Set after org install
+        "installation_id": "123365500",
         "key_path": "~/.conductor-secrets/quartermaster.pem",
     },
 }

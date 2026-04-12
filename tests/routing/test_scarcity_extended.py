@@ -208,8 +208,8 @@ class TestScorerIntegration:
         provider = build_provider_config(free_tokens=1_000_000_000)
         model = build_model_config(quality=0.9, strengths=("code",))
 
-        normal = build_intent(priority="normal", preferred_strengths=("code",))
-        critical = build_intent(priority="critical", preferred_strengths=("code",))
+        normal = build_intent(tier="P2", preferred_strengths=("code",))
+        critical = build_intent(tier="P0", preferred_strengths=("code",))
 
         cand_n = score_candidate("n", model, provider, normal, routing, 0.1)
         cand_c = score_candidate("c", model, provider, critical, routing, 0.1)

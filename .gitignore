@@ -35,6 +35,10 @@ htmlcov/
 *.key
 *secrets*
 *credentials*
+# Allow the secrets-protocol source files (no actual secrets, just types)
+!src/stronghold/protocols/secrets.py
+!tests/config/test_secrets.py
+!tests/fakes.py
 
 # OS
 .DS_Store

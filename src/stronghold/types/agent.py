@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 
 class ExecutionMode(StrEnum):
@@ -30,6 +30,7 @@ class AgentIdentity:
     skills: tuple[str, ...] = ()
     rules: tuple[str, ...] = ()
     trust_tier: str = "t4"
+    priority_tier: Literal["P0", "P1", "P2", "P3", "P4", "P5"] = "P2"
     max_tool_rounds: int = 3
     delegation_mode: str = "none"
     sub_agents: tuple[str, ...] = ()

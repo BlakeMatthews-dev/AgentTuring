@@ -476,7 +476,7 @@ class AuthProvider(Protocol):
 | Provider | Use Case | Claims |
 |----------|----------|--------|
 | Keycloak OIDC | Homelab, open-source default | realm_access.roles |
-| Entra ID | Enterprise (JedAI) | roles (app roles) |
+| Entra ID | Enterprise (Microsoft-shop customers) | roles (app roles) |
 | Static API key | Service-to-service, backward compat | Maps to system admin context |
 | OpenWebUI headers | Thin client passthrough | X-OpenWebUI-User-* headers |
 
@@ -565,7 +565,22 @@ Every observability component behind a protocol:
 | `TracingBackend` | Arize Phoenix (small team) or Arize Enterprise (enterprise) | PostgreSQL raw, noop |
 | `LLMClient` → callback | LiteLLM → Phoenix/Arize | LiteLLM → stdout |
 
-### 7.4 Tracing Architecture
+### 7.4 Logging
+
+Stronghold uses Python's standard `logging` module via `dictConfig`, configured once at API process startup. Logging is **distinct from tracing** (§7.5): logs are line-oriented, leveled, human-readable; traces are structured, hierarchical, attribute-rich.
+
+| Module | Role |
+|--------|------|
+| `stronghold.log_config` | `dictConfig` with `RunIdFilter`, console handler, named loggers per subsystem (`stronghold.builders.tdd`, `stronghold.builders.workflow`, etc.). `configure_logging()` is idempotent and called from the FastAPI `lifespan` hook. |
+| `stronghold.log_context` | `RunLoggerAdapter(logging.LoggerAdapter)` — attaches `run_id` to every record's `extra` field for the duration of a workflow scope. Used at the top of long-running async workflows so log lines auto-attribute without manual interpolation. |
+
+Format: `%(asctime)s %(levelname)-8s %(name)s [run_id=%(run_id)s] %(message)s`. The `RunIdFilter` injects `run_id="-"` for records emitted outside a workflow scope (libraries, framework code) so the format string never `KeyError`s.
+
+Why a `LoggerAdapter` rather than `contextvars.ContextVar`: simpler, scoped explicitly to the workflow function, no asyncio leakage gotchas. Workflow code already has `run` available everywhere it would log, so threading the adapter is cheap.
+
+JSON formatter / log shipping to an aggregator are intentionally out of scope at this layer — logs go to stdout, `docker logs`/`journalctl` collect them.
+
+### 7.5 Tracing Architecture
 
 Every request is a trace. Every boundary crossing is a span:
 
@@ -601,8 +616,8 @@ Every external dependency behind a protocol interface. Implementations are swapp
 
 | Protocol | Methods | Current Impl | Swap Target |
 |----------|---------|-------------|-------------|
-| `ModelProxy` | complete(), stream(), list_models() | LiteLLM | Archestra, direct provider SDKs |
-| `ToolGateway` | list_tools(), call_tool(), register_*() | LiteLLM MCP gateway | Archestra, Kong, standalone |
+| `ModelProxy` | complete(), stream(), list_models() | LiteLLM | direct provider SDKs, alternative gateways |
+| `ToolGateway` | list_tools(), call_tool(), register_*() | LiteLLM MCP gateway | Kong, alternative MCP gateways, standalone |
 | `AuthProvider` | authenticate() | Keycloak, Entra ID | Any OIDC provider |
 | `PromptManager` | get(), get_with_config(), upsert() | PostgreSQL (stronghold.prompts) | Langfuse (legacy adapter) |
 | `TracingBackend` | create_trace() → Trace, Span | Arize Enterprise | Phoenix, PostgreSQL, noop |

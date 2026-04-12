@@ -1,0 +1,19 @@
+{{- if .Values.priorityClasses.create }}
+# P3 backend-support — janitors, sweepers, quota reconcilers.
+#
+# Scheduled or event-driven platform maintenance. Best-effort SLA; log
+# on miss. See ADR-K8S-014.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: stronghold-p3
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    stronghold.io/priority-tier: P3
+value: {{ .Values.priorityClasses.values.p3 }}
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Stronghold P3 backend-support tier. Scheduled janitors, sweepers,
+  quota reconcilers. See ADR-K8S-014.
+{{- end }}

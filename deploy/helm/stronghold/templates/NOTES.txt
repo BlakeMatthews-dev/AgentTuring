@@ -1,0 +1,35 @@
+Stronghold {{ .Chart.Version }} chart rendered successfully.
+
+NOTE: This is the PR-6 skeleton release. Only foundational resources are
+installed: ServiceAccounts, namespace-scoped RBAC, cluster-scoped
+PriorityClasses, and (on OpenShift) SCC bindings. No workload pods are
+deployed yet — Deployments, StatefulSets, Services, Routes/Ingress,
+ConfigMaps, and Secrets land in PR-7 through PR-12.
+
+Release info:
+  Name:      {{ .Release.Name }}
+  Namespace: {{ include "stronghold.namespace" . }}
+  Revision:  {{ .Release.Revision }}
+
+Verify ServiceAccounts and RBAC (namespace-scoped):
+
+  oc get sa,role,rolebinding -n {{ include "stronghold.namespace" . }} \
+    -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if .Values.priorityClasses.create }}
+
+Verify PriorityClasses (cluster-scoped):
+
+  oc get priorityclass | grep stronghold
+{{- end }}
+
+{{- if (include "stronghold.openshiftEnabled" .) }}
+
+Verify SCC bindings (OpenShift):
+
+  oc get clusterrolebinding -l app.kubernetes.io/instance={{ .Release.Name }}
+  oc adm policy who-can use scc {{ .Values.openshift.scc }}
+{{- end }}
+
+Next: once PR-7..PR-12 land, rerun `helm upgrade` with the workload values
+for your environment (see values-prod-homelab.yaml or values-vanilla-k8s.yaml).

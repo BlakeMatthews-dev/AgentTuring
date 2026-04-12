@@ -124,6 +124,7 @@ class InMemoryAgentStore:
             "model": identity.model,
             "tools": list(identity.tools),
             "trust_tier": identity.trust_tier,
+            "priority_tier": identity.priority_tier,
             "max_tool_rounds": identity.max_tool_rounds,
             "soul_prompt_preview": self._souls.get(name, "")[:200],
             "rules_preview": self._rules.get(name, "")[:200],
@@ -199,6 +200,7 @@ class InMemoryAgentStore:
                 "model": identity.model,
                 "tools": list(identity.tools),
                 "trust_tier": identity.trust_tier,
+                "priority_tier": identity.priority_tier,
                 "memory": identity.memory_config,
             }
             zf.writestr(f"{name}/agent.yaml", yaml.dump(manifest, default_flow_style=False))

@@ -1,0 +1,51 @@
+{{- if .Values.rbac.create }}
+# Role and RoleBinding for the stronghold-api component.
+#
+# Scoped to stronghold-platform per ADR-K8S-001. Explicit verb allowlist,
+# no wildcards, per ADR-K8S-002 §3. The API needs to read configuration
+# and resolve Services (for cross-namespace database FQDNs) but never
+# creates or mutates cluster state.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/rbac-tier: stronghold-api
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/rbac-tier: stronghold-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+    namespace: {{ include "stronghold.namespace" . }}
+{{- end }}

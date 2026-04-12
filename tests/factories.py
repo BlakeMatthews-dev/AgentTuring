@@ -14,7 +14,7 @@ def build_intent(**overrides: object) -> Intent:
     defaults: dict[str, object] = {
         "task_type": "chat",
         "complexity": "simple",
-        "priority": "normal",
+        "tier": "P2",
         "min_tier": "small",
         "preferred_strengths": ("chat",),
         "classified_by": "keywords",

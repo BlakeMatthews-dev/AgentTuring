@@ -60,6 +60,7 @@ class AgentRecord(SQLModel, table=True):
 
     # Security
     trust_tier: str = Field(default="t4", max_length=5)
+    priority_tier: str = Field(default="P2", max_length=5)
     provenance: str = Field(default="user", max_length=20)
     ai_reviewed: bool = Field(default=False)
     ai_review_clean: bool = Field(default=False)

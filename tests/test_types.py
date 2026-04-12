@@ -86,7 +86,7 @@ class TestIntent:
         intent = Intent()
         assert intent.task_type == "chat"
         assert intent.complexity == "simple"
-        assert intent.priority == "normal"
+        assert intent.tier == "P2"
 
     def test_tier_order(self) -> None:
         assert TIER_ORDER["small"] < TIER_ORDER["medium"]
@@ -253,7 +253,7 @@ class TestConfigTypes:
     def test_routing_config_defaults(self) -> None:
         rc = RoutingConfig()
         assert rc.quality_weight == 0.6
-        assert "normal" in rc.priority_multipliers
+        assert "P2" in rc.priority_multipliers
 
     def test_task_type_config(self) -> None:
         ttc = TaskTypeConfig(keywords=["code"])
@@ -262,3 +262,23 @@ class TestConfigTypes:
     def test_stronghold_config_defaults(self) -> None:
         sc = StrongholdConfig()
         assert sc.litellm_url == "http://litellm:4000"
+
+
+class TestAgentPriorityTier:
+    """Tests for AgentIdentity.priority_tier (issue #892)."""
+
+    def test_default_priority_tier_is_p2(self) -> None:
+        ai = AgentIdentity(name="test")
+        assert ai.priority_tier == "P2"
+
+    def test_explicit_priority_tier(self) -> None:
+        for tier in ("P0", "P1", "P2", "P3", "P4", "P5"):
+            ai = AgentIdentity(name="test", priority_tier=tier)
+            assert ai.priority_tier == tier
+
+    def test_priority_tier_in_frozen_identity(self) -> None:
+        ai = AgentIdentity(name="test", priority_tier="P0")
+        import pytest
+
+        with pytest.raises(AttributeError):
+            ai.priority_tier = "P1"  # type: ignore[misc]

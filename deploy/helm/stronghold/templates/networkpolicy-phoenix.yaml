@@ -1,0 +1,53 @@
+{{- if .Values.networkPolicy.enabled }}
+# NetworkPolicy for Arize Phoenix pods.
+#
+# Ingress: from stronghold-api (trace data) and from the Ingress controller
+# (dashboard UI) on the Phoenix port.
+# Egress: DNS only — Phoenix does not initiate external connections.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-phoenix
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: phoenix
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        # stronghold-api sends trace data
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: stronghold-api
+        # Ingress controller for dashboard UI access
+        - namespaceSelector:
+            matchLabels:
+              networking.k8s.io/ingress: "true"
+      ports:
+        - port: {{ .Values.phoenixSvc.containerPort }}
+          protocol: TCP
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # PostgreSQL (Phoenix stores trace data)
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: {{ .Values.postgresql.containerPort }}
+          protocol: TCP
+{{- end }}

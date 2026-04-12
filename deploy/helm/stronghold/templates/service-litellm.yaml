@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+    stronghold.io/priority-tier: P1
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "stronghold.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+  ports:
+    - name: http
+      port: {{ .Values.litellmProxy.containerPort }}
+      targetPort: http
+      protocol: TCP

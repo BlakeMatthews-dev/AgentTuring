@@ -1,0 +1,30 @@
+{
+  "id": "artificer",
+  "name": "artificer",
+  "description": "Code and engineering specialist.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "plan_execute",
+    "tools": [
+      "file_ops",
+      "shell",
+      "run_pytest",
+      "run_ruff_check",
+      "run_ruff_format",
+      "run_mypy",
+      "run_bandit",
+      "git"
+    ],
+    "skills": [],
+    "max_tool_rounds": 10
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P2",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-pro",
+    "mistral-large"
+  ],
+  "active": true
+}

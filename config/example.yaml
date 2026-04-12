@@ -10,6 +10,10 @@ providers:
     status: active
     billing_cycle: daily
     free_tokens: 5000000
+  openrouter:
+    status: active
+    billing_cycle: monthly
+    free_tokens: 500000000
   cerebras:
     status: active
     billing_cycle: daily
@@ -26,6 +30,14 @@ models:
   # Frontier reasoning models. Each request costs gold coins.
   # A typical 2K-token request costs ~3 gold = 300 copper.
   # Budget: save silver→gold over multiple days for occasional premium use.
+  claude-sonnet:
+    provider: openrouter
+    litellm_id: openrouter/anthropic/claude-sonnet-4-6
+    tier: large
+    quality: 0.95
+    speed: 60
+    modality: text
+    strengths: [code, reasoning, chat]
   mistral-large:
     provider: mistral
     litellm_id: mistral/mistral-large-latest

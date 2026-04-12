@@ -1,0 +1,126 @@
+name: Quality Drift Check
+
+# Runs on every push to integration. Checks the ENTIRE codebase for
+# lint, type, and security drift. If errors are found, opens a GitHub
+# issue so the team can fix them before they cascade to feature branches.
+#
+# This is the safety net that catches errors which slip through the
+# per-PR lint job (e.g., transitive import errors, formatting drift
+# from merge commits, mypy strict regressions).
+
+on:
+  push:
+    branches:
+      - integration
+  schedule:
+    # Also run nightly at 3 AM CDT (8 AM UTC) as a backstop
+    - cron: '0 8 * * *'
+
+concurrency:
+  group: drift-check
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Full Repo Quality Check
+    runs-on: [self-hosted, stronghold]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: integration
+
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff check (full)
+        id: ruff_check
+        continue-on-error: true
+        run: |
+          ruff check src/stronghold/ 2>&1 | tee /tmp/ruff-check.txt
+          echo "errors=$(grep -c 'Found [0-9]' /tmp/ruff-check.txt || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Ruff format (full)
+        id: ruff_format
+        continue-on-error: true
+        run: |
+          ruff format --check src/stronghold/ 2>&1 | tee /tmp/ruff-format.txt
+          echo "errors=$(grep -c 'would be reformatted' /tmp/ruff-format.txt || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Mypy strict (full)
+        id: mypy
+        continue-on-error: true
+        run: |
+          mypy src/stronghold/ --strict 2>&1 | tee /tmp/mypy.txt
+          echo "errors=$(grep -c 'error:' /tmp/mypy.txt || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Bandit (full)
+        id: bandit
+        continue-on-error: true
+        run: |
+          bandit -r src/stronghold/ -ll --skip B608 2>&1 | tee /tmp/bandit.txt
+          echo "errors=$(grep -c 'Issue:' /tmp/bandit.txt || echo 0)" >> "$GITHUB_OUTPUT"
+
+      - name: Check for drift
+        id: summary
+        run: |
+          RUFF=$(tail -1 /tmp/ruff-check.txt)
+          FORMAT=$(tail -1 /tmp/ruff-format.txt)
+          MYPY=$(tail -1 /tmp/mypy.txt)
+          BANDIT=$(tail -5 /tmp/bandit.txt | head -1)
+
+          CLEAN=true
+          BODY="## Quality Drift Detected on \`integration\`\n\n"
+          BODY+="**Commit:** ${{ github.sha }}\n"
+          BODY+="**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n"
+
+          if [ "${{ steps.ruff_check.outcome }}" = "failure" ]; then
+            BODY+="### Ruff Check\n\`\`\`\n$RUFF\n\`\`\`\n\n"
+            CLEAN=false
+          fi
+          if [ "${{ steps.ruff_format.outcome }}" = "failure" ]; then
+            BODY+="### Ruff Format\n\`\`\`\n$FORMAT\n\`\`\`\n\n"
+            CLEAN=false
+          fi
+          if [ "${{ steps.mypy.outcome }}" = "failure" ]; then
+            MYPY_COUNT=$(grep -c 'error:' /tmp/mypy.txt || echo 0)
+            BODY+="### Mypy ($MYPY_COUNT errors)\n\`\`\`\n$(tail -5 /tmp/mypy.txt)\n\`\`\`\n\n"
+            CLEAN=false
+          fi
+          if [ "${{ steps.bandit.outcome }}" = "failure" ]; then
+            BODY+="### Bandit\n\`\`\`\n$BANDIT\n\`\`\`\n\n"
+            CLEAN=false
+          fi
+
+          if [ "$CLEAN" = "true" ]; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+            echo "All quality checks passed on integration."
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            echo -e "$BODY" > /tmp/drift-body.md
+            echo "Drift detected — will open issue."
+          fi
+
+      - name: Open drift issue
+        if: steps.summary.outputs.clean == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Close any existing drift issue first
+          EXISTING=$(gh issue list --label "quality-drift" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "Superseded by new drift detection run."
+          fi
+
+          gh issue create \
+            --title "Quality drift detected on integration ($(date +%Y-%m-%d))" \
+            --body-file /tmp/drift-body.md \
+            --label "quality-drift,bug"
+
+      - name: Fail if drift
+        if: steps.summary.outputs.clean == 'false'
+        run: exit 1

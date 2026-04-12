@@ -1,0 +1,71 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default deny-all in the MCP namespace.
+#
+# Mirrors the release-namespace default-deny but scoped to stronghold-mcp
+# so MCP server pods cannot communicate with anything unless explicitly allowed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow rules for MCP server pods (github-mcp, dev-tools-mcp).
+#
+# Ingress: from stronghold-api (cross-namespace) on MCP ports.
+# Egress: DNS + external HTTPS (github-mcp needs GitHub API, dev-tools may
+# need external package registries).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mcp-servers
+  namespace: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # stronghold-api cross-namespace access to github-mcp
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "stronghold.namespace" . }}
+          podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: stronghold-api
+      ports:
+        - port: {{ .Values.mcp.github.containerPort }}
+          protocol: TCP
+        - port: {{ .Values.mcp.devTools.containerPort }}
+          protocol: TCP
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # External APIs (GitHub, package registries, etc.)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+{{- end }}

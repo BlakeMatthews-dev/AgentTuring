@@ -1,0 +1,64 @@
+# Camoufox stealth browser fetcher — ELITE tier backend for Ranger Elite.
+# ClusterIP ONLY. DO NOT add NodePort, Ingress, or LoadBalancer.
+# See /root/.claude/plans/delegated-prancing-widget.md for security rationale.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camoufox-fetcher
+  namespace: stronghold-platform
+  labels:
+    app: camoufox-fetcher
+    tier: elite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: camoufox-fetcher
+  template:
+    metadata:
+      labels:
+        app: camoufox-fetcher
+        tier: elite
+    spec:
+      containers:
+        - name: camoufox-fetcher
+          image: stronghold/camoufox-fetcher:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camoufox-fetcher
+  namespace: stronghold-platform
+  labels:
+    app: camoufox-fetcher
+spec:
+  # ClusterIP ONLY — never expose externally. This is the stealth tier.
+  type: ClusterIP
+  selector:
+    app: camoufox-fetcher
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

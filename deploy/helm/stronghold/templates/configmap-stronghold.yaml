@@ -1,0 +1,22 @@
+# Non-secret config for the stronghold-api. The example payload mirrors
+# the STRONGHOLD_CONFIG file referenced by the raw manifest at
+# deploy/k8s/stronghold.yaml; real production values come from the
+# values-prod-homelab overlay.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stronghold.fullname" . }}-config
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/priority-tier: P0
+data:
+  example.yaml: |
+    # Placeholder config. Override via --set-file or a values overlay.
+    server:
+      port: {{ .Values.strongholdApi.containerPort }}
+    database:
+      url: postgres://{{ .Values.postgresql.username }}@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/{{ .Values.postgresql.database }}
+    router:
+      url: http://{{ include "stronghold.fullname" . }}-litellm:{{ .Values.litellmProxy.containerPort }}

@@ -1,0 +1,21 @@
+{
+  "id": "scribe",
+  "name": "scribe",
+  "description": "Writing, creative content, documentation.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "plan_execute",
+    "tools": [
+      "file_ops",
+      "web_search"
+    ],
+    "skills": [],
+    "max_tool_rounds": 5
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P1",
+  "model": "auto",
+  "model_fallbacks": [],
+  "active": true
+}

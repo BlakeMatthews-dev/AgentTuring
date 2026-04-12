@@ -20,12 +20,19 @@ class TaskAcceptancePolicy(Protocol):
     """Protocol for task creation policy enforcement."""
 
     def check_task_creation(
-        self, user_id: str, org_id: str, agent_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        agent_name: str,
     ) -> bool: ...
 
     def check_budget(
-        self, user_id: str, org_id: str, priority_tier: str,
-        token_budget: float | None, cost_budget: float | None,
+        self,
+        user_id: str,
+        org_id: str,
+        priority_tier: str,
+        token_budget: float | None,
+        cost_budget: float | None,
         wall_clock_seconds: float | None,
     ) -> bool: ...
 
@@ -51,8 +58,13 @@ class InMemoryTaskAcceptancePolicy:
     def deny_agent(self, user_id: str, org_id: str, agent_name: str) -> None:
         self._denied_agents.add((user_id, org_id, agent_name))
 
-    def set_budget_limit(self, tier: str, max_tokens: float | None = None,
-                         max_cost: float | None = None, max_seconds: float | None = None) -> None:
+    def set_budget_limit(
+        self,
+        tier: str,
+        max_tokens: float | None = None,
+        max_cost: float | None = None,
+        max_seconds: float | None = None,
+    ) -> None:
         limits = self._budget_limits.setdefault(tier, {})
         if max_tokens is not None:
             limits["max_tokens"] = max_tokens
@@ -62,18 +74,26 @@ class InMemoryTaskAcceptancePolicy:
             limits["max_seconds"] = max_seconds
 
     def check_task_creation(
-        self, user_id: str, org_id: str, agent_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        agent_name: str,
     ) -> bool:
         if (user_id, org_id, agent_name) in self._denied_agents:
             logger.warning(
                 "Task creation DENIED: user=%s org=%s agent=%s",
-                user_id, org_id, agent_name,
+                user_id,
+                org_id,
+                agent_name,
             )
             return False
         return True
 
     def check_budget(
-        self, user_id: str, org_id: str, priority_tier: str,
+        self,
+        user_id: str,
+        org_id: str,
+        priority_tier: str,
         token_budget: float | None = None,
         cost_budget: float | None = None,
         wall_clock_seconds: float | None = None,
@@ -85,21 +105,34 @@ class InMemoryTaskAcceptancePolicy:
         if token_budget is not None and token_budget > limits.get("max_tokens", float("inf")):
             logger.warning(
                 "Budget DENIED: user=%s org=%s tier=%s tokens=%s > max=%s",
-                user_id, org_id, priority_tier, token_budget, limits["max_tokens"],
+                user_id,
+                org_id,
+                priority_tier,
+                token_budget,
+                limits["max_tokens"],
             )
             return False
 
         if cost_budget is not None and cost_budget > limits.get("max_cost", float("inf")):
             logger.warning(
                 "Budget DENIED: user=%s org=%s tier=%s cost=%s > max=%s",
-                user_id, org_id, priority_tier, cost_budget, limits["max_cost"],
+                user_id,
+                org_id,
+                priority_tier,
+                cost_budget,
+                limits["max_cost"],
             )
             return False
 
-        if wall_clock_seconds is not None and wall_clock_seconds > limits.get("max_seconds", float("inf")):
+        max_seconds = limits.get("max_seconds", float("inf"))
+        if wall_clock_seconds is not None and wall_clock_seconds > max_seconds:
             logger.warning(
                 "Budget DENIED: user=%s org=%s tier=%s seconds=%s > max=%s",
-                user_id, org_id, priority_tier, wall_clock_seconds, limits["max_seconds"],
+                user_id,
+                org_id,
+                priority_tier,
+                wall_clock_seconds,
+                limits["max_seconds"],
             )
             return False
 

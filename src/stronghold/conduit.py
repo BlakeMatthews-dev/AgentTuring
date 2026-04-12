@@ -287,9 +287,7 @@ class Conduit:
 
         # ── 2b. Determine execution tier ──
         target_agent_name = c.intent_registry.get_agent_for_intent(intent.task_type)
-        _agent_for_tier = (
-            c.agents.get(target_agent_name) if target_agent_name else None
-        )
+        _agent_for_tier = c.agents.get(target_agent_name) if target_agent_name else None
         suggested_tier = intent.tier
         with trace.span("conduit.determine_tier") as ts:
             intent = determine_execution_tier(intent, agent=_agent_for_tier)

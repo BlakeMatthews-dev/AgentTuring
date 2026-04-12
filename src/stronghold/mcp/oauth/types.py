@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -19,7 +19,7 @@ class OAuthClient:
     token_endpoint_auth_method: str = "client_secret_post"
     scope: str = "tools prompts resources"
     tenant_id: str = ""
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -34,7 +34,7 @@ class AuthorizationCode:
     scope: str
     code_challenge: str  # S256 PKCE challenge
     code_challenge_method: str = "S256"
-    expires_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     used: bool = False
 
 
@@ -48,7 +48,7 @@ class OAuthToken:
     tenant_id: str
     scope: str
     token_type: str = "access"  # "access" or "refresh"
-    expires_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     revoked: bool = False
 
 

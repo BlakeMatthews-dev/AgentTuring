@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Protocol, runtime_checkable
 
 from stronghold.mcp.oauth.types import AuthorizationCode, OAuthClient, OAuthToken, TokenClaims
@@ -55,7 +55,7 @@ class InMemoryOAuthStore:
         auth_code = self._codes.get(code)
         if auth_code is None or auth_code.used:
             return None
-        if auth_code.expires_at < datetime.now(timezone.utc):
+        if auth_code.expires_at < datetime.now(UTC):
             return None
         auth_code.used = True
         return auth_code
@@ -68,7 +68,7 @@ class InMemoryOAuthStore:
         token = self._tokens.get(token_hash)
         if token is None or token.revoked:
             return None
-        if token.expires_at < datetime.now(timezone.utc):
+        if token.expires_at < datetime.now(UTC):
             return None
         return TokenClaims(
             user_id=token.user_id,
@@ -103,7 +103,10 @@ def generate_token() -> str:
 
 
 def issue_access_token(
-    client_id: str, user_id: str, tenant_id: str, scope: str,
+    client_id: str,
+    user_id: str,
+    tenant_id: str,
+    scope: str,
     ttl_minutes: int = 15,
 ) -> tuple[str, OAuthToken]:
     """Generate an access token and its storage record."""
@@ -115,13 +118,16 @@ def issue_access_token(
         tenant_id=tenant_id,
         scope=scope,
         token_type="access",
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
+        expires_at=datetime.now(UTC) + timedelta(minutes=ttl_minutes),
     )
     return token_value, token
 
 
 def issue_refresh_token(
-    client_id: str, user_id: str, tenant_id: str, scope: str,
+    client_id: str,
+    user_id: str,
+    tenant_id: str,
+    scope: str,
     ttl_days: int = 30,
 ) -> tuple[str, OAuthToken]:
     """Generate a refresh token and its storage record."""
@@ -133,6 +139,6 @@ def issue_refresh_token(
         tenant_id=tenant_id,
         scope=scope,
         token_type="refresh",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=ttl_days),
+        expires_at=datetime.now(UTC) + timedelta(days=ttl_days),
     )
     return token_value, token

@@ -7,10 +7,10 @@ trust tier, and priority tier. Cascade resolution: user > tenant > builtin.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from stronghold.types.agent import AgentIdentity
+from stronghold.types.agent import AgentIdentity  # noqa: TC001  (dataclass field)
 
 logger = logging.getLogger("stronghold.agents.catalog")
 
@@ -41,8 +41,9 @@ class AgentCard:
     user_id: str = ""
 
     @classmethod
-    def from_identity(cls, identity: AgentIdentity, scope: str = "builtin",
-                      tenant_id: str = "", user_id: str = "") -> AgentCard:
+    def from_identity(
+        cls, identity: AgentIdentity, scope: str = "builtin", tenant_id: str = "", user_id: str = ""
+    ) -> AgentCard:
         return cls(
             id=identity.name,
             name=identity.name,
@@ -85,6 +86,15 @@ class AgentCard:
         }
 
 
+def _card_visible(card: AgentCard, tenant_id: str, user_id: str) -> bool:
+    """Check if an agent card is visible to the given tenant/user scope."""
+    if card.scope == "builtin":
+        return True
+    if card.scope == "tenant" and tenant_id and card.tenant_id == tenant_id:
+        return True
+    return bool(card.scope == "user" and user_id and card.user_id == user_id)
+
+
 class AgentCatalog:
     """Multi-tenant agent catalog with cascade resolution."""
 
@@ -99,11 +109,7 @@ class AgentCatalog:
         for card in self._cards:
             if card.id != agent_id:
                 continue
-            if card.scope == "user" and card.user_id == user_id and user_id:
-                candidates.append(card)
-            elif card.scope == "tenant" and card.tenant_id == tenant_id and tenant_id:
-                candidates.append(card)
-            elif card.scope == "builtin":
+            if _card_visible(card, tenant_id, user_id):
                 candidates.append(card)
         if not candidates:
             return None
@@ -113,14 +119,7 @@ class AgentCatalog:
     def list_agents(self, tenant_id: str = "", user_id: str = "") -> list[AgentCard]:
         seen: dict[str, AgentCard] = {}
         for card in self._cards:
-            visible = False
-            if card.scope == "builtin":
-                visible = True
-            elif card.scope == "tenant" and card.tenant_id == tenant_id and tenant_id:
-                visible = True
-            elif card.scope == "user" and card.user_id == user_id and user_id:
-                visible = True
-            if not visible:
+            if not _card_visible(card, tenant_id, user_id):
                 continue
             existing = seen.get(card.id)
             if existing is None or _SCOPE_PRIORITY.get(card.scope, 0) > _SCOPE_PRIORITY.get(

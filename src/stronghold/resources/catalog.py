@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Awaitable
 
 logger = logging.getLogger("stronghold.resources.catalog")
 
@@ -56,17 +56,22 @@ class ResourceCatalog:
         self._resolvers[prefix] = resolver
 
     def list_resources(
-        self, tenant_id: str = "", user_id: str = "",
+        self,
+        tenant_id: str = "",
+        user_id: str = "",
     ) -> list[ResourceEntry]:
         """Return all resources visible to this tenant/user."""
-        results: list[ResourceEntry] = []
-        for entry in self._entries:
+
+        def visible(entry: ResourceEntry) -> bool:
             if entry.scope == "global":
-                results.append(entry)
-            elif entry.scope == "tenant" and tenant_id:
-                results.append(entry)
-            elif entry.scope == "user" and user_id:
-                results.append(entry)
+                return True
+            if entry.scope == "tenant":
+                return bool(tenant_id)
+            if entry.scope == "user":
+                return bool(user_id)
+            return False
+
+        results = [e for e in self._entries if visible(e)]
         return sorted(results, key=lambda e: e.uri_template)
 
     async def resolve(
@@ -90,21 +95,20 @@ class ResourceCatalog:
         path = match.group("path")
 
         # Enforce tenant/user namespace isolation
-        if scope == "user":
-            # URI must start with the user's ID
-            if not user_id or not path.startswith(f"{user_id}/"):
-                logger.warning(
-                    "Resource access denied: user=%s tried to access user path=%s",
-                    user_id, path,
-                )
-                return None
-        elif scope == "tenant":
-            if not tenant_id or not path.startswith(f"{tenant_id}/"):
-                logger.warning(
-                    "Resource access denied: tenant=%s tried to access tenant path=%s",
-                    tenant_id, path,
-                )
-                return None
+        if scope == "user" and (not user_id or not path.startswith(f"{user_id}/")):
+            logger.warning(
+                "Resource access denied: user=%s tried to access user path=%s",
+                user_id,
+                path,
+            )
+            return None
+        if scope == "tenant" and (not tenant_id or not path.startswith(f"{tenant_id}/")):
+            logger.warning(
+                "Resource access denied: tenant=%s tried to access tenant path=%s",
+                tenant_id,
+                path,
+            )
+            return None
 
         # Find matching resolver by prefix
         full_path = f"stronghold://{scope}/{path}"

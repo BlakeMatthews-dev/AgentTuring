@@ -19,7 +19,8 @@ logger = logging.getLogger("stronghold.sandbox.deployer")
 
 # mcp-deployer sidecar endpoint (Unix socket in prod, HTTP in dev)
 _DEPLOYER_URL = os.environ.get(
-    "MCP_DEPLOYER_URL", "http://localhost:8300",
+    "MCP_DEPLOYER_URL",
+    "http://localhost:8300",
 )
 
 
@@ -34,7 +35,8 @@ class MCPDeployerClient:
     def __init__(self, base_url: str = "") -> None:
         self._base_url = base_url or _DEPLOYER_URL
         self._client = httpx.AsyncClient(
-            base_url=self._base_url, timeout=30.0,
+            base_url=self._base_url,
+            timeout=30.0,
         )
 
     async def spawn(
@@ -60,7 +62,8 @@ class MCPDeployerClient:
             },
         )
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     async def reap(self, pod_id: str) -> bool:
         """Request mcp-deployer to reap (delete) a sandbox pod."""
@@ -77,16 +80,19 @@ class MCPDeployerClient:
         """Get status of a sandbox pod."""
         resp = await self._client.get(f"/status/{pod_id}")
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     async def list_active(self, tenant_id: str = "") -> list[dict[str, Any]]:
         """List active sandbox pods, optionally filtered by tenant."""
-        params = {}
+        params: dict[str, str] = {}
         if tenant_id:
             params["tenant_id"] = tenant_id
         resp = await self._client.get("/list", params=params)
         resp.raise_for_status()
-        return resp.json().get("pods", [])
+        data: dict[str, Any] = resp.json()
+        pods: list[dict[str, Any]] = data.get("pods", [])
+        return pods
 
     async def health(self) -> bool:
         """Check if mcp-deployer is healthy."""

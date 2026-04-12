@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -53,19 +53,21 @@ def get_oauth_store() -> OAuthStore:
 async def oauth_discovery(request: Request) -> JSONResponse:
     """RFC 8414 authorization server metadata."""
     base = str(request.base_url).rstrip("/")
-    return JSONResponse({
-        "issuer": base,
-        "authorization_endpoint": f"{base}/oauth/authorize",
-        "token_endpoint": f"{base}/oauth/token",
-        "registration_endpoint": f"{base}/oauth/register",
-        "revocation_endpoint": f"{base}/oauth/revoke",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
-        "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
-        "code_challenge_methods_supported": ["S256"],
-        "scopes_supported": ["tools", "prompts", "resources"],
-        "service_documentation": f"{base}/docs",
-    })
+    return JSONResponse(
+        {
+            "issuer": base,
+            "authorization_endpoint": f"{base}/oauth/authorize",
+            "token_endpoint": f"{base}/oauth/token",
+            "registration_endpoint": f"{base}/oauth/register",
+            "revocation_endpoint": f"{base}/oauth/revoke",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
+            "code_challenge_methods_supported": ["S256"],
+            "scopes_supported": ["tools", "prompts", "resources"],
+            "service_documentation": f"{base}/docs",
+        }
+    )
 
 
 # ── Dynamic Client Registration (RFC 7591) ───────────────────────────
@@ -97,16 +99,19 @@ async def register_client(request: Request) -> JSONResponse:
     await _store.register_client(client)
 
     logger.info("Registered MCP client: %s (%s)", client_id, client_name)
-    return JSONResponse({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "client_name": client_name,
-        "redirect_uris": redirect_uris,
-        "grant_types": client.grant_types,
-        "response_types": client.response_types,
-        "token_endpoint_auth_method": client.token_endpoint_auth_method,
-        "scope": client.scope,
-    }, status_code=201)
+    return JSONResponse(
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "client_name": client_name,
+            "redirect_uris": redirect_uris,
+            "grant_types": client.grant_types,
+            "response_types": client.response_types,
+            "token_endpoint_auth_method": client.token_endpoint_auth_method,
+            "scope": client.scope,
+        },
+        status_code=201,
+    )
 
 
 # ── Authorization (consent) ──────────────────────────────────────────
@@ -155,16 +160,18 @@ async def authorize(request: Request) -> JSONResponse:
         scope=scope,
         code_challenge=code_challenge,
         code_challenge_method=code_challenge_method,
-        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
     )
     await _store.store_auth_code(auth_code)
 
     logger.info("Issued auth code for client=%s user=%s", client_id, user_id)
-    return JSONResponse({
-        "code": code,
-        "state": state,
-        "redirect_uri": redirect_uri,
-    })
+    return JSONResponse(
+        {
+            "code": code,
+            "state": state,
+            "redirect_uri": redirect_uri,
+        }
+    )
 
 
 # ── Token exchange ───────────────────────────────────────────────────
@@ -231,15 +238,18 @@ async def _handle_code_exchange(form: Any) -> JSONResponse:
 
     logger.info(
         "Issued tokens for client=%s user=%s",
-        auth_code.client_id, auth_code.user_id,
+        auth_code.client_id,
+        auth_code.user_id,
     )
-    return JSONResponse({
-        "access_token": access_value,
-        "token_type": "Bearer",
-        "expires_in": 900,  # 15 minutes
-        "refresh_token": refresh_value,
-        "scope": auth_code.scope,
-    })
+    return JSONResponse(
+        {
+            "access_token": access_value,
+            "token_type": "Bearer",
+            "expires_in": 900,  # 15 minutes
+            "refresh_token": refresh_value,
+            "scope": auth_code.scope,
+        }
+    )
 
 
 async def _handle_refresh(form: Any) -> JSONResponse:
@@ -271,13 +281,15 @@ async def _handle_refresh(form: Any) -> JSONResponse:
     await _store.store_token(access_token)
     await _store.store_token(new_refresh_token)
 
-    return JSONResponse({
-        "access_token": access_value,
-        "token_type": "Bearer",
-        "expires_in": 900,
-        "refresh_token": new_refresh_value,
-        "scope": claims.scope,
-    })
+    return JSONResponse(
+        {
+            "access_token": access_value,
+            "token_type": "Bearer",
+            "expires_in": 900,
+            "refresh_token": new_refresh_value,
+            "scope": claims.scope,
+        }
+    )
 
 
 # ── Token revocation (RFC 7009) ──────────────────────────────────────

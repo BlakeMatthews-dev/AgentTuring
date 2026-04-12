@@ -8,15 +8,12 @@ Filesystem watcher detects new/modified skill files without restart.
 from __future__ import annotations
 
 import logging
-import os
 import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from stronghold.skills.parser import parse_skill_file
-from stronghold.types.skill import SkillDefinition
+from stronghold.types.skill import SkillDefinition  # noqa: TC001  (dataclass field)
 
 logger = logging.getLogger("stronghold.skills.catalog")
 
@@ -34,6 +31,15 @@ class SkillCatalogEntry:
     user_id: str = ""
 
 
+def _is_visible(entry: SkillCatalogEntry, tenant_id: str, user_id: str) -> bool:
+    """Check if a skill entry is visible to the given tenant/user scope."""
+    if entry.scope == "builtin":
+        return True
+    if entry.scope == "tenant" and tenant_id and entry.tenant_id == tenant_id:
+        return True
+    return bool(entry.scope == "user" and user_id and entry.user_id == user_id)
+
+
 class SkillCatalog:
     """Multi-tenant skill catalog with cascade resolution and filesystem watching."""
 
@@ -49,7 +55,10 @@ class SkillCatalog:
             self._entries.append(entry)
 
     def resolve(
-        self, skill_name: str, tenant_id: str = "", user_id: str = "",
+        self,
+        skill_name: str,
+        tenant_id: str = "",
+        user_id: str = "",
     ) -> SkillCatalogEntry | None:
         """Resolve a skill by name with cascade: user > tenant > builtin."""
         candidates: list[SkillCatalogEntry] = []
@@ -57,11 +66,7 @@ class SkillCatalog:
             for entry in self._entries:
                 if entry.definition.name != skill_name:
                     continue
-                if entry.scope == "user" and entry.user_id == user_id and user_id:
-                    candidates.append(entry)
-                elif entry.scope == "tenant" and entry.tenant_id == tenant_id and tenant_id:
-                    candidates.append(entry)
-                elif entry.scope == "builtin":
+                if _is_visible(entry, tenant_id, user_id):
                     candidates.append(entry)
 
         if not candidates:
@@ -70,22 +75,17 @@ class SkillCatalog:
         return candidates[0]
 
     def list_skills(
-        self, tenant_id: str = "", user_id: str = "",
+        self,
+        tenant_id: str = "",
+        user_id: str = "",
     ) -> list[SkillCatalogEntry]:
         """Return all skills visible to this tenant/user, deduplicated by name."""
         seen: dict[str, SkillCatalogEntry] = {}
         with self._lock:
             for entry in self._entries:
-                name = entry.definition.name
-                visible = False
-                if entry.scope == "builtin":
-                    visible = True
-                elif entry.scope == "tenant" and entry.tenant_id == tenant_id and tenant_id:
-                    visible = True
-                elif entry.scope == "user" and entry.user_id == user_id and user_id:
-                    visible = True
-                if not visible:
+                if not _is_visible(entry, tenant_id, user_id):
                     continue
+                name = entry.definition.name
                 existing = seen.get(name)
                 if existing is None or _SCOPE_PRIORITY.get(entry.scope, 0) > _SCOPE_PRIORITY.get(
                     existing.scope, 0
@@ -93,8 +93,9 @@ class SkillCatalog:
                     seen[name] = entry
         return sorted(seen.values(), key=lambda e: e.definition.name)
 
-    def load_directory(self, directory: str | Path, scope: str = "builtin",
-                       tenant_id: str = "", user_id: str = "") -> int:
+    def load_directory(
+        self, directory: str | Path, scope: str = "builtin", tenant_id: str = "", user_id: str = ""
+    ) -> int:
         """Load all .md skill files from a directory. Returns count loaded."""
         directory = Path(directory)
         if not directory.is_dir():
@@ -157,11 +158,13 @@ class SkillCatalog:
                 try:
                     content = path.read_text(encoding="utf-8")
                     skill_def = parse_skill_file(content)
+                    if skill_def is None:
+                        continue
                     entry = SkillCatalogEntry(definition=skill_def, scope="builtin")
-                    # Remove old entry with same name + scope
                     with self._lock:
                         self._entries = [
-                            e for e in self._entries
+                            e
+                            for e in self._entries
                             if not (e.definition.name == skill_def.name and e.scope == "builtin")
                         ]
                     self.register(entry)

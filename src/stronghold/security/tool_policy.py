@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import casbin
+import casbin  # type: ignore[import-untyped]
 
 logger = logging.getLogger("stronghold.security.tool_policy")
 
@@ -24,11 +24,17 @@ class ToolPolicyProtocol(Protocol):
     """Protocol for tool/task policy enforcement."""
 
     def check_tool_call(
-        self, user_id: str, org_id: str, tool_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        tool_name: str,
     ) -> bool: ...
 
     def check_task_creation(
-        self, user_id: str, org_id: str, agent_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        agent_name: str,
     ) -> bool: ...
 
 
@@ -45,24 +51,34 @@ class CasbinToolPolicy:
         self._enforcer = casbin.Enforcer(model_path, policy_path)
 
     def check_tool_call(
-        self, user_id: str, org_id: str, tool_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        tool_name: str,
     ) -> bool:
         result: bool = self._enforcer.enforce(user_id, org_id, tool_name, "tool_call")
         if not result:
             logger.warning(
                 "Tool call DENIED: user=%s org=%s tool=%s",
-                user_id, org_id, tool_name,
+                user_id,
+                org_id,
+                tool_name,
             )
         return result
 
     def check_task_creation(
-        self, user_id: str, org_id: str, agent_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        agent_name: str,
     ) -> bool:
         result: bool = self._enforcer.enforce(user_id, org_id, agent_name, "task_create")
         if not result:
             logger.warning(
                 "Task creation DENIED: user=%s org=%s agent=%s",
-                user_id, org_id, agent_name,
+                user_id,
+                org_id,
+                agent_name,
             )
         return result
 
@@ -71,13 +87,23 @@ class CasbinToolPolicy:
         logger.info("Tool policy reloaded from %s", self._policy_path)
 
     def add_policy(
-        self, sub: str, org: str, obj: str, act: str, eft: str = "allow",
+        self,
+        sub: str,
+        org: str,
+        obj: str,
+        act: str,
+        eft: str = "allow",
     ) -> bool:
         result: bool = self._enforcer.add_policy(sub, org, obj, act, eft)
         return result
 
     def remove_policy(
-        self, sub: str, org: str, obj: str, act: str, eft: str = "allow",
+        self,
+        sub: str,
+        org: str,
+        obj: str,
+        act: str,
+        eft: str = "allow",
     ) -> bool:
         result: bool = self._enforcer.remove_policy(sub, org, obj, act, eft)
         return result

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from stronghold.tools.catalog import CatalogEntry
 from stronghold.types.tool import ToolDefinition
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _REGISTERED_TOOLS: list[CatalogEntry] = []
 

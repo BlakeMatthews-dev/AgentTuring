@@ -27,6 +27,7 @@ from stronghold.security.rate_limiter import InMemoryRateLimiter
 from stronghold.security.sentinel.audit import InMemoryAuditLog
 from stronghold.security.sentinel.policy import Sentinel
 from stronghold.security.strikes import InMemoryStrikeTracker
+from stronghold.security.tool_policy import ToolPolicyProtocol, create_tool_policy
 from stronghold.security.warden.detector import Warden
 from stronghold.sessions.store import InMemorySessionStore
 from stronghold.tools.executor import ToolDispatcher
@@ -326,9 +327,9 @@ async def create_container(config: StrongholdConfig) -> Container:
         tool_policy = None
 
     # Catalogs (ADR-K8S-021/022/023)
-    from stronghold.tools.catalog import ToolCatalog  # noqa: PLC0415
-    from stronghold.skills.catalog import SkillCatalog  # noqa: PLC0415
     from stronghold.resources.catalog import ResourceCatalog  # noqa: PLC0415
+    from stronghold.skills.catalog import SkillCatalog  # noqa: PLC0415
+    from stronghold.tools.catalog import ToolCatalog  # noqa: PLC0415
 
     tool_catalog = ToolCatalog()
     skill_catalog = SkillCatalog()

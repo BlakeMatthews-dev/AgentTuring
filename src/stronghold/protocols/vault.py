@@ -29,7 +29,11 @@ class VaultClient(Protocol):
     """Per-user credential vault for tool executors."""
 
     async def get_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
     ) -> VaultSecret:
         """Read a per-user secret.
 
@@ -40,7 +44,12 @@ class VaultClient(Protocol):
         ...
 
     async def put_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str, value: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
+        value: str,
     ) -> VaultSecret:
         """Write or update a per-user secret.
 
@@ -52,7 +61,11 @@ class VaultClient(Protocol):
         ...
 
     async def delete_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
     ) -> None:
         """Delete a per-user secret.
 
@@ -64,7 +77,9 @@ class VaultClient(Protocol):
         ...
 
     async def list_user_services(
-        self, org_id: str, user_id: str,
+        self,
+        org_id: str,
+        user_id: str,
     ) -> list[str]:
         """List services that have stored secrets for this user.
 
@@ -73,7 +88,9 @@ class VaultClient(Protocol):
         ...
 
     async def revoke_user(
-        self, org_id: str, user_id: str,
+        self,
+        org_id: str,
+        user_id: str,
     ) -> int:
         """Revoke all secrets for a user (e.g., on offboarding).
 

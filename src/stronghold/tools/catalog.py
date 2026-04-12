@@ -8,11 +8,12 @@ Customer plugins discovered via 'stronghold.tools' entry-point group.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib.metadata import entry_points
-from typing import Any, Callable
 
-from stronghold.types.tool import ToolDefinition
+from stronghold.types.tool import (
+    ToolDefinition,  # noqa: TC001  (dataclass field — runtime import needed)
+)
 
 logger = logging.getLogger("stronghold.tools.catalog")
 
@@ -31,6 +32,15 @@ class CatalogEntry:
     user_id: str = ""
 
 
+def _is_visible(entry: CatalogEntry, tenant_id: str, user_id: str) -> bool:
+    """Check if an entry is visible to the given tenant/user scope."""
+    if entry.scope == "builtin":
+        return True
+    if entry.scope == "tenant" and tenant_id and entry.tenant_id == tenant_id:
+        return True
+    return bool(entry.scope == "user" and user_id and entry.user_id == user_id)
+
+
 class ToolCatalog:
     """Multi-tenant tool catalog with cascade resolution."""
 
@@ -42,18 +52,17 @@ class ToolCatalog:
         self._entries.append(entry)
 
     def resolve(
-        self, tool_name: str, tenant_id: str = "", user_id: str = "",
+        self,
+        tool_name: str,
+        tenant_id: str = "",
+        user_id: str = "",
     ) -> CatalogEntry | None:
         """Resolve a tool by name with cascade: user > tenant > builtin."""
         candidates: list[CatalogEntry] = []
         for entry in self._entries:
             if entry.definition.name != tool_name:
                 continue
-            if entry.scope == "user" and entry.user_id == user_id and user_id:
-                candidates.append(entry)
-            elif entry.scope == "tenant" and entry.tenant_id == tenant_id and tenant_id:
-                candidates.append(entry)
-            elif entry.scope == "builtin":
+            if _is_visible(entry, tenant_id, user_id):
                 candidates.append(entry)
 
         if not candidates:
@@ -64,22 +73,16 @@ class ToolCatalog:
         return candidates[0]
 
     def list_tools(
-        self, tenant_id: str = "", user_id: str = "",
+        self,
+        tenant_id: str = "",
+        user_id: str = "",
     ) -> list[CatalogEntry]:
         """Return all tools visible to this tenant/user, deduplicated by name (cascade)."""
         seen: dict[str, CatalogEntry] = {}
         for entry in self._entries:
-            name = entry.definition.name
-            visible = False
-            if entry.scope == "builtin":
-                visible = True
-            elif entry.scope == "tenant" and entry.tenant_id == tenant_id and tenant_id:
-                visible = True
-            elif entry.scope == "user" and entry.user_id == user_id and user_id:
-                visible = True
-
-            if not visible:
+            if not _is_visible(entry, tenant_id, user_id):
                 continue
+            name = entry.definition.name
 
             existing = seen.get(name)
             if existing is None or _SCOPE_PRIORITY.get(entry.scope, 0) > _SCOPE_PRIORITY.get(
@@ -92,8 +95,10 @@ class ToolCatalog:
     def load_plugins(self) -> None:
         """Discover tools from 'stronghold.tools' entry-point group."""
         eps = entry_points()
-        group = eps.get("stronghold.tools", []) if isinstance(eps, dict) else eps.select(
-            group="stronghold.tools"
+        group = (
+            eps.get("stronghold.tools", [])
+            if isinstance(eps, dict)
+            else eps.select(group="stronghold.tools")
         )
         for ep in group:
             try:

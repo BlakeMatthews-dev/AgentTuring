@@ -8,8 +8,8 @@ Every outbound call is audited.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import httpx
 
@@ -45,8 +45,13 @@ class AuditLogger(Protocol):
     """Audit log interface for delegation events."""
 
     async def log_delegation(
-        self, peer_name: str, agent_id: str, tenant_id: str,
-        user_id: str, status: str, detail: str,
+        self,
+        peer_name: str,
+        agent_id: str,
+        tenant_id: str,
+        user_id: str,
+        status: str,
+        detail: str,
     ) -> None: ...
 
 
@@ -57,14 +62,24 @@ class InMemoryAuditLogger:
         self.entries: list[dict[str, str]] = []
 
     async def log_delegation(
-        self, peer_name: str, agent_id: str, tenant_id: str,
-        user_id: str, status: str, detail: str,
+        self,
+        peer_name: str,
+        agent_id: str,
+        tenant_id: str,
+        user_id: str,
+        status: str,
+        detail: str,
     ) -> None:
-        self.entries.append({
-            "peer_name": peer_name, "agent_id": agent_id,
-            "tenant_id": tenant_id, "user_id": user_id,
-            "status": status, "detail": detail,
-        })
+        self.entries.append(
+            {
+                "peer_name": peer_name,
+                "agent_id": agent_id,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "status": status,
+                "detail": detail,
+            }
+        )
 
 
 class GuestPeerRegistry:
@@ -102,27 +117,49 @@ class GuestPeerRegistry:
         peer = self.get_peer(tenant_id, peer_name)
         if not peer:
             await self._audit.log_delegation(
-                peer_name, agent_id, tenant_id, user_id, "rejected", "peer not found",
+                peer_name,
+                agent_id,
+                tenant_id,
+                user_id,
+                "rejected",
+                "peer not found",
             )
             return DelegationResult(
-                task_id="", peer_name=peer_name, status="rejected", error="peer not found",
+                task_id="",
+                peer_name=peer_name,
+                status="rejected",
+                error="peer not found",
             )
 
         if not peer.active:
             await self._audit.log_delegation(
-                peer_name, agent_id, tenant_id, user_id, "rejected", "peer inactive",
+                peer_name,
+                agent_id,
+                tenant_id,
+                user_id,
+                "rejected",
+                "peer inactive",
             )
             return DelegationResult(
-                task_id="", peer_name=peer_name, status="rejected", error="peer inactive",
+                task_id="",
+                peer_name=peer_name,
+                status="rejected",
+                error="peer inactive",
             )
 
         if peer.allowed_agents and agent_id not in peer.allowed_agents:
             await self._audit.log_delegation(
-                peer_name, agent_id, tenant_id, user_id, "rejected",
+                peer_name,
+                agent_id,
+                tenant_id,
+                user_id,
+                "rejected",
                 f"agent '{agent_id}' not in allowed list",
             )
             return DelegationResult(
-                task_id="", peer_name=peer_name, status="rejected",
+                task_id="",
+                peer_name=peer_name,
+                status="rejected",
                 error=f"agent '{agent_id}' not allowed on this peer",
             )
 
@@ -142,8 +179,12 @@ class GuestPeerRegistry:
                 data = resp.json()
 
             await self._audit.log_delegation(
-                peer_name, agent_id, tenant_id, user_id,
-                "submitted", f"task_id={data.get('task_id', '')}",
+                peer_name,
+                agent_id,
+                tenant_id,
+                user_id,
+                "submitted",
+                f"task_id={data.get('task_id', '')}",
             )
             return DelegationResult(
                 task_id=data.get("task_id", ""),
@@ -152,8 +193,16 @@ class GuestPeerRegistry:
             )
         except Exception as exc:
             await self._audit.log_delegation(
-                peer_name, agent_id, tenant_id, user_id, "failed", str(exc),
+                peer_name,
+                agent_id,
+                tenant_id,
+                user_id,
+                "failed",
+                str(exc),
             )
             return DelegationResult(
-                task_id="", peer_name=peer_name, status="failed", error=str(exc),
+                task_id="",
+                peer_name=peer_name,
+                status="failed",
+                error=str(exc),
             )

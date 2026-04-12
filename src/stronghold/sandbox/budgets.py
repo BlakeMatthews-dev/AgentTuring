@@ -39,7 +39,10 @@ class SandboxBudgetEnforcer:
         return dict(self._usage.get(tenant_id, {"pods": 0, "cpu_m": 0, "mem_mb": 0}))
 
     def check_spawn(
-        self, tenant_id: str, cpu_millicores: int, memory_mb: int,
+        self,
+        tenant_id: str,
+        cpu_millicores: int,
+        memory_mb: int,
     ) -> tuple[bool, str]:
         """Check if a spawn would exceed budget. Returns (allowed, reason)."""
         budget = self.get_budget(tenant_id)

@@ -6,7 +6,7 @@ from tests.factories import build_intent, build_model_config, build_provider_con
 
 class TestQuotaReserve:
     def test_blocks_non_critical_above_reserve(self) -> None:
-        intent = build_intent(priority="normal")
+        intent = build_intent(tier="P2")
         models = {"m": build_model_config(provider="p")}
         providers = {"p": build_provider_config(free_tokens=1_000_000)}
         # 96% usage — above 95% reserve threshold
@@ -16,7 +16,7 @@ class TestQuotaReserve:
         assert len(result) == 0
 
     def test_allows_critical_above_reserve(self) -> None:
-        intent = build_intent(priority="critical")
+        intent = build_intent(tier="P0")
         models = {"m": build_model_config(provider="p")}
         providers = {"p": build_provider_config(free_tokens=1_000_000)}
         result = filter_candidates(
@@ -25,7 +25,7 @@ class TestQuotaReserve:
         assert len(result) == 1
 
     def test_paygo_bypasses_at_100_percent(self) -> None:
-        intent = build_intent(priority="normal")
+        intent = build_intent(tier="P2")
         models = {"m": build_model_config(provider="p")}
         providers = {
             "p": build_provider_config(

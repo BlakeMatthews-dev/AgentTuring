@@ -1,0 +1,27 @@
+# values-vanilla-k8s.yaml
+#
+# Targets vanilla Kubernetes distributions: EKS, GKE, AKS, RKE2, and k3s
+# 1.29 or newer. Disables OpenShift-specific resources (Routes and SCC
+# bindings) that have no equivalent on upstream Kubernetes.
+#
+# PR-7..PR-12 will add Ingress fallbacks (for the Routes) and PodSecurity
+# admission labels (for the SCC defaults) so that workloads rendered with
+# this overlay still get an equivalent security posture.
+#
+# Usage:
+#   helm install stronghold deploy/helm/stronghold \
+#     --namespace stronghold-platform \
+#     -f deploy/helm/stronghold/values-vanilla-k8s.yaml
+
+openshift:
+  enabled: false
+
+priorityClasses:
+  create: true
+
+namespace:
+  create: false
+  name: stronghold-platform
+
+rbac:
+  create: true

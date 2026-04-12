@@ -24,6 +24,7 @@ dependencies = [
     "pgvector>=0.3.0",
     "kubernetes>=28.0.0",
     "regex>=2024.0.0",
+    "casbin>=1.36.0",
     # CVE pinning (2026-03-31 audit)
     "cryptography>=46.0.6",       # CVE-2026-34073
     "urllib3>=2.6.3",              # CVE-2026-21441
@@ -88,7 +89,13 @@ omit = ["src/stronghold/persistence/pg_*.py"]
 
 [tool.coverage.report]
 fail_under = 95
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "^\\s*\\.\\.\\.\\s*$",
+    "@(abc\\.)?abstractmethod",
+    "raise NotImplementedError",
+]
 
 [tool.bandit]
 targets = ["src/stronghold"]

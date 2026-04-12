@@ -72,7 +72,7 @@ def filter_candidates(
             continue
 
         # Reserve enforcement — block non-critical when in reserve zone OR over quota with paygo
-        if usage_pct >= (1.0 - reserve_pct) and intent.priority != "critical" and not has_paygo:
+        if usage_pct >= (1.0 - reserve_pct) and intent.tier != "P0" and not has_paygo:
             continue
 
         result.append((model_id, model_cfg, provider_cfg, usage_pct))

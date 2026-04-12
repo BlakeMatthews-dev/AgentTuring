@@ -1,0 +1,108 @@
+# PostgreSQL StatefulSet.
+#
+# Replaces the Deployment from deploy/k8s/postgres.yaml. A StatefulSet is
+# required here because the raw Deployment variant lost durability on
+# every pod reschedule — the PVC was anonymous and got garbage-collected.
+# The Kubernetes "Running a Replicated Stateful Application" tutorial
+# documents StatefulSet + volumeClaimTemplates as the correct pattern for
+# single-writer RDBMS workloads.
+#
+# Placement note: ADR-K8S-001 specifies stronghold-data for stateful
+# workloads, but PR-6 pinned the postgres ServiceAccount to the release
+# namespace. Rather than cross-namespace a SA reference (which does not
+# work in Kubernetes), this StatefulSet is rendered in the release
+# namespace alongside its SA. A follow-up PR will relocate both together.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "stronghold.fullname" . }}-postgres
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+    stronghold.io/priority-tier: P1
+spec:
+  serviceName: {{ include "stronghold.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+        stronghold.io/priority-tier: P1
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.postgres" . }}
+      automountServiceAccountToken: false
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P1" "root" .) }}
+      securityContext:
+        runAsNonRoot: false  # TODO: fix images to run as non-root
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: {{ include "stronghold.image" (dict "image" .Values.postgresql.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.postgresql.image) }}
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.postgresql.containerPort }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          env:
+            # pgvector/pgvector:pg17 honors PGDATA; put it under a subdir
+            # of the PVC so initdb does not conflict with lost+found on
+            # ext4-backed volumes.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.username | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
+            initialDelaySeconds: {{ .Values.postgresql.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.postgresql.probes.readiness.periodSeconds }}
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.username | quote }}, "-d", {{ .Values.postgresql.database | quote }}]
+            initialDelaySeconds: {{ .Values.postgresql.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.postgresql.probes.liveness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false  # TODO: fix images to run as non-root
+            # postgres image runs as uid 999 by default; readOnlyRootFilesystem
+            # is left false because initdb writes to /var/run/postgresql.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: {{ include "stronghold.fullname" . }}-postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "stronghold.labels" . | nindent 10 }}
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes:
+          {{- toYaml .Values.postgresql.persistence.accessModes | nindent 10 }}
+        {{- if .Values.postgresql.persistence.storageClassName }}
+        storageClassName: {{ .Values.postgresql.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size | quote }}

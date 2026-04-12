@@ -1,0 +1,42 @@
+name: Cleanroom Lint
+
+# Blocks PRs that introduce forbidden strings (research archive
+# identifiers, customer code names, competitor product names).
+# See scripts/cleanroom-lint.sh for the full pattern list and
+# the rationale.
+
+on:
+  pull_request:
+    branches:
+      - integration
+      - develop
+      - main
+  push:
+    branches:
+      - integration
+
+concurrency:
+  group: cleanroom-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cleanroom-lint:
+    name: Cleanroom string lint
+    runs-on: k3s-runners
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history so we can diff against the base branch.
+          fetch-depth: 0
+
+      - name: Determine base ref
+        id: base
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run cleanroom lint
+        run: bash scripts/cleanroom-lint.sh "${{ steps.base.outputs.ref }}"

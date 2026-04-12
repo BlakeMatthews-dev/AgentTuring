@@ -1,0 +1,21 @@
+{{- if .Values.mcp.devTools.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stronghold.fullname" . }}-mcp-dev-tools
+  namespace: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-dev-tools
+    stronghold.io/priority-tier: P1
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "stronghold.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-dev-tools
+  ports:
+    - name: http
+      port: {{ .Values.mcp.devTools.containerPort }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -1,12 +1,5 @@
 name: CI
 
-# Tiers 1-3: progressively stricter quality gates
-#
-# Tier 1: push to working branches     → lint + tests (no coverage)
-# Tier 2: PR to feature/*              → lint + tests + 85% coverage
-# Tier 3: PR to develop                → lint + tests + integration + e2e + manual approval
-# Tier 4: PR to main                   → see release.yml
-
 on:
   push:
     branches-ignore:
@@ -16,6 +9,7 @@ on:
   pull_request:
     branches:
       - 'feature/**'
+      - integration
       - develop
 
 concurrency:
@@ -25,21 +19,33 @@ concurrency:
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: ubuntu-latest
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history needed for diff against base branch
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # Option 1: full-codebase ruff (fast, ~100ms, catches drift)
+      - name: Ruff check (full codebase)
+        run: ruff check src/stronghold/
+
+      - name: Ruff format (full codebase)
+        run: ruff format --check src/stronghold/
+
+      # Mypy + bandit stay on changed files (slow on full repo)
       - name: Compute changed Python files
         id: changed
         run: |
@@ -51,15 +57,6 @@ jobs:
           fi
           CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" -- 'src/stronghold/**/*.py' | tr '\n' ' ')
           echo "files=$CHANGED" >> "$GITHUB_OUTPUT"
-          echo "Changed Python files: $CHANGED"
-
-      - name: Ruff check (changed files only)
-        if: steps.changed.outputs.files != ''
-        run: ruff check ${{ steps.changed.outputs.files }}
-
-      - name: Ruff format (changed files only)
-        if: steps.changed.outputs.files != ''
-        run: ruff format --check ${{ steps.changed.outputs.files }}
 
       - name: Mypy strict (changed files only)
         if: steps.changed.outputs.files != ''
@@ -69,66 +66,186 @@ jobs:
         if: steps.changed.outputs.files != ''
         run: bandit ${{ steps.changed.outputs.files }} -ll -q --skip B608
 
-      - name: No-op (no Python changes)
-        if: steps.changed.outputs.files == ''
-        run: echo "No Python files changed in this PR — skipping lint."
+  security:
+    name: Security Tests
+    runs-on: k3s-runners
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: "Warden + Sentinel + Gate"
+        run: pytest tests/security/test_gate.py tests/security/test_gate_sufficiency.py tests/security/test_sentinel_pipeline.py tests/security/test_sentinel_post_call.py tests/security/test_warden_extended.py tests/security/test_warden_heuristics.py tests/security/test_warden_isolation.py tests/security/test_pii_filter.py tests/security/test_semantic_poisoning.py -v --tb=short
+      - name: "Adversarial + prompt injection"
+        run: pytest tests/security/test_adversarial_injection.py tests/security/test_prompt_injection.py -v --tb=short
+      - name: "Auth + rate limiting + strikes"
+        run: pytest tests/security/test_coverage_auth.py tests/security/test_auth_cookie_coverage.py tests/security/test_rate_limiter.py tests/security/test_strikes_coverage.py -v --tb=short
+      - name: "Tool policy + task policy + vault"
+        run: pytest tests/security/test_tool_policy.py tests/security/test_task_policy.py tests/security/test_vault_client.py -v --tb=short
+      - name: "Audit regression (3 rounds)"
+        run: pytest tests/security/test_security_audit_2026_03_30.py tests/security/test_security_audit_round2.py tests/security/test_security_audit_round3.py tests/security/test_security_hardening.py tests/security/test_audit_regression.py -v --tb=short
+      - name: "Schema validation + token optimization"
+        run: pytest tests/security/test_schema_validation.py tests/security/test_schema_repair.py tests/security/test_token_optimization.py tests/security/test_flag_response.py -v --tb=short
+
+  sast:
+    name: SAST & Supply Chain
+    runs-on: k3s-runners
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install dependencies
+        run: pip install -e ".[dev]" pip-audit
+
+      - name: "Bandit SAST (full codebase)"
+        run: bandit -r src/stronghold/ -ll -q --skip B608
+
+      - name: "pip-audit (dependency CVEs)"
+        run: pip-audit --strict --desc 2>&1 || true
+
+      - name: "Secret detection (hardcoded keys, tokens, passwords)"
+        run: |
+          FOUND=0
+          if grep -rn --include='*.py' -E '(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9]{20})' src/stronghold/ | grep -v 'sk-example\|sk-test\|sk-ci-test\|sk-stronghold-prod\|connectors\.py'; then
+            echo "::error::Hardcoded API keys found in source code"
+            FOUND=1
+          fi
+          if grep -rn --include='*.py' -E 'AKIA[0-9A-Z]{16}' src/stronghold/; then
+            echo "::error::AWS access key found in source code"
+            FOUND=1
+          fi
+          if grep -rn --include='*.py' 'BEGIN.*PRIVATE KEY' src/stronghold/ | grep -v 'pii_filter\.py\|re\.compile'; then
+            echo "::error::Private key found in source code"
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then exit 1; fi
+          echo "No hardcoded secrets found."
+
+      - name: "Unsafe deserialization check"
+        run: |
+          if grep -rn --include='*.py' -E 'pickle\.loads|yaml\.load\(' src/stronghold/ | grep -v 'safe_load\|Loader=SafeLoader'; then
+            echo "::error::Unsafe deserialization found"
+            exit 1
+          fi
+          echo "No unsafe deserialization found."
+
+      - name: "SQL injection patterns"
+        run: |
+          if grep -rn --include='*.py' -E 'f".*SELECT|f".*INSERT|f".*UPDATE|f".*DELETE' src/stronghold/ | grep -v 'test_\|#.*noqa\|# confirmed safe'; then
+            echo "::warning::Potential SQL injection via f-string (review manually)"
+          fi
+
+      - name: "innerHTML / XSS patterns (templates)"
+        run: |
+          if grep -rn 'innerHTML\s*=' src/stronghold/ --include='*.py' --include='*.html' | grep -v 'textContent\|esc(\|# safe:'; then
+            echo "::warning::innerHTML usage found — verify XSS safety"
+          fi
+
+      - name: "Privileged container check (docker-compose)"
+        run: |
+          if grep -n 'privileged:\s*true' docker-compose.yml 2>/dev/null; then
+            echo "::error::privileged: true found in docker-compose.yml (R1/R2)"
+            exit 1
+          fi
+
+      - name: "Eval/exec check"
+        run: |
+          if grep -rn --include='*.py' -E '^\s*(eval|exec)\(' src/stronghold/ | grep -v 'test_\|# safe-eval\|connectors\.py'; then
+            echo "::error::eval()/exec() found in production code"
+            exit 1
+          fi
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: k3s-runners
     needs: lint
 
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17
-        env:
-          POSTGRES_USER: stronghold
-          POSTGRES_PASSWORD: stronghold
-          POSTGRES_DB: stronghold
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U stronghold"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
-      DATABASE_URL: postgresql://stronghold:stronghold@localhost:5432/stronghold
       ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
       LITELLM_URL: http://localhost:4000
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip python3-venv postgresql-client >/dev/null
+
+      - name: Set up venv
+        run: |
+          python3 -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Start CI postgres
+        run: |
+          docker rm -f ci-postgres 2>/dev/null || true
+          docker run -d --name ci-postgres \
+            -e POSTGRES_USER=stronghold \
+            -e POSTGRES_PASSWORD=stronghold \
+            -e POSTGRES_DB=stronghold \
+            -p 5433:5432 \
+            --security-opt apparmor=unconfined \
+            pgvector/pgvector:pg17
+          echo "Waiting for postgres to be ready..."
+          READY=false
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5433 -U stronghold 2>/dev/null; then
+              echo "Postgres ready after ${i}s"
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" != "true" ]; then
+            echo "::error::Postgres failed to start within 30s"
+            docker logs ci-postgres 2>&1 | tail -20
+            exit 1
+          fi
+
       - name: Run all migrations
+        env:
+          DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
           for f in migrations/*.sql; do
             echo "Running $f..."
             psql "$DATABASE_URL" -f "$f"
           done
 
-      # Tier 1: push to working branch — tests only, no coverage
       - name: "Tier 1: Tests (working branch push)"
         if: github.event_name == 'push'
+        env:
+          DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
             --ignore=tests/performance \
             -m "not perf and not e2e"
 
-      # Tier 2: PR to feature/* — 85% coverage gate
       - name: "Tier 2: Tests + 85% coverage (PR to feature)"
         if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'feature/')
+        env:
+          DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
@@ -139,9 +256,10 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-fail-under=85
 
-      # Tier 3: PR to develop — integration + e2e tests, no hard coverage gate
       - name: "Tier 3: Full test suite (PR to develop)"
         if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        env:
+          DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
           pytest tests/ -v --tb=short \
             --ignore=tests/performance \
@@ -156,3 +274,7 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+      - name: Stop CI postgres
+        if: always()
+        run: docker rm -f ci-postgres 2>/dev/null || true

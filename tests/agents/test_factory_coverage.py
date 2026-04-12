@@ -247,6 +247,7 @@ class TestBuildIdentityFromManifest:
         assert identity.reasoning_strategy == "direct"
         assert identity.max_tool_rounds == 3
         assert identity.trust_tier == "t2"
+        assert identity.priority_tier == "P2"
         assert identity.tools == ()
         assert identity.skills == ()
         assert identity.rules == ()
@@ -263,6 +264,7 @@ class TestBuildIdentityFromManifest:
             "skills": ["summarize"],
             "rules": ["cite sources"],
             "trust_tier": "t1",
+            "priority_tier": "P0",
             "reasoning": {
                 "strategy": "react",
                 "max_rounds": 5,
@@ -280,6 +282,7 @@ class TestBuildIdentityFromManifest:
         assert identity.skills == ("summarize",)
         assert identity.rules == ("cite sources",)
         assert identity.trust_tier == "t1"
+        assert identity.priority_tier == "P0"
         assert identity.reasoning_strategy == "react"
         assert identity.max_tool_rounds == 5
         assert identity.memory_config == {"learnings": True, "episodic": False}

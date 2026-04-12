@@ -134,7 +134,7 @@ bypass all application-level security controls.
 
 - [ ] **R20: Container reaches host SSH via Docker gateway** — from inside the stronghold container, `172.17.0.1:22` (Docker default gateway = host) is reachable. Combined with R1 (privileged mode), an attacker with code execution in the container can SSH to the host. **Fix:** R1 fix (remove privileged) eliminates the worst case; additionally consider Docker network isolation (`internal: true` on stronghold network). (`docker-compose.yml:176-180`)
 
-- [ ] **R21: Forged JWT enables cross-tenant agent visibility** — forged Disney org JWT could see ALL agents including T0 builtins from `agent-stronghold` org. Confirms C1 from code audit is exploitable. Created `disney-spy` agent as forged Disney admin. **Cross-ref:** C1, C2, C3 in code audit. (`api/routes/agents.py`)
+- [ ] **R21: Forged JWT enables cross-tenant agent visibility** — a forged JWT for an arbitrary `org_id` could see ALL agents including T0 builtins from the `agent-stronghold` org. Confirms C1 from code audit is exploitable. The red team created a spoof-org admin agent via this path. **Cross-ref:** C1, C2, C3 in code audit. (`api/routes/agents.py`)
 
 - [ ] **R22: Strikes not persisted (in-memory only)** — `InMemoryStrikeTracker` stores all strike data in a Python dict. Container restart (maintenance, deployment, OOM-kill, `docker compose restart`) clears ALL strikes and lockouts. Attacker can trigger 2 strikes → get locked → wait for restart → get 2 more free strikes → infinite cycle. Lockouts have zero durability. **Fix:** persist strikes to PostgreSQL (add `strikes` table). Load on startup, write on every violation. (`security/strikes.py`)
 

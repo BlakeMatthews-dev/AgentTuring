@@ -29,6 +29,7 @@ rules:
   - "MUST-ALWAYS cite sources for factual claims"
   - "MUST-ALWAYS return raw results alongside any synthesis"
 trust_tier: t1
+priority_tier: P1
 permissions:
   max_tool_calls_per_request: 10
   rate_limit: 60/minute

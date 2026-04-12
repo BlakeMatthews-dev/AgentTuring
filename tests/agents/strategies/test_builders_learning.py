@@ -248,3 +248,303 @@ def mock_trace():
             pass
 
     return MockTrace()
+
+
+# ── Tests targeting uncovered lines 217-298 ──────────────────────────
+
+
+class TestCheckRepositoryState:
+    """Cover _check_repository_state with and without tool_executor."""
+
+    async def test_no_tool_executor_returns_empty(self):
+        strategy = BuildersLearningStrategy()
+        result = await strategy._check_repository_state()
+        assert result == {"code": [], "tests": [], "failed_prs": []}
+
+    async def test_with_tool_executor_success(self):
+        async def tool_executor(tool_name, args):
+            if "src/stronghold" in args.get("command", ""):
+                return "src/stronghold/main.py\nsrc/stronghold/app.py"
+            if "tests" in args.get("command", ""):
+                return "tests/test_main.py"
+            return ""
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._check_repository_state(tool_executor=tool_executor)
+        assert len(result["code"]) == 2
+        assert "src/stronghold/main.py" in result["code"]
+        assert len(result["tests"]) == 1
+        assert result["failed_prs"] == []
+
+    async def test_with_tool_executor_returns_none(self):
+        """tool_executor returns None (falsy) for both calls."""
+
+        async def tool_executor(tool_name, args):
+            return None
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._check_repository_state(tool_executor=tool_executor)
+        assert result["code"] == []
+        assert result["tests"] == []
+
+    async def test_with_tool_executor_exception(self):
+        """tool_executor raises; should catch and return empty."""
+
+        async def tool_executor(tool_name, args):
+            raise RuntimeError("connection failed")
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._check_repository_state(tool_executor=tool_executor)
+        assert result == {"code": [], "tests": [], "failed_prs": []}
+
+
+class TestAnalyzeFailurePatterns:
+    """Cover _analyze_failure_patterns with and without tool_executor."""
+
+    async def test_no_tool_executor_returns_empty(self):
+        strategy = BuildersLearningStrategy()
+        result = await strategy._analyze_failure_patterns()
+        assert result == {"similar_issues": [], "failures": [], "reasons": [], "lessons": []}
+
+    async def test_with_tool_executor_success(self):
+        async def tool_executor(tool_name, args):
+            return "PR #10 rejected\nPR #11 rejected\nPR #12 rejected"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._analyze_failure_patterns(tool_executor=tool_executor)
+        assert len(result["failures"]) == 3
+        assert result["similar_issues"] == []
+        assert result["reasons"] == []
+        assert result["lessons"] == []
+
+    async def test_with_tool_executor_returns_none(self):
+        async def tool_executor(tool_name, args):
+            return None
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._analyze_failure_patterns(tool_executor=tool_executor)
+        assert result["failures"] == []
+
+    async def test_with_tool_executor_exception(self):
+        async def tool_executor(tool_name, args):
+            raise RuntimeError("API error")
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._analyze_failure_patterns(tool_executor=tool_executor)
+        assert result == {"similar_issues": [], "failures": [], "reasons": [], "lessons": []}
+
+
+class TestRunPrDiagnostics:
+    """Cover _run_pr_diagnostics with and without tool_executor."""
+
+    async def test_no_tool_executor_returns_all_passed(self):
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics()
+        assert result["all_passed"] is True
+        assert result["issues"] == []
+        assert result["has_critical_issues"] is False
+
+    async def test_all_checks_pass(self):
+        async def tool_executor(tool_name, args):
+            return "All checks passed"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["all_passed"] is True
+        assert result["issues"] == []
+        assert result["has_critical_issues"] is False
+
+    async def test_ruff_finds_errors(self):
+        async def tool_executor(tool_name, args):
+            cmd = args.get("command", "")
+            if "ruff" in cmd:
+                return "Found 3 error(s)"
+            return "OK"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["has_critical_issues"] is True
+        assert len(result["issues"]) == 1
+        assert "ruff" in result["issues"][0]
+
+    async def test_mypy_finds_errors(self):
+        async def tool_executor(tool_name, args):
+            cmd = args.get("command", "")
+            if "mypy" in cmd:
+                return "Found 2 error(s) in 1 file"
+            return "OK"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["has_critical_issues"] is True
+        assert any("mypy" in issue for issue in result["issues"])
+
+    async def test_pytest_finds_failures(self):
+        async def tool_executor(tool_name, args):
+            cmd = args.get("command", "")
+            if "pytest" in cmd:
+                return "1 failed, 9 passed"
+            return "OK"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["has_critical_issues"] is True
+        assert any("pytest" in issue for issue in result["issues"])
+
+    async def test_all_checks_fail(self):
+        async def tool_executor(tool_name, args):
+            # Must contain "error" for ruff/mypy and "failed" for pytest
+            return "error: something failed here"
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["has_critical_issues"] is True
+        assert len(result["issues"]) == 3
+
+    async def test_tool_executor_exceptions_report_as_failures(self):
+        """Broken tool_executor = quality gate failure, not silent pass."""
+        call_count = 0
+
+        async def tool_executor(tool_name, args):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("boom")
+
+        strategy = BuildersLearningStrategy()
+        result = await strategy._run_pr_diagnostics(tool_executor=tool_executor)
+        assert result["all_passed"] is False
+        assert result["has_critical_issues"] is True
+        assert len(result["issues"]) == 3
+        assert all("tool_executor failed" in issue for issue in result["issues"])
+        assert call_count == 3  # all three checks attempted
+
+
+class TestMasonWithCriticalDiagnostics:
+    """Cover Mason path where diagnostics find critical issues (lines 185-199)."""
+
+    async def test_mason_critical_issues_sets_done_false(self, mock_llm, mock_trace):
+        """When PR diagnostics find critical issues, result.done should be False."""
+
+        async def failing_tool_executor(tool_name, args):
+            cmd = args.get("command", "")
+            if "ruff" in cmd:
+                return "error: found issues"
+            return "OK"
+
+        strategy = BuildersLearningStrategy(enable_learning=True)
+        messages = [{"role": "user", "content": "Implement feature"}]
+
+        result = await strategy.reason(
+            messages,
+            "model",
+            mock_llm,
+            trace=mock_trace,
+            worker="mason",
+            run_id="test-critical",
+            frank_diagnostic={"existing_code": False},
+            tool_executor=failing_tool_executor,
+        )
+
+        assert result.done is False
+        assert "Self-diagnosis" in result.response
+        assert "issues" in result.response
+
+
+class TestFrankWithToolExecutor:
+    """Cover Frank path with tool_executor wired (hits lines 217-260)."""
+
+    async def test_frank_with_tool_executor_and_learning(self, mock_llm, mock_trace):
+        call_log = []
+
+        async def tool_executor(tool_name, args):
+            call_log.append((tool_name, args))
+            if tool_name == "shell":
+                return "src/stronghold/foo.py"
+            if tool_name == "github":
+                return "PR #5 rejected"
+            return ""
+
+        strategy = BuildersLearningStrategy(enable_learning=True)
+        messages = [{"role": "user", "content": "Add auth"}]
+
+        result = await strategy.reason(
+            messages,
+            "model",
+            mock_llm,
+            trace=mock_trace,
+            worker="frank",
+            run_id="test-frank-tool",
+            tool_executor=tool_executor,
+        )
+
+        assert result.done is True
+        # Verify tool_executor was called for repo recon and failure analysis
+        tool_names = [name for name, _ in call_log]
+        assert "shell" in tool_names
+        assert "github" in tool_names
+
+
+class TestFallbackToReact:
+    """Cover the fallback path when worker is neither frank nor mason."""
+
+    async def test_unknown_worker_falls_back_to_react(self, mock_llm, mock_trace):
+        strategy = BuildersLearningStrategy()
+        messages = [{"role": "user", "content": "Do something"}]
+
+        result = await strategy.reason(
+            messages,
+            "model",
+            mock_llm,
+            trace=mock_trace,
+            worker="unknown",
+        )
+
+        assert result.done is True
+
+    async def test_no_worker_falls_back_to_react(self, mock_llm, mock_trace):
+        strategy = BuildersLearningStrategy()
+        messages = [{"role": "user", "content": "Do something"}]
+
+        result = await strategy.reason(
+            messages,
+            "model",
+            mock_llm,
+            trace=mock_trace,
+        )
+
+        assert result.done is True
+
+
+class TestUtcNow:
+    """Cover _utc_now helper."""
+
+    def test_utc_now_returns_aware_datetime(self):
+        from datetime import timezone
+
+        strategy = BuildersLearningStrategy()
+        now = strategy._utc_now()
+        assert now.tzinfo is not None
+        assert now.tzinfo == timezone.utc
+
+
+class TestStoreLearningMethods:
+    """Cover _store_frank_learning and _store_mason_learning directly."""
+
+    async def test_store_frank_learning(self):
+        from stronghold.types.agent import ReasoningResult
+
+        strategy = BuildersLearningStrategy()
+        repo_state = {"code": ["a.py", "b.py"], "tests": ["t.py"], "failures": []}
+        failure_patterns = {"failures": ["pr1", "pr2"]}
+        result = ReasoningResult(response="done", done=True)
+        # Should not raise
+        await strategy._store_frank_learning(repo_state, failure_patterns, result)
+
+    async def test_store_mason_learning(self):
+        from stronghold.types.agent import ReasoningResult
+
+        strategy = BuildersLearningStrategy()
+        diagnostics = {"all_passed": True, "issues": []}
+        result = ReasoningResult(response="done", done=True, tool_history=[{"tool": "shell"}])
+        # Should not raise
+        await strategy._store_mason_learning(diagnostics, result)

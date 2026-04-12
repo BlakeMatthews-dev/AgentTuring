@@ -1,0 +1,39 @@
+{{- if (include "stronghold.openshiftEnabled" .) }}
+# SCC binding for the mcp-deployer ServiceAccount.
+#
+# Per ADR-K8S-002 §4 the mcp-deployer sidecar is explicitly bound to
+# `restricted-v2`, NOT to `anyuid` or `privileged`. A review of this
+# binding should be part of any security audit of the MCP subsystem.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "stronghold.fullname" . }}-scc-use-{{ .Values.openshift.scc }}-mcp-deployer
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-deployer
+    stronghold.io/rbac-tier: mcp-deployer
+rules:
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    resourceNames:
+      - {{ .Values.openshift.scc | quote }}
+    verbs: ["use"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "stronghold.fullname" . }}-scc-{{ .Values.openshift.scc }}-mcp-deployer
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-deployer
+    stronghold.io/rbac-tier: mcp-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "stronghold.fullname" . }}-scc-use-{{ .Values.openshift.scc }}-mcp-deployer
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stronghold.serviceAccountName.mcpDeployer" . }}
+    namespace: {{ include "stronghold.namespace" . }}
+{{- end }}

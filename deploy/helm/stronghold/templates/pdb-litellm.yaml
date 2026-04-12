@@ -1,0 +1,16 @@
+{{- if and .Values.podDisruptionBudgets.enabled (gt (int .Values.litellmProxy.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: litellm
+{{- end }}

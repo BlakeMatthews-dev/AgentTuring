@@ -1,0 +1,99 @@
+{{- if and .Values.mcp.github.enabled .Values.mcp.github.devMode }}
+# WARNING: SHARED-PAT SECURITY MODEL — DEV CLUSTERS ONLY
+#
+# This template deploys github-mcp with a SINGLE shared PAT for ALL Stronghold
+# users. Every user who hits this pod acts as the same GitHub identity (whoever
+# owns the PAT in the secretKeyRef). This means: wrong identity in audit logs,
+# permission escalation, no per-user revocation, no per-user rate limits.
+#
+# Per ADR-K8S-018 (per-user credential vault), ADR-K8S-019 (tool policy layer),
+# ADR-K8S-020 (Stronghold as MCP server/gateway), and ADR-K8S-025 (sandboxed
+# MCP guests pattern), the production path is for github to be a Stronghold
+# in-process tool with per-user vault credential injection — NOT a shared MCP
+# server pod. This template exists only as a dev convenience and is gated behind
+# `.Values.mcp.github.devMode: true` (default false).
+#
+# The v0.9.1 Tool Catalog PR will remove this template entirely and replace it
+# with an in-process tool at src/stronghold/tools/github.py.
+#
+# Original description: Replaces the raw manifest at deploy/k8s/github-mcp.yaml.
+# Lives in the stronghold-mcp namespace per ADR-K8S-001. The PAT is loaded from a
+# Secret by name only (never an inline env value) — matches the raw
+# manifest and satisfies baseline rule 6 (no env-var secrets).
+#
+# Per ADR-K8S-014 MCP servers are P1 chat-tools: they are called
+# synchronously on the hot path so they should not be evicted ahead of
+# backend workloads.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-mcp-github
+  namespace: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-github
+    stronghold.io/priority-tier: P1
+spec:
+  replicas: {{ .Values.mcp.github.replicas }}
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp-github
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp-github
+        stronghold.io/priority-tier: P1
+    spec:
+      # MCP workloads in stronghold-mcp run under the namespace default
+      # SA because PR-6 did not create a per-component SA in that
+      # namespace. Token automount is disabled so the pod never carries
+      # a Kubernetes API credential at rest.
+      automountServiceAccountToken: false
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P1" "root" .) }}
+      securityContext:
+        runAsNonRoot: false  # TODO: fix images to run as non-root
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: github-mcp
+          image: {{ include "stronghold.image" (dict "image" .Values.mcp.github.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.mcp.github.image) }}
+          args: ["--transport", "sse"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.github.containerPort }}
+              protocol: TCP
+          env:
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.github.patSecretName }}
+                  key: token
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mcp.github.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false  # TODO: fix images to run as non-root
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}

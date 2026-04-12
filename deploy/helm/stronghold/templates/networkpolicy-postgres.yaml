@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+# NetworkPolicy for PostgreSQL pods.
+#
+# Ingress: only from stronghold-api on the postgres port.
+# Egress: DNS only — postgres has no reason to initiate external connections.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: stronghold-api
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: litellm
+        - podSelector:
+            matchLabels:
+              {{- include "stronghold.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: phoenix
+      ports:
+        - port: {{ .Values.postgresql.containerPort }}
+          protocol: TCP
+  egress:
+    # DNS only
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}

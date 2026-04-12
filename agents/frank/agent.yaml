@@ -38,6 +38,7 @@ rules:
   - "MUST-NEVER approve criteria that cannot be tested"
   - "MUST-NEVER skip the self-review loop"
 trust_tier: t1
+priority_tier: P5
 permissions:
   max_tool_calls_per_request: 30
   rate_limit: 20/minute

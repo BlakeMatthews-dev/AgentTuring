@@ -1,0 +1,32 @@
+{{- if and .Values.namespace.create .Values.extraNamespaces.create }}
+# Additional workload namespaces per ADR-K8S-001.
+#
+# Rendered only when the chart is explicitly asked to manage namespace
+# creation. In most GitOps setups these are created out-of-band (e.g. by
+# an Argo CD app-of-apps pattern) and this flag stays false.
+#
+# PodSecurity admission labels mirror the release namespace (restricted)
+# so vanilla-k8s installs get an equivalent security posture to the
+# OpenShift restricted-v2 SCC (ADR-K8S-007).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.extraNamespaces.data.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: data
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

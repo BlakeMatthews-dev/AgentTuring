@@ -25,14 +25,14 @@ class TestComplexity:
 
 
 class TestPriority:
-    def test_urgent_is_critical(self) -> None:
-        assert infer_priority("this is urgent please fix now") == "critical"
+    def test_urgent_is_p0(self) -> None:
+        assert infer_priority("this is urgent please fix now") == "P0"
 
-    def test_no_rush_is_low(self) -> None:
-        assert infer_priority("when you get a chance no rush") == "low"
+    def test_no_rush_is_p4(self) -> None:
+        assert infer_priority("when you get a chance no rush") == "P4"
 
-    def test_default_is_normal(self) -> None:
-        assert infer_priority("can you help me with this") == "normal"
+    def test_default_is_p2(self) -> None:
+        assert infer_priority("can you help me with this") == "P2"
 
 
 class TestComplexityBoundaries:
@@ -60,12 +60,12 @@ class TestComplexityBoundaries:
 
 class TestPriorityEdgeCases:
     def test_multiple_urgent_words(self) -> None:
-        assert infer_priority("urgent critical emergency") == "critical"
+        assert infer_priority("urgent critical emergency") == "P0"
 
-    def test_empty_text_is_normal(self) -> None:
-        assert infer_priority("") == "normal"
+    def test_empty_text_is_p2(self) -> None:
+        assert infer_priority("") == "P2"
 
     def test_mixed_signals(self) -> None:
-        # "urgent" is critical, "no rush" is low — first match wins
+        # "urgent" is P0, "no rush" is P4 — first match wins
         result = infer_priority("urgent but no rush")
-        assert result == "critical"
+        assert result == "P0"

@@ -1,0 +1,26 @@
+{{- if and (include "stronghold.openshiftEnabled" .) .Values.litellmProxy.exposed }}
+# Optional Route for LiteLLM. Off by default; LiteLLM is an internal
+# proxy and should only be exposed for debugging or third-party
+# integrations that need direct model access.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+    stronghold.io/priority-tier: P1
+spec:
+  host: {{ .Values.route.litellm.host | quote }}
+  to:
+    kind: Service
+    name: {{ include "stronghold.fullname" . }}-litellm
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.litellm.tlsTermination }}
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+{{- end }}

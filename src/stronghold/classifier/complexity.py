@@ -55,15 +55,20 @@ def estimate_complexity(text: str, task_type: str) -> str:
 
 
 def infer_priority(user_text: str) -> str:
-    """Infer priority from urgency keywords."""
+    """Infer priority tier from urgency keywords.
+
+    Returns a 6-tier priority value per ADR-K8S-014:
+      P0 = chat-critical, P1 = chat-tools, P2 = user-missions,
+      P3 = backend-support, P4 = quartermaster, P5 = builders.
+    """
     text = user_text.lower()
     if any(s in text for s in ["urgent", "critical", "emergency", "asap", "broken", "down"]):
-        return "critical"
+        return "P0"
     if any(s in text for s in ["important", "priority", "deadline", "client", "demo"]):
-        return "high"
+        return "P1"
     if any(s in text for s in ["just curious", "when you get a chance", "no rush", "fyi"]):
-        return "low"
-    return "normal"
+        return "P4"
+    return "P2"
 
 
 def automation_min_tier(user_text: str, base_min_tier: str) -> str:

@@ -2,5 +2,17 @@ apiVersion: v2
 name: stronghold
 description: Secure Agent Governance Platform
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.9.0-pr6
+appVersion: "0.9.0-pr6"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - governance
+  - agents
+  - mcp
+  - openshift
+  - stronghold
+home: https://github.com/Agent-StrongHold/stronghold
+sources:
+  - https://github.com/Agent-StrongHold/stronghold
+maintainers:
+  - name: Stronghold core team

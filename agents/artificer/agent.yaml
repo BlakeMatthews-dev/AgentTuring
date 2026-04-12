@@ -36,6 +36,7 @@ rules:
   - "MUST-ALWAYS follow the architecture in ARCHITECTURE.md"
   - "MUST-NEVER introduce hardcoded credentials"
 trust_tier: t1
+priority_tier: P2
 permissions:
   max_tool_calls_per_request: 30
   rate_limit: 20/minute

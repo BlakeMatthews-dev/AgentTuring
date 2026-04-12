@@ -29,6 +29,7 @@ rules:
   - "MUST-ALWAYS confirm destructive actions before executing"
   - "MUST-ALWAYS use exact entity_ids from the device list"
 trust_tier: t1
+priority_tier: P1
 permissions:
   max_tool_calls_per_request: 5
   rate_limit: 30/minute

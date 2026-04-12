@@ -1,0 +1,21 @@
+# LiteLLM proxy model registry.
+#
+# Loaded verbatim from files/litellm-proxy-config.yaml via .Files.Get. The file
+# is ~1500 lines and contains the per-model budgets and synthetic
+# pricing; keeping it in files/ rather than inline in values.yaml follows
+# the Helm chart guide recommendation for "large, non-template payloads".
+#
+# The BerriAI LiteLLM docs document `--config /path/to/config.yaml` as
+# the supported way to pass the model registry at startup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm-config
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+    stronghold.io/priority-tier: P1
+data:
+  litellm_config.yaml: |-
+{{ .Files.Get "files/litellm-proxy-config.yaml" | indent 4 }}

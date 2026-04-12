@@ -1,0 +1,19 @@
+{{- if .Values.priorityClasses.create }}
+# P2 user-missions — agentic surface work submitted by a user.
+#
+# One mission pod per active mission, scale-to-zero when idle. Targets
+# <60s p99, log + retry on miss. See ADR-K8S-014.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: stronghold-p2
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    stronghold.io/priority-tier: P2
+value: {{ .Values.priorityClasses.values.p2 }}
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Stronghold P2 user-missions tier. On-demand agentic surface for
+  user-submitted research and refactor missions. See ADR-K8S-014.
+{{- end }}

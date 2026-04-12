@@ -20,6 +20,7 @@ memory:
   scope: global
 rules: []
 trust_tier: t0
+priority_tier: P1
 permissions:
   rate_limit: 120/minute
 sub_agents:

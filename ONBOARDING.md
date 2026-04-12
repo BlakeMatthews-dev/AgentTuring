@@ -433,3 +433,9 @@ tests.fakes                           # FakeLLMClient, etc.
 3. No Hardcoded Secrets — defaults must be example values (`sk-example-xxx`).
 4. No Direct External Imports — import the protocol; the DI container wires the implementation.
 5. Every Protocol Needs a Noop/Fake — test fakes in `tests/fakes.py`.
+
+
+## Learned from issue #620
+
+Import error encountered: {"passed": true, "exit_code": 0, "stdout": "i/test_issue_620.py:16: ImportError\n_ TestFakeIntentClassifierHappyPath.test_classify_intent_returns_default_with_confidence _\n\nself = <tests.api.test_is
+Do NOT import from these paths.

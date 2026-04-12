@@ -1,0 +1,2 @@
+p, *, *, *, tool_call, allow
+p, *, *, *, task_create, allow

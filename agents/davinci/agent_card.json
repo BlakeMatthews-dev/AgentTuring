@@ -1,0 +1,23 @@
+{
+  "id": "davinci",
+  "name": "davinci",
+  "description": "Visual artist and image specialist. Uses the canvas tool for layer-based compositing.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "react",
+    "tools": [
+      "canvas"
+    ],
+    "skills": [],
+    "max_tool_rounds": 12
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P2",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-flash",
+    "mistral-large"
+  ],
+  "active": true
+}

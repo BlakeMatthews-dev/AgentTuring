@@ -1,0 +1,92 @@
+# LiteLLM proxy Deployment.
+#
+# Replaces the raw manifest at deploy/k8s/litellm.yaml. Pod-level config:
+#   * --config /app/config/litellm_config.yaml  (mounted from ConfigMap)
+#   * --port matches .Values.litellmProxy.containerPort
+# Per ADR-K8S-014 litellm is a P1 chat-tools workload (LLM traffic hot
+# path but not the chat UI itself).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+    stronghold.io/priority-tier: P1
+spec:
+  replicas: {{ .Values.litellmProxy.replicas }}
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: litellm
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: litellm
+        stronghold.io/priority-tier: P1
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-litellm.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.litellm" . }}
+      automountServiceAccountToken: false
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P1" "root" .) }}
+      securityContext:
+        runAsNonRoot: false  # TODO: fix images to run as non-root
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: litellm
+          image: {{ include "stronghold.image" (dict "image" .Values.litellmProxy.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.litellmProxy.image) }}
+          args:
+            - "--config"
+            - "/app/config/litellm_config.yaml"
+            - "--port"
+            - "{{ .Values.litellmProxy.containerPort }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.litellmProxy.containerPort }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.litellmProxy.envSecretName }}
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          env:
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/$(POSTGRES_DB)
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.litellmProxy.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.litellmProxy.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.litellmProxy.probes.liveness.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.litellmProxy.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.litellmProxy.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.litellmProxy.probes.readiness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.litellmProxy.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false  # TODO: fix images to run as non-root
+            readOnlyRootFilesystem: false  # LiteLLM writes Prisma migrations inline
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "stronghold.fullname" . }}-litellm-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

@@ -1,0 +1,74 @@
+{{- if .Values.rbac.create }}
+# Role and RoleBinding for the mcp-deployer sidecar.
+#
+# This is the tightest and most security-critical Role in the chart. It
+# is the resolution of BACKLOG R3 (the prior single-node deployment
+# granted the main app pod a cluster-admin kubeconfig); see ADR-K8S-002 §4.
+#
+# Hard constraints:
+#   - Namespace-scoped Role, never a ClusterRole
+#   - Bound only in stronghold-mcp (the MCP workload namespace) — NOT in
+#     stronghold-platform, NOT in kube-system, NOT in any openshift-* ns
+#   - Explicit verb allowlist; NO wildcards
+#   - Cannot touch nodes, clusterroles, clusterrolebindings, CRDs
+#
+# On OpenShift, the accompanying SCC ClusterRoleBinding binds this SA to
+# restricted-v2, not anyuid and not privileged (ADR-K8S-002 §4).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "stronghold.serviceAccountName.mcpDeployer" . }}
+  # NOTE: hardcoded to stronghold-mcp per ADR-K8S-001. The MCP namespace
+  # itself is created in PR-8 alongside the MCP workloads. Helm will
+  # refuse to install this Role until that namespace exists, which is
+  # the correct ordering for a least-privilege rollout.
+  namespace: stronghold-mcp
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-deployer
+    stronghold.io/rbac-tier: mcp-deployer
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+{{- if (include "stronghold.openshiftEnabled" .) }}
+  # Routes are an OpenShift-native resource. Omitted entirely on vanilla
+  # Kubernetes; PR-8 adds an Ingress fallback for those distros.
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "stronghold.serviceAccountName.mcpDeployer" . }}
+  namespace: stronghold-mcp
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-deployer
+    stronghold.io/rbac-tier: mcp-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "stronghold.serviceAccountName.mcpDeployer" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "stronghold.serviceAccountName.mcpDeployer" . }}
+    namespace: {{ include "stronghold.namespace" . }}
+{{- end }}

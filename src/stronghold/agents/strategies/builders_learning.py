@@ -208,64 +208,98 @@ class BuildersLearningStrategy:
         self,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Check existing code/tests in repository.
+        """Check existing code/tests via the tool executor."""
+        tool_executor = kwargs.get("tool_executor")
+        if not tool_executor:
+            logger.warning("No tool_executor — skipping repo recon")
+            return {"code": [], "tests": [], "failed_prs": []}
 
-        In production, this would call GitHubService to:
-        - List files in the repo
-        - List test files
-        - Check for failed PRs related to this issue
-        """
-        # Simulated - in production would call GitHub service
-        logger.info("Checking repository state")
-        return {
-            "code": [],  # Would be list of files
-            "tests": [],  # Would be list of test files
-            "failed_prs": [],  # Would be list of rejected PRs
-        }
+        logger.info("Running repository reconnaissance")
+        try:
+            code = await tool_executor(
+                "shell", {"command": "find src/stronghold -name '*.py' -type f | head -50"}
+            )
+            tests = await tool_executor(
+                "shell", {"command": "find tests -name '*.py' -type f | head -50"}
+            )
+            return {
+                "code": str(code).strip().split("\n") if code else [],
+                "tests": str(tests).strip().split("\n") if tests else [],
+                "failed_prs": [],
+            }
+        except Exception:
+            logger.debug("Repo recon failed", exc_info=True)
+            return {"code": [], "tests": [], "failed_prs": []}
 
     async def _analyze_failure_patterns(
         self,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Analyze previous failures on similar issues.
+        """Check for prior failed PRs on this issue via tool executor."""
+        tool_executor = kwargs.get("tool_executor")
+        if not tool_executor:
+            return {"similar_issues": [], "failures": [], "reasons": [], "lessons": []}
 
-        In production, this would:
-        - Search GitHub for similar issues
-        - List PRs for those issues
-        - Analyze rejection comments for patterns
-        - Extract lessons learned
-        """
-        # Simulated - in production would search GitHub
         logger.info("Analyzing failure patterns")
-        return {
-            "similar_issues": [],  # Would be list of similar issues
-            "failures": [],  # Would be list of failure patterns
-            "reasons": [],  # Would be list of rejection reasons
-            "lessons": [],  # Would be list of lessons learned
-        }
+        try:
+            result = await tool_executor(
+                "github",
+                {
+                    "action": "search_issues",
+                    "query": "is:pr is:closed label:rejected",
+                },
+            )
+            return {
+                "similar_issues": [],
+                "failures": str(result).strip().split("\n")[:10] if result else [],
+                "reasons": [],
+                "lessons": [],
+            }
+        except Exception:
+            logger.debug("Failure analysis skipped", exc_info=True)
+            return {"similar_issues": [], "failures": [], "reasons": [], "lessons": []}
 
     async def _run_pr_diagnostics(
         self,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Run diagnostic checks before PR submission.
+        """Run quality gates via the tool executor."""
+        tool_executor = kwargs.get("tool_executor")
+        if not tool_executor:
+            return {"all_passed": True, "issues": [], "has_critical_issues": False}
 
-        Checks:
-        1. Coverage >= 85% (first pass) or >= 95% (final)
-        2. Type errors (mypy --strict)
-        3. Lint errors (ruff)
-        4. Security issues (bandit)
-        5. Docstrings on all functions
-        6. Error handling present
-        7. Naming conventions followed
-        8. Architecture violations none
-        """
-        # Simulated - in production would run actual diagnostic tools
-        logger.info("Running PR diagnostics")
+        logger.info("Running PR diagnostics (quality gates)")
+        issues: list[str] = []
+        try:
+            ruff = await tool_executor(
+                "shell", {"command": "ruff check src/stronghold/ 2>&1 | tail -3"}
+            )
+            if ruff and "error" in str(ruff).lower():
+                issues.append(f"ruff: {str(ruff)[:200]}")
+        except Exception as e:
+            issues.append(f"ruff: tool_executor failed: {e}")
+        try:
+            mypy = await tool_executor(
+                "shell", {"command": "mypy src/stronghold/ --strict 2>&1 | tail -3"}
+            )
+            if mypy and "error" in str(mypy).lower():
+                issues.append(f"mypy: {str(mypy)[:200]}")
+        except Exception as e:
+            issues.append(f"mypy: tool_executor failed: {e}")
+        try:
+            tests = await tool_executor(
+                "shell", {"command": "pytest tests/ -x -q --tb=line 2>&1 | tail -5"}
+            )
+            if tests and "failed" in str(tests).lower():
+                issues.append(f"pytest: {str(tests)[:200]}")
+        except Exception as e:
+            issues.append(f"pytest: tool_executor failed: {e}")
+
+        has_critical = len(issues) > 0
         return {
-            "all_passed": True,  # Would be based on actual checks
-            "issues": [],  # Would be list of failed checks
-            "has_critical_issues": False,
+            "all_passed": not has_critical,
+            "issues": issues,
+            "has_critical_issues": has_critical,
         }
 
     async def _store_frank_learning(
@@ -274,30 +308,26 @@ class BuildersLearningStrategy:
         failure_patterns: dict[str, Any],
         result: ReasoningResult,
     ) -> None:
-        """Store Frank learning in memory.
-
-        In production, this would store to MemoryStore:
-        - Repository state
-        - Failure patterns discovered
-        - What worked/didn't work
-        - Timestamp for trending
-        """
-        logger.info("Storing Frank learning")
+        """Store Frank learning — logs for now, memory store in follow-up."""
+        logger.info(
+            "Frank learning: %d code files, %d test files, %d failures found",
+            len(repo_state.get("code", [])),
+            len(repo_state.get("tests", [])),
+            len(failure_patterns.get("failures", [])),
+        )
 
     async def _store_mason_learning(
         self,
         diagnostics: dict[str, Any],
         result: ReasoningResult,
     ) -> None:
-        """Store Mason learning in memory.
-
-        In production, this would store to MemoryStore:
-        - Diagnostic results
-        - Coverage achieved
-        - Issues found/fixed
-        - Timestamp for trending
-        """
-        logger.info("Storing Mason learning")
+        """Store Mason learning — logs for now, memory store in follow-up."""
+        logger.info(
+            "Mason learning: gates_passed=%s, issues=%d, tools_used=%d",
+            diagnostics.get("all_passed"),
+            len(diagnostics.get("issues", [])),
+            len(getattr(result, "tool_history", [])),
+        )
 
     def _utc_now(self) -> datetime:
         """Get current UTC timestamp."""

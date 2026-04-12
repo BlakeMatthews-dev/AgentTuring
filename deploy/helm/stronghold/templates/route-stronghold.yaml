@@ -1,0 +1,29 @@
+{{- if (include "stronghold.openshiftEnabled" .) }}
+# OpenShift Route for the stronghold-api.
+#
+# Route is an OpenShift-native API (route.openshift.io/v1). Documented
+# in the OpenShift networking guide under "Configuring Routes". On
+# vanilla Kubernetes distros this resource is not rendered; see
+# templates/ingress-stronghold.yaml for the fallback.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "stronghold.fullname" . }}-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/priority-tier: P0
+spec:
+  host: {{ .Values.route.stronghold.host | quote }}
+  to:
+    kind: Service
+    name: {{ include "stronghold.fullname" . }}-api
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.stronghold.tlsTermination }}
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+{{- end }}

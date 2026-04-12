@@ -1,0 +1,21 @@
+{{- if and .Values.mcp.github.enabled .Values.mcp.github.devMode }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stronghold.fullname" . }}-mcp-github
+  namespace: {{ .Values.extraNamespaces.mcp.name }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-github
+    stronghold.io/priority-tier: P1
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "stronghold.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-github
+  ports:
+    - name: http
+      port: {{ .Values.mcp.github.containerPort }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

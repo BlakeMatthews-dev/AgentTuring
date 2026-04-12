@@ -1,0 +1,19 @@
+{{- if .Values.priorityClasses.create }}
+# P0 chat-critical — hot-path conversational surface.
+#
+# Highest priority tier. Protected from eviction (evicted LAST). Targets
+# <2s p99 latency on logged-in chat users. See ADR-K8S-014 §"The six tiers".
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: stronghold-p0
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    stronghold.io/priority-tier: P0
+value: {{ .Values.priorityClasses.values.p0 }}
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Stronghold P0 chat-critical tier. In-process conversational hot path;
+  protected from eviction. See ADR-K8S-014.
+{{- end }}

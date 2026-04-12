@@ -12,6 +12,56 @@ from stronghold.types.agent import AgentResponse
 
 # Tool schemas — proper OpenAI function definitions for each tool
 _TOOL_SCHEMAS: dict[str, dict[str, object]] = {
+    "file_ops": {
+        "description": "File operations: read, write, list, delete files. Action is one of: read, write, list, delete.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["read", "write", "list", "delete"], "description": "Operation to perform"},
+                "path": {"type": "string", "description": "File path relative to workspace root"},
+                "content": {"type": "string", "description": "File content (for write action)"},
+            },
+            "required": ["action", "path"],
+        },
+    },
+    "shell": {
+        "description": "Run a shell command and return stdout/stderr. Use for git, pytest, ruff, mypy, etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to execute"},
+            },
+            "required": ["command"],
+        },
+    },
+    "github": {
+        "description": "GitHub operations: create_branch, create_pr, add_comment, search_issues.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create_branch", "create_pr", "add_comment", "search_issues", "get_issue"], "description": "GitHub operation"},
+                "repo": {"type": "string", "description": "Repository (owner/name)", "default": "Agent-StrongHold/stronghold"},
+                "title": {"type": "string", "description": "PR title or branch name"},
+                "body": {"type": "string", "description": "PR body or comment text"},
+                "base": {"type": "string", "description": "Base branch for PR", "default": "integration"},
+                "head": {"type": "string", "description": "Head branch for PR"},
+                "issue_number": {"type": "integer", "description": "Issue or PR number"},
+                "query": {"type": "string", "description": "Search query"},
+            },
+            "required": ["action"],
+        },
+    },
+    "workspace": {
+        "description": "Workspace management: create a git worktree for isolated work.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create", "destroy", "status"], "description": "Workspace operation"},
+                "branch": {"type": "string", "description": "Branch name for the worktree"},
+            },
+            "required": ["action"],
+        },
+    },
     "read_file": {
         "description": "Read the contents of a file. Returns the file content as a string.",
         "parameters": {

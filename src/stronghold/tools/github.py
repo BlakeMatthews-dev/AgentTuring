@@ -66,9 +66,9 @@ GITHUB_TOOL_DEF = ToolDefinition(
 #
 # Three bots, each a separate GitHub App installed on Agent-StrongHold:
 #
-#   gatekeeper — CI triage, PR automation, default bot
-#   auditor    — Auditor PR reviews (stronghold-workflow-archie-text[bot])
-#   mason      — Mason code changes, PR creation (stronghold-workflow-mason[bot])
+#   gatekeeper — CI triage, PR automation, Auditor reviews, default bot
+#   archie     — Archie(tect): issue decomposition, acceptance criteria
+#   mason      — Mason: tests, implementation, PR creation
 #
 # Private keys stored in ~/.conductor-secrets/{name}.pem.
 # Installation IDs discovered at startup via env or defaults.
@@ -79,7 +79,7 @@ _BOT_REGISTRY: dict[str, dict[str, str]] = {
         "installation_id": "123359098",
         "key_path": "~/.conductor-secrets/gatekeeper.pem",
     },
-    "auditor": {
+    "archie": {
         "app_id": "3354872",
         "installation_id": "123361328",
         "key_path": "~/.conductor-secrets/archie.pem",
@@ -169,8 +169,8 @@ class GitHubToolExecutor:
     2. Explicit token param
     3. GITHUB_TOKEN env var (PAT — posts as the user)
 
-    Pass bot="mason" or bot="auditor" to __init__ to select identity.
-    Default is "gatekeeper" (CI/triage bot).
+    Pass bot="mason" or bot="archie" to __init__ to select identity.
+    Default is "gatekeeper" (CI/triage/Auditor bot).
     """
 
     def __init__(self, token: str = "", bot: str = "gatekeeper") -> None:

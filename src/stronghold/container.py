@@ -76,6 +76,7 @@ class Container:
     skill_catalog: Any = None
     resource_catalog: Any = None
     vault_client: Any = None
+    mason_queue: Any = None
     agent_store: InMemoryAgentStore = field(default_factory=lambda: InMemoryAgentStore({}))
     rate_limiter: Any = field(default_factory=InMemoryRateLimiter)  # RateLimiter protocol
     reactor: Reactor = field(default_factory=Reactor)

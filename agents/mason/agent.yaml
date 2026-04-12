@@ -8,7 +8,7 @@ description: >
   Learns from Auditor review feedback via RLHF.
 soul: SOUL.md
 reasoning:
-  strategy: react
+  strategy: builders_learning
   max_rounds: 50
   review_after_each: false
   phases:

@@ -29,13 +29,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     container = await create_container(config)
     app.state.container = container
 
+    # Wire Mason queue + router
+    from stronghold.agents.mason_queue import MasonQueue  # noqa: PLC0415
+    from stronghold.api.routes.mason import configure_mason_router  # noqa: PLC0415
+
+    mason_queue = MasonQueue()
+    container.mason_queue = mason_queue
+    configure_mason_router(
+        queue=mason_queue,
+        reactor=container.reactor,
+        container=container,
+    )
+
+    # Start the Orchestrator engine (agent execution)
+    from stronghold.orchestrator.engine import OrchestratorEngine  # noqa: PLC0415
+
+    orchestrator = OrchestratorEngine(container, max_concurrent=3)
+    app.state.orchestrator = orchestrator
+
     # Start the reactor loop (1000Hz, runs in background)
     disable_reactor = os.environ.get("STRONGHOLD_DISABLE_REACTOR_AUTOSTART") == "1"
     running_under_pytest = "PYTEST_CURRENT_TEST" in os.environ
     reactor_task: asyncio.Task[None] | None = None
+    orchestrator_started = False
     if not disable_reactor and not running_under_pytest:
         reactor_task = asyncio.create_task(container.reactor.start())
+        await orchestrator.start()
+        orchestrator_started = True
     yield
+    if orchestrator_started:
+        await orchestrator.stop()
     container.reactor.stop()
     if reactor_task is not None:
         reactor_task.cancel()
@@ -131,6 +154,7 @@ def create_app() -> FastAPI:
     from stronghold.api.routes.dashboard import router as dashboard_router
     from stronghold.api.routes.gate_endpoint import router as gate_router
     from stronghold.api.routes.marketplace import router as marketplace_router
+    from stronghold.api.routes.mason import router as mason_router
     from stronghold.api.routes.mcp import router as mcp_router
     from stronghold.api.routes.models import router as models_router
     from stronghold.api.routes.profile import router as profile_router
@@ -141,6 +165,7 @@ def create_app() -> FastAPI:
     from stronghold.api.routes.tasks import router as tasks_router
     from stronghold.api.routes.traces import router as traces_router
     from stronghold.api.routes.webhooks import router as webhooks_router
+    from stronghold.orchestrator.routes import router as orchestrator_router
     from stronghold.prompts.routes import router as prompts_router
 
     app.include_router(auth_router)  # BFF auth (must be before dashboard for /auth/* routes)
@@ -162,6 +187,8 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_router)
     app.include_router(mcp_router)
     app.include_router(schedules_router)
+    app.include_router(mason_router)
+    app.include_router(orchestrator_router)
 
     # Dashboard — try multiple paths (installed package vs source layout)
     _dashboard_candidates = [

@@ -165,6 +165,34 @@ BUILDER_PIPELINE = [
 ]
 
 
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+async def _await_work_completion(engine: Any, work_id: str) -> Any:
+    """Await work item completion using asyncio.Event-based waiting.
+
+    H23 fix: replaces busy-wait polling with proper async waiting.
+    If the engine supports a completion_event() method, uses that directly.
+    Otherwise falls back to exponential-backoff polling with asyncio.sleep.
+    """
+    import asyncio
+
+    # Prefer engine-native event if available
+    if hasattr(engine, "completion_event"):
+        event: asyncio.Event = engine.completion_event(work_id)
+        await event.wait()
+        return engine.get(work_id)
+
+    # Fallback: exponential backoff polling (still async, not busy-wait)
+    interval = 1.0
+    while True:
+        current = engine.get(work_id)
+        if current and current.status.value in _TERMINAL_STATUSES:
+            return current
+        await asyncio.sleep(interval)
+        interval = min(interval * 1.5, 10.0)
+
+
 class BuilderPipeline:
     """Executes the full issue-to-merge pipeline.
 
@@ -260,21 +288,28 @@ class BuilderPipeline:
                 },
             )
 
-            # Wait for completion with exponential backoff (not 1s polling)
+            # H23 fix: replace busy-wait polling with asyncio.wait_for
             import asyncio
 
-            _poll_interval = 1.0
-            _elapsed = 0.0
             _stage_timeout = 600.0  # 10 minutes max per stage
-            while _elapsed < _stage_timeout:
+            _timed_out = False
+            try:
+                current = await asyncio.wait_for(
+                    _await_work_completion(self._engine, work_id),
+                    timeout=_stage_timeout,
+                )
+            except TimeoutError:
+                _timed_out = True
                 current = self._engine.get(work_id)
-                if current and current.status.value in ("completed", "failed", "cancelled"):
-                    break
-                await asyncio.sleep(_poll_interval)
-                _elapsed += _poll_interval
-                _poll_interval = min(_poll_interval * 1.5, 10.0)  # back off to 10s max
 
-            current = self._engine.get(work_id)
+            if _timed_out:
+                self._engine.cancel(work_id)
+                stage.status = StageStatus.FAILED
+                stage.error = f"Stage timed out after {_stage_timeout:.0f}s"
+                stage.completed_at = datetime.now(UTC)
+                run.status = f"failed at {stage.name}"
+                logger.error("Pipeline %s: %s TIMED OUT", run_id, stage.name)
+                break
             if current is None:
                 stage.status = StageStatus.FAILED
                 stage.error = "Work item lost"
@@ -288,15 +323,6 @@ class BuilderPipeline:
                 stage.completed_at = datetime.now(UTC)
                 run.status = f"failed at {stage.name}"
                 logger.error("Pipeline %s: %s FAILED: %s", run_id, stage.name, stage.error)
-                break
-            if _elapsed >= _stage_timeout:
-                # Timed out — cancel the work item and fail the stage
-                self._engine.cancel(work_id)
-                stage.status = StageStatus.FAILED
-                stage.error = f"Stage timed out after {_stage_timeout:.0f}s"
-                stage.completed_at = datetime.now(UTC)
-                run.status = f"failed at {stage.name}"
-                logger.error("Pipeline %s: %s TIMED OUT", run_id, stage.name)
                 break
 
             stage.status = StageStatus.COMPLETED

@@ -80,7 +80,8 @@ class RedisSessionStore:
                 msg = json.loads(item)
             except (json.JSONDecodeError, TypeError, ValueError):
                 logger.warning(
-                    "Skipping poisoned session entry in %s", session_id,
+                    "Skipping poisoned session entry in %s",
+                    session_id,
                 )
                 continue
             if not isinstance(msg, dict):

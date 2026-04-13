@@ -102,7 +102,9 @@ class InMemoryTaskAcceptancePolicy:
         if priority_tier not in self._budget_limits:
             logger.warning(
                 "Budget DENIED: user=%s org=%s unknown tier=%s",
-                user_id, org_id, priority_tier,
+                user_id,
+                org_id,
+                priority_tier,
             )
             return False
         limits = self._budget_limits[priority_tier]

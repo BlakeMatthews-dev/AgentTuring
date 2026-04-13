@@ -155,8 +155,8 @@ class ShellExecutor:
         # Security: reject shell metacharacters that enable injection.
         # Without this, `echo hi; rm -rf /` would pass the allowlist because
         # it starts with "echo".
-        _METACHARS = ";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"
-        for meta in _METACHARS:
+        metachars = ";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"
+        for meta in metachars:
             if meta in command:
                 return ToolResult(
                     success=False,

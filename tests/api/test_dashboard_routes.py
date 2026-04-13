@@ -23,38 +23,48 @@ def dashboard_app() -> FastAPI:
 
 class TestDashboardRoutes:
     def test_skills_dashboard_returns_html(self, dashboard_app: FastAPI) -> None:
-        """GET /dashboard/skills returns HTML (200 if file exists, 404 if not)."""
+        """GET /dashboard/skills returns 200 with HTML content."""
         with TestClient(dashboard_app) as client:
             resp = client.get("/dashboard/skills")
-            assert resp.status_code in (200, 404)
+            if resp.status_code == 404:
+                pytest.skip("Dashboard not compiled in test environment")
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_security_dashboard_returns_html(self, dashboard_app: FastAPI) -> None:
-        """GET /dashboard/security returns HTML."""
+        """GET /dashboard/security returns 200 with HTML content."""
         with TestClient(dashboard_app) as client:
             resp = client.get("/dashboard/security")
-            assert resp.status_code in (200, 404)
+            if resp.status_code == 404:
+                pytest.skip("Dashboard not compiled in test environment")
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_outcomes_dashboard_returns_html(self, dashboard_app: FastAPI) -> None:
-        """GET /dashboard/outcomes returns HTML."""
+        """GET /dashboard/outcomes returns 200 with HTML content."""
         with TestClient(dashboard_app) as client:
             resp = client.get("/dashboard/outcomes")
-            assert resp.status_code in (200, 404)
+            if resp.status_code == 404:
+                pytest.skip("Dashboard not compiled in test environment")
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_agents_dashboard_returns_html(self, dashboard_app: FastAPI) -> None:
-        """GET /dashboard/agents returns HTML."""
+        """GET /dashboard/agents returns 200 with HTML content."""
         with TestClient(dashboard_app) as client:
             resp = client.get("/dashboard/agents")
-            assert resp.status_code in (200, 404)
+            if resp.status_code == 404:
+                pytest.skip("Dashboard not compiled in test environment")
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_quota_dashboard_returns_html(self, dashboard_app: FastAPI) -> None:
-        """GET /dashboard/quota returns HTML."""
+        """GET /dashboard/quota returns 200 with HTML content."""
         with TestClient(dashboard_app) as client:
             resp = client.get("/dashboard/quota")
-            assert resp.status_code in (200, 404)
+            if resp.status_code == 404:
+                pytest.skip("Dashboard not compiled in test environment")
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_nonexistent_dashboard_returns_404(self, dashboard_app: FastAPI) -> None:

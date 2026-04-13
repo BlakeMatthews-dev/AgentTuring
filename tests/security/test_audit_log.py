@@ -29,3 +29,5 @@ class TestAuditLog:
         await log.log(AuditEntry(user_id="other", verdict="allowed"))
         entries = await log.get_entries(user_id="blake")
         assert len(entries) == 1
+        assert entries[0].user_id == "blake"
+        assert entries[0].verdict == "allowed"

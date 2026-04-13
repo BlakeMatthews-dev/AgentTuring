@@ -460,6 +460,8 @@ class TestLimitParameterBounds:
                 headers={"Authorization": "Bearer sk-example-stronghold", "X-Stronghold-Request": "1"},
             )
             assert resp.status_code == 200
+            tasks = resp.json()["tasks"]
+            assert len(tasks) <= 500
 
     def test_tasks_limit_zero_clamped_to_1(self) -> None:
         from fastapi.testclient import TestClient
@@ -473,6 +475,9 @@ class TestLimitParameterBounds:
                 headers={"Authorization": "Bearer sk-example-stronghold", "X-Stronghold-Request": "1"},
             )
             assert resp.status_code == 200
+            # Clamped to 1, so at most 1 task returned (empty store = 0)
+            tasks = resp.json()["tasks"]
+            assert isinstance(tasks, list)
 
     def test_tasks_negative_limit_clamped_to_1(self) -> None:
         from fastapi.testclient import TestClient
@@ -486,6 +491,10 @@ class TestLimitParameterBounds:
                 headers={"Authorization": "Bearer sk-example-stronghold", "X-Stronghold-Request": "1"},
             )
             assert resp.status_code == 200
+            # Negative clamped to 1 — response must still be a valid task list
+            tasks = resp.json()["tasks"]
+            assert isinstance(tasks, list)
+            assert len(tasks) <= 1
 
     def test_admin_audit_limit_capped_at_500(self) -> None:
         from fastapi.testclient import TestClient
@@ -499,6 +508,9 @@ class TestLimitParameterBounds:
                 headers={"Authorization": "Bearer sk-example-stronghold", "X-Stronghold-Request": "1"},
             )
             assert resp.status_code == 200
+            entries = resp.json()
+            assert isinstance(entries, list)
+            assert len(entries) <= 500
 
     def test_admin_audit_limit_zero_clamped(self) -> None:
         from fastapi.testclient import TestClient
@@ -512,3 +524,6 @@ class TestLimitParameterBounds:
                 headers={"Authorization": "Bearer sk-example-stronghold", "X-Stronghold-Request": "1"},
             )
             assert resp.status_code == 200
+            # Clamped to 1 — response must be a valid list
+            entries = resp.json()
+            assert isinstance(entries, list)

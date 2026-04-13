@@ -5,7 +5,6 @@ K8s client is mocked (external infrastructure). All MCP types are real.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,15 +13,11 @@ import pytest
 
 from stronghold.mcp.deployer import K8sDeployer
 from stronghold.mcp.types import (
-    MCPDiscoveredTool,
     MCPResourceLimits,
     MCPServer,
     MCPServerSpec,
     MCPServerStatus,
-    MCPSourceType,
-    MCPTransport,
 )
-
 
 # ── Fake K8s API objects ──────────────────────────────────────────────
 
@@ -215,6 +210,12 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        # Verify env vars made it into the deployment manifest
+        deployment = apps.create_calls[0][1]
+        container = deployment.spec.template.spec.containers[0]
+        env_map = {e.name: e.value for e in container.env}
+        assert env_map["DEBUG"] == "true"
+        assert env_map["LOG_LEVEL"] == "info"
 
     def test_with_secrets_existing(self) -> None:
         deployer = K8sDeployer()
@@ -227,6 +228,14 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        # Verify secret ref was wired into the deployment
+        deployment = apps.create_calls[0][1]
+        container = deployment.spec.template.spec.containers[0]
+        secret_envs = [e for e in container.env if e.value_from and e.value_from.secret_key_ref]
+        assert len(secret_envs) == 1
+        assert secret_envs[0].name == "GITHUB_TOKEN"
+        assert secret_envs[0].value_from.secret_key_ref.name == "github-pat"
+        assert secret_envs[0].value_from.secret_key_ref.key == "token"
 
     def test_with_secrets_missing(self) -> None:
         """Missing K8s secrets should be skipped gracefully."""
@@ -240,6 +249,15 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        # Verify the missing secret was NOT added to env vars
+        deployment = apps.create_calls[0][1]
+        container = deployment.spec.template.spec.containers[0]
+        if container.env:
+            env_names = {e.name for e in container.env}
+            assert "GITHUB_TOKEN" not in env_names
+        else:
+            # env is None when no env vars were added
+            assert container.env is None
 
     def test_with_invalid_secret_ref_format(self) -> None:
         """Secret refs that don't have ':' separator should be ignored."""
@@ -269,6 +287,13 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        # Verify custom resource limits in deployment manifest
+        deployment = apps.create_calls[0][1]
+        container = deployment.spec.template.spec.containers[0]
+        assert container.resources.limits["cpu"] == "1000m"
+        assert container.resources.limits["memory"] == "512Mi"
+        assert container.resources.requests["cpu"] == "200m"
+        assert container.resources.requests["memory"] == "128Mi"
 
     def test_with_no_resources(self) -> None:
         """When resources is None, should use defaults."""
@@ -293,6 +318,11 @@ class TestDeploySync:
         deployer._deploy_sync(server)
 
         assert len(apps.create_calls) == 1
+        # Verify org_id label is present in deployment labels
+        deployment = apps.create_calls[0][1]
+        labels = deployment.metadata.labels
+        assert "stronghold.io/org" in labels
+        assert labels["stronghold.io/org"] == "acme-corp"
 
     def test_system_org_id_excluded_from_labels(self) -> None:
         """Org IDs starting with '_' should not be in labels."""
@@ -305,6 +335,10 @@ class TestDeploySync:
         deployer._deploy_sync(server)
 
         assert len(apps.create_calls) == 1
+        # Verify org label is NOT present for system org IDs
+        deployment = apps.create_calls[0][1]
+        labels = deployment.metadata.labels
+        assert "stronghold.io/org" not in labels
 
     def test_empty_org_id_excluded_from_labels(self) -> None:
         deployer = K8sDeployer()
@@ -316,6 +350,10 @@ class TestDeploySync:
         deployer._deploy_sync(server)
 
         assert len(apps.create_calls) == 1
+        # Verify org label is NOT present for empty org IDs
+        deployment = apps.create_calls[0][1]
+        labels = deployment.metadata.labels
+        assert "stronghold.io/org" not in labels
 
 
 # ── _stop_sync ────────────────────────────────────────────────────────

@@ -36,7 +36,6 @@ from stronghold.types.memory import Learning
 
 from ..fakes import FakeLLMClient
 
-
 # =====================================================================
 # CRITICAL: Multi-tenant isolation — PgAgentRegistry
 # =====================================================================
@@ -527,24 +526,19 @@ class TestHighAdminOrgScoping:
     OWASP: A01 (Broken Access Control)
     """
 
+    @pytest.mark.xfail(reason="H11: org_id missing from UPDATE users WHERE", strict=True)
     def test_h11_update_user_roles_sql_has_no_org_check(self) -> None:
         """update_user_roles UPDATE query lacks AND org_id = $N."""
         from stronghold.api.routes import admin
 
         source = inspect.getsource(admin.update_user_roles)
-        # The SQL should have an org_id WHERE clause
-        has_org_in_update = "org_id" in source and "UPDATE" in source
-        # BUG: currently the UPDATE users SET roles WHERE id = $N has no org_id
-        # We check the SQL specifically
-        if "WHERE id = " in source or "WHERE email = " in source:
-            # If we find a WHERE clause without org_id, that's the bug
-            lines = source.split("\n")
-            update_lines = [l for l in lines if "UPDATE users" in l or "WHERE" in l]
-            update_block = " ".join(update_lines)
-            if "org_id" not in update_block:
-                pass  # Bug confirmed
-            else:
-                pytest.fail("org_id found in UPDATE — bug may be fixed")
+        # Assert DESIRED behavior: UPDATE query should include org_id
+        lines = source.split("\n")
+        update_lines = [ln for ln in lines if "UPDATE" in ln or "WHERE" in ln]
+        update_block = " ".join(update_lines)
+        assert "org_id" in update_block, (
+            "UPDATE users query must include org_id in WHERE clause"
+        )
 
 
 # =====================================================================
@@ -579,17 +573,19 @@ class TestMediumWardenScanCoverage:
 class TestMediumCommunitySymlinkCheck:
     """M-symlink: Community skill loader skips is_symlink() check."""
 
+    @pytest.mark.xfail(
+        reason="M-symlink: community skill dir missing is_symlink() check", strict=True
+    )
     def test_main_dir_checks_symlinks_but_community_does_not(self) -> None:
         """loader.py checks symlinks for main dir but not community dir."""
         from stronghold.skills.loader import FilesystemSkillLoader
 
         source = inspect.getsource(FilesystemSkillLoader.load_all)
-        # Count occurrences of symlink check
+        # Assert DESIRED behavior: both main and community dirs check symlinks
         symlink_checks = source.count("is_symlink")
-        # If fewer than 2 checks, the community loop is likely missing it
-        # This is MEDIUM severity — document but don't fail hard
-        if symlink_checks < 2:
-            pass  # Bug confirmed — community dir lacks symlink check
+        assert symlink_checks >= 2, (
+            "Both main and community skill dirs must check is_symlink()"
+        )
 
 
 # =====================================================================

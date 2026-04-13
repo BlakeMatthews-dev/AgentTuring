@@ -12,8 +12,6 @@ from stronghold.api.routes.chat import router as chat_router
 from stronghold.classifier.engine import ClassifierEngine
 from stronghold.container import Container
 from stronghold.memory.learnings.extractor import ToolCorrectionExtractor
-from stronghold.tools.executor import ToolDispatcher
-from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.memory.learnings.store import InMemoryLearningStore
 from stronghold.memory.outcomes import InMemoryOutcomeStore
 from stronghold.prompts.store import InMemoryPromptManager
@@ -25,6 +23,8 @@ from stronghold.security.sentinel.audit import InMemoryAuditLog
 from stronghold.security.sentinel.policy import Sentinel
 from stronghold.security.warden.detector import Warden
 from stronghold.sessions.store import InMemorySessionStore
+from stronghold.tools.executor import ToolDispatcher
+from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.types.agent import AgentIdentity
 from stronghold.types.auth import PermissionTable
@@ -43,7 +43,13 @@ def sticky_app() -> FastAPI:
     llm.set_simple_response("I'm the Artificer, working on your code.")
 
     config = StrongholdConfig(
-        providers={"t": {"status": "active", "billing_cycle": "monthly", "free_tokens": 1000000}},
+        providers={
+            "t": {
+                "status": "active",
+                "billing_cycle": "monthly",
+                "free_tokens": 1000000,
+            }
+        },
         models={
             "m": {
                 "provider": "t",
@@ -77,7 +83,10 @@ def sticky_app() -> FastAPI:
 
         default = Agent(
             identity=AgentIdentity(
-                name="arbiter", soul_prompt_name="agent.arbiter.soul", model="t/m", memory_config={}
+                name="arbiter",
+                soul_prompt_name="agent.arbiter.soul",
+                model="t/m",
+                memory_config={},
             ),
             strategy=DirectStrategy(),
             llm=llm,
@@ -146,7 +155,10 @@ class TestSessionIntentSticky:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "write a function to sort a list in utils.py with type hints and pytest tests",
+                            "content": (
+                                "write a function to sort a list in utils.py"
+                                " with type hints and pytest tests"
+                            ),
                         }
                     ],
                     "session_id": "sticky-test",
@@ -164,15 +176,18 @@ class TestSessionIntentSticky:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "write a function to sort a list in utils.py with type hints and pytest tests",
+                            "content": (
+                                "write a function to sort a list in utils.py"
+                                " with type hints and pytest tests"
+                            ),
                         },
                         {
                             "role": "assistant",
-                            "content": "I'm the Artificer, working on your code.",
+                            "content": ("I'm the Artificer, working on your code."),
                         },
                         {
                             "role": "user",
-                            "content": "yeah that looks good but make it handle empty lists too",
+                            "content": ("yeah that looks good but make it handle empty lists too"),
                         },
                     ],
                     "session_id": "sticky-test",
@@ -183,10 +198,18 @@ class TestSessionIntentSticky:
             # Should STILL be artificer, not default
             assert resp2.json()["_routing"]["agent"] == "artificer"
 
+    @pytest.mark.xfail(
+        reason=(
+            "Stickiness only yields to explicit intent-to-agent mappings. "
+            "chat task_type has no agent mapping, so stickiness wins. "
+            "Needs conduit change to break sticky on unmapped intents."
+        ),
+        strict=True,
+    )
     def test_explicit_chat_breaks_sticky(self, sticky_app: FastAPI) -> None:
-        """Explicit chat intent should break the sticky session."""
+        """Explicit chat intent in the SAME session should break sticky."""
         with TestClient(sticky_app) as client:
-            # Code request
+            # Code request -- establishes sticky artificer
             client.post(
                 "/v1/chat/completions",
                 json={
@@ -194,7 +217,7 @@ class TestSessionIntentSticky:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "write a function to parse JSON in parser.py with tests",
+                            "content": ("write a function to parse JSON in parser.py with tests"),
                         }
                     ],
                     "session_id": "break-test",
@@ -202,13 +225,13 @@ class TestSessionIntentSticky:
                 headers={"Authorization": "Bearer sk-test"},
             )
 
-            # Explicit greeting — should go to default
+            # Explicit greeting in SAME session -- should break sticky
             resp = client.post(
                 "/v1/chat/completions",
                 json={
                     "model": "auto",
                     "messages": [{"role": "user", "content": "hello how are you"}],
-                    "session_id": "break-test-new",  # new session
+                    "session_id": "break-test",
                 },
                 headers={"Authorization": "Bearer sk-test"},
             )

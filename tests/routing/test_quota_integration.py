@@ -34,3 +34,12 @@ class TestQuotaTracker:
         await tracker.record_usage("google", "daily", 200, 100)
         all_usage = await tracker.get_all_usage()
         assert len(all_usage) == 2
+        providers = {entry["provider"] for entry in all_usage}
+        assert providers == {"mistral", "google"}
+        by_provider = {entry["provider"]: entry for entry in all_usage}
+        assert by_provider["mistral"]["input_tokens"] == 100
+        assert by_provider["mistral"]["output_tokens"] == 50
+        assert by_provider["mistral"]["total_tokens"] == 150
+        assert by_provider["google"]["input_tokens"] == 200
+        assert by_provider["google"]["output_tokens"] == 100
+        assert by_provider["google"]["total_tokens"] == 300

@@ -5,7 +5,11 @@ Verifies trace creation, span nesting, attribute setting, and lifecycle.
 
 from __future__ import annotations
 
-from stronghold.tracing.phoenix_backend import PhoenixSpan, PhoenixTrace, PhoenixTracingBackend
+from stronghold.tracing.phoenix_backend import (
+    PhoenixSpan,
+    PhoenixTrace,
+    PhoenixTracingBackend,
+)
 
 
 class TestPhoenixTracingBackend:
@@ -55,6 +59,7 @@ class TestPhoenixTraceSpans:
 
         with trace.span("test-span") as span:
             assert span is not None
+            assert isinstance(span, PhoenixSpan)
 
         trace.end()
 
@@ -139,20 +144,25 @@ class TestTraceLifecycle:
     def test_trace_end_completes(self) -> None:
         backend = PhoenixTracingBackend(endpoint="http://localhost:6006")
         trace = backend.create_trace(name="test")
-        # Should not raise
+        assert isinstance(trace, PhoenixTrace)
+        assert len(trace.trace_id) > 0
         trace.end()
 
     def test_trace_score(self) -> None:
         backend = PhoenixTracingBackend(endpoint="http://localhost:6006")
         trace = backend.create_trace(name="test")
-        # Should not raise
         trace.score("quality", 0.95, comment="good response")
+        assert len(trace._scores) == 1
+        assert trace._scores[0] == ("quality", 0.95, "good response")
         trace.end()
 
     def test_trace_update_metadata(self) -> None:
         backend = PhoenixTracingBackend(endpoint="http://localhost:6006")
         trace = backend.create_trace(name="test")
+        assert isinstance(trace, PhoenixTrace)
         trace.update({"model": "gpt-4", "agent": "artificer", "task_type": "code"})
+        # Verify trace_id is still valid after update
+        assert len(trace.trace_id) > 0
         trace.end()
 
     def test_trace_full_lifecycle(self) -> None:
@@ -164,27 +174,37 @@ class TestTraceLifecycle:
             name="route_request",
         )
 
+        assert isinstance(trace, PhoenixTrace)
+        assert len(trace.trace_id) > 0
+
         # Classify
         with trace.span("conduit.classify") as cs:
+            assert isinstance(cs, PhoenixSpan)
             cs.set_input({"text": "write a function"})
             cs.set_output({"task_type": "code", "classified_by": "keywords"})
 
         # Route
         with trace.span("conduit.route") as rs:
+            assert isinstance(rs, PhoenixSpan)
             rs.set_input({"task_type": "code"})
             rs.set_output({"model": "test/large", "score": 0.85})
 
         # Agent handle
         with trace.span("agent.artificer") as ags:
+            assert isinstance(ags, PhoenixSpan)
             ags.set_input({"message_count": 3})
             ags.set_output({"response_length": 500})
             ags.set_usage(input_tokens=200, output_tokens=100, model="test/large")
 
         trace.update({"model": "test/large", "agent": "artificer"})
         trace.score("quality", 0.9)
+        assert len(trace._scores) == 1
+        assert trace._scores[0][1] == 0.9
         trace.end()
 
     def test_flush_does_not_raise(self) -> None:
         backend = PhoenixTracingBackend(endpoint="http://localhost:6006")
+        # Verify backend has the expected provider attribute
+        assert hasattr(backend, "_provider")
         # flush() should not raise even if Phoenix is not reachable
         backend.flush()

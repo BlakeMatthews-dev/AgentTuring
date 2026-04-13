@@ -41,9 +41,8 @@ class TestQualityMonotonicity:
         high = score_candidate(
             "high", build_model_config(quality=0.9), provider, intent, config, usage_pct=0.5
         )
-        # Higher priority increases quality exponent, which penalizes sub-1.0 quality more
-        # This is correct: critical is pickier, so same model scores lower
-        assert high.score != low.score
+        # Higher quality model should always score higher (same priority, same cost)
+        assert high.score > low.score
 
 
 class TestQualityExponentFloor:
@@ -82,9 +81,9 @@ class TestScoreEdgeCases:
         model = build_model_config(quality=0.9)
         high = score_candidate("m", model, provider, build_intent(tier="P0"), config, 0.5)
         low = score_candidate("m", model, provider, build_intent(tier="P4"), config, 0.5)
-        # Higher priority increases quality exponent, which penalizes sub-1.0 quality more
-        # This is correct: critical is pickier, so same model scores lower
-        assert high.score != low.score
+        # Higher priority (P0) increases quality exponent, penalizing sub-1.0 quality more
+        # So for quality=0.9 (<1.0), P0 scores LOWER than P4
+        assert high.score < low.score
 
     def test_same_model_different_usage(self) -> None:
         intent = build_intent()

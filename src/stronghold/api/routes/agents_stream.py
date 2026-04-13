@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from stronghold.types.errors import QuotaExhaustedError
+
+logger = logging.getLogger("stronghold.api.agents_stream")
 
 router = APIRouter(prefix="/v1/stronghold")
 
@@ -139,8 +142,9 @@ async def structured_request_stream(request: Request) -> StreamingResponse:
                     "model": result.get("model", ""),
                 }
             )
-        except Exception as e:
-            yield _sse({"type": "error", "message": str(e)})
+        except Exception:
+            logger.exception("Stream error during agent execution")
+            yield _sse({"type": "error", "message": "An internal error occurred"})
 
     return StreamingResponse(stream_events(), media_type="text/event-stream")
 

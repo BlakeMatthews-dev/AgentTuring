@@ -17,7 +17,7 @@ import logging
 import os
 from typing import Any, cast
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("stronghold.api.mason")
@@ -48,9 +48,24 @@ def _reactor() -> Any:
     return _state["reactor"]
 
 
+async def _require_auth(request: Request) -> Any:
+    """Authenticate the request. Returns auth context on success."""
+    container = getattr(getattr(request.app, "state", None), "container", None)
+    if not container:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    auth_header = request.headers.get("authorization")
+    try:
+        return await container.auth_provider.authenticate(
+            auth_header, headers=dict(request.headers)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+
 @router.post("/v1/stronghold/mason/assign")
 async def assign_issue(request: Request) -> JSONResponse:
     """Assign a GitHub issue to Mason's queue."""
+    await _require_auth(request)
     body = await request.json()
     issue_number = body.get("issue_number")
     if not issue_number:
@@ -148,6 +163,7 @@ async def review_pr(request: Request) -> JSONResponse:
     Mason reads the diff, existing comments, and its stored learnings,
     then pushes improvements addressing the feedback.
     """
+    await _require_auth(request)
     body = await request.json()
     pr_number = body.get("pr_number")
     if not pr_number:
@@ -177,14 +193,16 @@ async def review_pr(request: Request) -> JSONResponse:
 
 
 @router.get("/v1/stronghold/mason/queue")
-async def get_queue() -> JSONResponse:
+async def get_queue(request: Request) -> JSONResponse:
     """List all issues in Mason's queue."""
+    await _require_auth(request)
     return JSONResponse({"issues": _queue().list_all()})
 
 
 @router.get("/v1/stronghold/mason/status")
-async def get_status() -> JSONResponse:
+async def get_status(request: Request) -> JSONResponse:
     """Get Mason's current execution status."""
+    await _require_auth(request)
     return JSONResponse(_queue().status())
 
 
@@ -250,6 +268,7 @@ async def _fetch_github_items(owner: str, repo: str) -> dict[str, Any]:
 @router.get("/v1/stronghold/mason/issues")
 async def list_github_issues(request: Request) -> JSONResponse:
     """Fetch all open issues and PRs. Cached: 15min full, 1min empty."""
+    await _require_auth(request)
     owner = request.query_params.get("owner", "")
     repo = request.query_params.get("repo", "")
     if not owner or not repo:
@@ -263,12 +282,13 @@ async def list_github_issues(request: Request) -> JSONResponse:
 
 
 @router.get("/v1/stronghold/mason/scan")
-async def scan_codebase() -> JSONResponse:
+async def scan_codebase(request: Request) -> JSONResponse:
     """Scan codebase for good-first-issue opportunities.
 
     Returns suggestions for approachable tasks that teach
     new contributors about the architecture.
     """
+    await _require_auth(request)
     from pathlib import Path
 
     from stronghold.tools.scanner import (
@@ -305,6 +325,7 @@ async def create_scanned_issues(request: Request) -> JSONResponse:
     Body: {"indices": [0, 1, 2], "owner": "org", "repo": "repo"}
     Or: {"all": true, "owner": "org", "repo": "repo"}
     """
+    await _require_auth(request)
     from pathlib import Path
 
     from stronghold.tools.github import GitHubToolExecutor
@@ -367,14 +388,17 @@ async def github_webhook(request: Request) -> JSONResponse:
     for relevant GitHub actions.
     """
     secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
-    if secret:
-        signature = request.headers.get("X-Hub-Signature-256", "")
-        body_bytes = await request.body()
-        if not _verify_signature(body_bytes, secret, signature):
-            return JSONResponse({"error": "Invalid signature"}, status_code=401)
-        payload: dict[str, Any] = json.loads(body_bytes)
-    else:
-        payload = await request.json()
+    if not secret:
+        return JSONResponse(
+            {"error": "Webhook secret not configured"},
+            status_code=403,
+        )
+
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    body_bytes = await request.body()
+    if not _verify_signature(body_bytes, secret, signature):
+        return JSONResponse({"error": "Invalid signature"}, status_code=401)
+    payload: dict[str, Any] = json.loads(body_bytes)
 
     event_type = request.headers.get("X-GitHub-Event", "")
     action = payload.get("action", "")

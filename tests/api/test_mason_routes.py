@@ -14,7 +14,7 @@ import hmac
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -26,6 +26,9 @@ from stronghold.api.routes.mason import (
     configure_mason_router,
     router,
 )
+from stronghold.security.auth_static import StaticKeyAuthProvider
+
+_AUTH_HEADERS = {"Authorization": "Bearer sk-test"}
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +49,9 @@ class _FakeQueue:
         self.issues: list[dict[str, Any]] = []
         self._logs: list[str] = []
 
-    def assign(self, *, issue_number: int, title: str = "", owner: str = "", repo: str = "") -> _FakeIssue:
+    def assign(
+        self, *, issue_number: int, title: str = "", owner: str = "", repo: str = ""
+    ) -> _FakeIssue:
         self.issues.append({"number": issue_number, "status": "queued"})
         return _FakeIssue(issue_number, title, owner, repo)
 
@@ -54,7 +59,10 @@ class _FakeQueue:
         return self.issues
 
     def status(self) -> dict[str, Any]:
-        return {"running": len([i for i in self.issues if i["status"] == "running"]), "queued": len(self.issues)}
+        return {
+            "running": len([i for i in self.issues if i["status"] == "running"]),
+            "queued": len(self.issues),
+        }
 
     def start(self, issue_number: int) -> None:
         for i in self.issues:
@@ -110,7 +118,12 @@ def app(fakes: tuple[_FakeQueue, _FakeReactor]) -> FastAPI:
     q, r = fakes
     application = FastAPI()
     application.include_router(router)
-    configure_mason_router(queue=q, reactor=r, container=SimpleNamespace(route_request=AsyncMock()))
+    container = SimpleNamespace(
+        route_request=AsyncMock(),
+        auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+    )
+    application.state.container = container
+    configure_mason_router(queue=q, reactor=r, container=container)
     return application
 
 
@@ -127,12 +140,11 @@ def client(app: FastAPI) -> httpx.AsyncClient:
 
 class TestAssignIssue:
     @pytest.mark.asyncio
-    async def test_assign_returns_queued_status(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_assign_returns_queued_status(self, client: httpx.AsyncClient) -> None:
         resp = await client.post(
             "/v1/stronghold/mason/assign",
             json={"issue_number": 42, "title": "Fix bug", "owner": "org", "repo": "repo"},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -140,11 +152,11 @@ class TestAssignIssue:
         assert data["issue_number"] == 42
 
     @pytest.mark.asyncio
-    async def test_assign_missing_issue_number_returns_400(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_assign_missing_issue_number_returns_400(self, client: httpx.AsyncClient) -> None:
         resp = await client.post(
-            "/v1/stronghold/mason/assign", json={"title": "no number"}
+            "/v1/stronghold/mason/assign",
+            json={"title": "no number"},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 400
         assert "issue_number" in resp.json()["error"]
@@ -164,6 +176,7 @@ class TestReviewPr:
         resp = await client.post(
             "/v1/stronghold/mason/review-pr",
             json={"pr_number": 101, "owner": "org", "repo": "repo"},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -173,11 +186,11 @@ class TestReviewPr:
         assert reactor.emitted[0].name == "mason.pr_review_requested"
 
     @pytest.mark.asyncio
-    async def test_review_missing_pr_number_returns_400(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_review_missing_pr_number_returns_400(self, client: httpx.AsyncClient) -> None:
         resp = await client.post(
-            "/v1/stronghold/mason/review-pr", json={"owner": "org"}
+            "/v1/stronghold/mason/review-pr",
+            json={"owner": "org"},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 400
         assert "pr_number" in resp.json()["error"]
@@ -190,24 +203,21 @@ class TestReviewPr:
 
 class TestQueueAndStatus:
     @pytest.mark.asyncio
-    async def test_get_queue_returns_issues(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_get_queue_returns_issues(self, client: httpx.AsyncClient) -> None:
         # Seed by assigning
         await client.post(
             "/v1/stronghold/mason/assign",
             json={"issue_number": 1, "owner": "o", "repo": "r"},
+            headers=_AUTH_HEADERS,
         )
-        resp = await client.get("/v1/stronghold/mason/queue")
+        resp = await client.get("/v1/stronghold/mason/queue", headers=_AUTH_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["issues"]) == 1
 
     @pytest.mark.asyncio
-    async def test_get_status_returns_running_count(
-        self, client: httpx.AsyncClient
-    ) -> None:
-        resp = await client.get("/v1/stronghold/mason/status")
+    async def test_get_status_returns_running_count(self, client: httpx.AsyncClient) -> None:
+        resp = await client.get("/v1/stronghold/mason/status", headers=_AUTH_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert "running" in data
@@ -221,10 +231,8 @@ class TestQueueAndStatus:
 
 class TestListGithubIssues:
     @pytest.mark.asyncio
-    async def test_missing_params_returns_400(
-        self, client: httpx.AsyncClient
-    ) -> None:
-        resp = await client.get("/v1/stronghold/mason/issues")
+    async def test_missing_params_returns_400(self, client: httpx.AsyncClient) -> None:
+        resp = await client.get("/v1/stronghold/mason/issues", headers=_AUTH_HEADERS)
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -233,10 +241,12 @@ class TestListGithubIssues:
     ) -> None:
         fake_result = SimpleNamespace(
             success=True,
-            content=json.dumps([
-                {"number": 1, "title": "Bug", "labels": ["bug"]},
-                {"number": 2, "title": "Feature", "labels": ["enhancement"]},
-            ]),
+            content=json.dumps(
+                [
+                    {"number": 1, "title": "Bug", "labels": ["bug"]},
+                    {"number": 2, "title": "Feature", "labels": ["enhancement"]},
+                ]
+            ),
         )
         mock_exec = AsyncMock(return_value=fake_result)
         monkeypatch.setattr(
@@ -244,7 +254,8 @@ class TestListGithubIssues:
             lambda: SimpleNamespace(execute=mock_exec),
         )
         resp = await client.get(
-            "/v1/stronghold/mason/issues?owner=org&repo=repo"
+            "/v1/stronghold/mason/issues?owner=org&repo=repo",
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -257,18 +268,21 @@ class TestListGithubIssues:
     ) -> None:
         import time
 
-        _issues_cache.update({
-            "data": {"items": [], "total": 5, "labels": []},
-            "key": "org/repo",
-            "fetched_at": time.monotonic(),
-        })
+        _issues_cache.update(
+            {
+                "data": {"items": [], "total": 5, "labels": []},
+                "key": "org/repo",
+                "fetched_at": time.monotonic(),
+            }
+        )
         mock_exec = AsyncMock()
         monkeypatch.setattr(
             "stronghold.tools.github.GitHubToolExecutor",
             lambda: SimpleNamespace(execute=mock_exec),
         )
         resp = await client.get(
-            "/v1/stronghold/mason/issues?owner=org&repo=repo"
+            "/v1/stronghold/mason/issues?owner=org&repo=repo",
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 5
@@ -284,7 +298,8 @@ class TestListGithubIssues:
             lambda: SimpleNamespace(execute=AsyncMock(return_value=fake_result)),
         )
         resp = await client.get(
-            "/v1/stronghold/mason/issues?owner=org&repo=repo"
+            "/v1/stronghold/mason/issues?owner=org&repo=repo",
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 502
 
@@ -293,18 +308,21 @@ class TestListGithubIssues:
         self, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """If GitHub fails but stale cache exists, return stale data."""
-        _issues_cache.update({
-            "data": {"items": [], "total": 3, "labels": []},
-            "key": "org/repo",
-            "fetched_at": 0.0,  # stale
-        })
+        _issues_cache.update(
+            {
+                "data": {"items": [], "total": 3, "labels": []},
+                "key": "org/repo",
+                "fetched_at": 0.0,  # stale
+            }
+        )
         fake_result = SimpleNamespace(success=False, error="timeout")
         monkeypatch.setattr(
             "stronghold.tools.github.GitHubToolExecutor",
             lambda: SimpleNamespace(execute=AsyncMock(return_value=fake_result)),
         )
         resp = await client.get(
-            "/v1/stronghold/mason/issues?owner=org&repo=repo"
+            "/v1/stronghold/mason/issues?owner=org&repo=repo",
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 3
@@ -334,7 +352,7 @@ class TestScanCodebase:
             "stronghold.tools.scanner.scan_for_good_first_issues",
             lambda root: [fake_suggestion],
         )
-        resp = await client.get("/v1/stronghold/mason/scan")
+        resp = await client.get("/v1/stronghold/mason/scan", headers=_AUTH_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert data["count"] == 1
@@ -349,11 +367,11 @@ class TestScanCodebase:
 
 class TestCreateScannedIssues:
     @pytest.mark.asyncio
-    async def test_missing_owner_repo_returns_400(
-        self, client: httpx.AsyncClient
-    ) -> None:
+    async def test_missing_owner_repo_returns_400(self, client: httpx.AsyncClient) -> None:
         resp = await client.post(
-            "/v1/stronghold/mason/scan/create", json={"all": True}
+            "/v1/stronghold/mason/scan/create",
+            json={"all": True},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 400
 
@@ -383,6 +401,7 @@ class TestCreateScannedIssues:
         resp = await client.post(
             "/v1/stronghold/mason/scan/create",
             json={"all": True, "owner": "org", "repo": "repo"},
+            headers=_AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -418,6 +437,7 @@ class TestCreateScannedIssues:
         resp = await client.post(
             "/v1/stronghold/mason/scan/create",
             json={"indices": [0, 2, 99], "owner": "org", "repo": "repo"},
+            headers=_AUTH_HEADERS,
         )
         data = resp.json()
         assert data["created"] == 2  # 0, 2 valid; 99 out of range
@@ -449,6 +469,7 @@ class TestCreateScannedIssues:
         resp = await client.post(
             "/v1/stronghold/mason/scan/create",
             json={"indices": [0], "owner": "org", "repo": "repo"},
+            headers=_AUTH_HEADERS,
         )
         data = resp.json()
         assert data["created"] == 0
@@ -462,16 +483,42 @@ class TestCreateScannedIssues:
 
 
 class TestGithubWebhook:
+    """Webhook tests now require GITHUB_WEBHOOK_SECRET and signed payloads."""
+
+    _SECRET = "test-webhook-secret"
+
+    @pytest.fixture(autouse=True)
+    def _set_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", self._SECRET)
+
+    def _signed_post(
+        self,
+        client: httpx.AsyncClient,
+        payload: dict[str, Any],
+        event: str,
+    ) -> Any:
+        """Build a signed webhook request."""
+        body = json.dumps(payload).encode()
+        sig = hmac.new(self._SECRET.encode(), body, hashlib.sha256).hexdigest()
+        return client.post(
+            "/v1/stronghold/webhooks/github",
+            content=body,
+            headers={
+                "X-GitHub-Event": event,
+                "X-Hub-Signature-256": f"sha256={sig}",
+                "Content-Type": "application/json",
+            },
+        )
+
     @pytest.mark.asyncio
     async def test_issue_assigned_with_builders_label_logs_only(
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         """Issues with builders label are logged, not dispatched directly."""
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "issues"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "labeled",
                 "issue": {
                     "number": 7,
@@ -480,9 +527,9 @@ class TestGithubWebhook:
                 },
                 "repository": {"owner": {"login": "org"}, "name": "repo"},
             },
+            "issues",
         )
         assert resp.status_code == 200
-        # No event emitted — backlog scanner picks it up
         assert len(reactor.emitted) == 0
 
     @pytest.mark.asyncio
@@ -491,10 +538,9 @@ class TestGithubWebhook:
     ) -> None:
         """Issues without builders label are ignored."""
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "issues"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "assigned",
                 "issue": {
                     "number": 8,
@@ -503,6 +549,7 @@ class TestGithubWebhook:
                 },
                 "repository": {"owner": {"login": "org"}, "name": "repo"},
             },
+            "issues",
         )
         assert resp.status_code == 200
         assert len(reactor.emitted) == 0
@@ -512,13 +559,13 @@ class TestGithubWebhook:
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "pull_request"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "opened",
                 "pull_request": {"number": 100, "title": "feat: add X", "user": {"login": "mason"}},
             },
+            "pull_request",
         )
         assert resp.status_code == 200
         assert reactor.emitted[0].name == "pr.opened"
@@ -528,14 +575,14 @@ class TestGithubWebhook:
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "pull_request_review"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "submitted",
                 "pull_request": {"number": 50},
                 "review": {"state": "approved", "user": {"login": "alice"}, "body": "lgtm"},
             },
+            "pull_request_review",
         )
         assert resp.status_code == 200
         assert reactor.emitted[0].name == "pr.reviewed"
@@ -546,14 +593,14 @@ class TestGithubWebhook:
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "issue_comment"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "created",
                 "issue": {"number": 88, "pull_request": {"url": "..."}},
                 "comment": {"user": {"login": "bob"}, "body": "fix this"},
             },
+            "issue_comment",
         )
         assert resp.status_code == 200
         assert reactor.emitted[0].name == "pr.commented"
@@ -563,14 +610,14 @@ class TestGithubWebhook:
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "issue_comment"},
-            json={
+        resp = await self._signed_post(
+            client,
+            {
                 "action": "created",
-                "issue": {"number": 77},  # no pull_request key
+                "issue": {"number": 77},
                 "comment": {"user": {"login": "bob"}, "body": "ok"},
             },
+            "issue_comment",
         )
         assert resp.status_code == 200
         assert len(reactor.emitted) == 0
@@ -580,11 +627,7 @@ class TestGithubWebhook:
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
         _, reactor = fakes
-        resp = await client.post(
-            "/v1/stronghold/webhooks/github",
-            headers={"X-GitHub-Event": "star"},
-            json={"action": "created"},
-        )
+        resp = await self._signed_post(client, {"action": "created"}, "star")
         assert resp.status_code == 200
         assert len(reactor.emitted) == 0
 
@@ -712,9 +755,7 @@ class TestDispatchMason:
         from stronghold.api.routes.mason import _dispatch_mason, _state
 
         queue = _FakeQueue()
-        container = SimpleNamespace(
-            route_request=AsyncMock(side_effect=RuntimeError("llm broke"))
-        )
+        container = SimpleNamespace(route_request=AsyncMock(side_effect=RuntimeError("llm broke")))
         _state["queue"] = queue
         _state["container"] = container
 

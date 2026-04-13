@@ -176,8 +176,8 @@ async def list_agents(request: Request) -> JSONResponse:
     auth = await _require_auth(request)
     container = request.app.state.container
     org_id = auth.org_id if hasattr(auth, "org_id") else ""
-    # Use agent_store if it has agents, otherwise fall back to container.agents dict
-    if hasattr(container, "agent_store") and container.agent_store._agents:
+    # Always use agent_store when available for consistent org filtering
+    if hasattr(container, "agent_store"):
         agents_list = await container.agent_store.list_all(org_id=org_id)
     else:
         agents_list = [

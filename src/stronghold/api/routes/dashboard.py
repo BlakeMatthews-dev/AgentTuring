@@ -6,6 +6,7 @@ Login/logout/callback pages and static JS assets are public.
 
 from __future__ import annotations
 
+import html as _html
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -48,7 +49,7 @@ def _serve_page(filename: str) -> HTMLResponse:
                 },
             )
     return HTMLResponse(
-        content=f"<h1>Page not found: {filename}</h1>",
+        content=f"<h1>Page not found: {_html.escape(filename)}</h1>",
         status_code=404,
     )
 

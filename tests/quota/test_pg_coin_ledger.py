@@ -104,7 +104,8 @@ def _make_config(
 ) -> SimpleNamespace:
     """Build a minimal config object with .models and .providers."""
     return SimpleNamespace(
-        models=models or {
+        models=models
+        or {
             "test-small": {
                 "provider": "test_provider",
                 "coin_cost_base": "0",
@@ -119,7 +120,8 @@ def _make_config(
                 "coin_denomination": "gold",
             },
         },
-        providers=providers or {
+        providers=providers
+        or {
             "test_provider": {"status": "active"},
         },
     )
@@ -149,13 +151,13 @@ async def pg_pool():
     await pool.close()
 
 
-
 @pytest.fixture
 def ledger(pg_pool) -> PgCoinLedger:
     return PgCoinLedger(pg_pool, _make_config())
 
 
 # ── quote() ─────────────────────────────────────────────────────────────
+
 
 class TestQuote:
     def test_quote_known_model(self, ledger: PgCoinLedger):
@@ -184,6 +186,7 @@ class TestQuote:
 
 # ── denominations() ─────────────────────────────────────────────────────
 
+
 class TestDenominations:
     def test_denominations_static(self, ledger: PgCoinLedger):
         d = ledger.denominations()
@@ -192,6 +195,7 @@ class TestDenominations:
 
 
 # ── upsert_wallet() ─────────────────────────────────────────────────────
+
 
 class TestUpsertWallet:
     async def test_create_wallet(self, ledger: PgCoinLedger):
@@ -218,18 +222,32 @@ class TestUpsertWallet:
 
     async def test_upsert_updates_existing(self, ledger: PgCoinLedger):
         await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-2", org_id="org-1",
-            team_id="team-1", label="v1", billing_cycle="monthly",
-            denomination="copper", budget_microchips=50_000,
-            hard_limit_microchips=50_000, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="user",
+            owner_id="u-2",
+            org_id="org-1",
+            team_id="team-1",
+            label="v1",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=50_000,
+            hard_limit_microchips=50_000,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         w2 = await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-2", org_id="org-1",
-            team_id="team-1", label="v2", billing_cycle="monthly",
-            denomination="copper", budget_microchips=200_000,
-            hard_limit_microchips=200_000, soft_limit_ratio=0.9,
-            overage_allowed=True, active=True,
+            owner_type="user",
+            owner_id="u-2",
+            org_id="org-1",
+            team_id="team-1",
+            label="v2",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=200_000,
+            hard_limit_microchips=200_000,
+            soft_limit_ratio=0.9,
+            overage_allowed=True,
+            active=True,
         )
         assert w2["label"] == "v2"
         assert w2["budget_microchips"] == 200_000
@@ -238,56 +256,92 @@ class TestUpsertWallet:
     async def test_upsert_invalid_owner_type(self, ledger: PgCoinLedger):
         with pytest.raises(ValueError, match="owner_type"):
             await ledger.upsert_wallet(
-                owner_type="robot", owner_id="r-1", org_id="org-1",
-                team_id="team-1", label="bad", billing_cycle="monthly",
-                denomination="copper", budget_microchips=1000,
-                hard_limit_microchips=1000, soft_limit_ratio=0.8,
-                overage_allowed=False, active=True,
+                owner_type="robot",
+                owner_id="r-1",
+                org_id="org-1",
+                team_id="team-1",
+                label="bad",
+                billing_cycle="monthly",
+                denomination="copper",
+                budget_microchips=1000,
+                hard_limit_microchips=1000,
+                soft_limit_ratio=0.8,
+                overage_allowed=False,
+                active=True,
             )
 
     async def test_upsert_invalid_billing_cycle(self, ledger: PgCoinLedger):
         with pytest.raises(ValueError, match="billing_cycle"):
             await ledger.upsert_wallet(
-                owner_type="user", owner_id="u-x", org_id="org-1",
-                team_id="team-1", label="bad", billing_cycle="yearly",
-                denomination="copper", budget_microchips=1000,
-                hard_limit_microchips=1000, soft_limit_ratio=0.8,
-                overage_allowed=False, active=True,
+                owner_type="user",
+                owner_id="u-x",
+                org_id="org-1",
+                team_id="team-1",
+                label="bad",
+                billing_cycle="yearly",
+                denomination="copper",
+                budget_microchips=1000,
+                hard_limit_microchips=1000,
+                soft_limit_ratio=0.8,
+                overage_allowed=False,
+                active=True,
             )
 
     async def test_upsert_invalid_denomination(self, ledger: PgCoinLedger):
         with pytest.raises(ValueError, match="denomination"):
             await ledger.upsert_wallet(
-                owner_type="user", owner_id="u-x", org_id="org-1",
-                team_id="team-1", label="bad", billing_cycle="monthly",
+                owner_type="user",
+                owner_id="u-x",
+                org_id="org-1",
+                team_id="team-1",
+                label="bad",
+                billing_cycle="monthly",
                 denomination="mythril",
-                budget_microchips=1000, hard_limit_microchips=1000,
-                soft_limit_ratio=0.8, overage_allowed=False, active=True,
+                budget_microchips=1000,
+                hard_limit_microchips=1000,
+                soft_limit_ratio=0.8,
+                overage_allowed=False,
+                active=True,
             )
 
     async def test_upsert_daily_billing_cycle(self, ledger: PgCoinLedger):
         w = await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-daily", org_id="org-1",
-            team_id="team-1", label="daily", billing_cycle="daily",
-            denomination="silver", budget_microchips=10_000,
-            hard_limit_microchips=10_000, soft_limit_ratio=0.5,
-            overage_allowed=False, active=True,
+            owner_type="user",
+            owner_id="u-daily",
+            org_id="org-1",
+            team_id="team-1",
+            label="daily",
+            billing_cycle="daily",
+            denomination="silver",
+            budget_microchips=10_000,
+            hard_limit_microchips=10_000,
+            soft_limit_ratio=0.5,
+            overage_allowed=False,
+            active=True,
         )
         assert w["billing_cycle"] == "daily"
         assert w["denomination"] == "silver"
 
     async def test_upsert_hard_limit_defaults_to_budget(self, ledger: PgCoinLedger):
         w = await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-hl", org_id="org-1",
-            team_id="team-1", label="hl-test", billing_cycle="monthly",
-            denomination="copper", budget_microchips=50_000,
+            owner_type="user",
+            owner_id="u-hl",
+            org_id="org-1",
+            team_id="team-1",
+            label="hl-test",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=50_000,
             hard_limit_microchips=0,
-            soft_limit_ratio=0.8, overage_allowed=False, active=True,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         assert w["hard_limit_microchips"] == 50_000
 
 
 # ── list_wallets() ───────────────────────────────────────────────────────
+
 
 class TestListWallets:
     async def _seed(self, ledger: PgCoinLedger):
@@ -299,12 +353,18 @@ class TestListWallets:
             ("user", "u-c", "org-2"),
         ]:
             await ledger.upsert_wallet(
-                owner_type=owner_type, owner_id=owner_id,
-                org_id=org_id, team_id="team-1",
+                owner_type=owner_type,
+                owner_id=owner_id,
+                org_id=org_id,
+                team_id="team-1",
                 label=f"{owner_type}-{owner_id}",
-                billing_cycle="monthly", denomination="copper",
-                budget_microchips=100_000, hard_limit_microchips=100_000,
-                soft_limit_ratio=0.8, overage_allowed=False, active=True,
+                billing_cycle="monthly",
+                denomination="copper",
+                budget_microchips=100_000,
+                hard_limit_microchips=100_000,
+                soft_limit_ratio=0.8,
+                overage_allowed=False,
+                active=True,
             )
 
     async def test_list_all(self, ledger: PgCoinLedger):
@@ -340,17 +400,27 @@ class TestListWallets:
 
 # ── get_subject_summary() ───────────────────────────────────────────────
 
+
 class TestGetSubjectSummary:
     async def test_summary_with_wallets(self, ledger: PgCoinLedger):
         await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-sum", org_id="org-1",
-            team_id="team-1", label="summary-test", billing_cycle="monthly",
-            denomination="copper", budget_microchips=100_000,
-            hard_limit_microchips=100_000, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="user",
+            owner_id="u-sum",
+            org_id="org-1",
+            team_id="team-1",
+            label="summary-test",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=100_000,
+            hard_limit_microchips=100_000,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         summary = await ledger.get_subject_summary(
-            org_id="org-1", team_id="team-1", user_id="u-sum",
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-sum",
         )
         assert "wallets" in summary
         assert "denominations" in summary
@@ -359,12 +429,15 @@ class TestGetSubjectSummary:
 
     async def test_summary_empty(self, ledger: PgCoinLedger):
         summary = await ledger.get_subject_summary(
-            org_id="org-none", team_id="team-none", user_id="u-none",
+            org_id="org-none",
+            team_id="team-none",
+            user_id="u-none",
         )
         assert summary["wallets"] == []
 
 
 # ── get_banking_rate() / set_banking_rate() ──────────────────────────────
+
 
 class TestBankingRate:
     async def test_default_rate(self, ledger: PgCoinLedger):
@@ -397,27 +470,41 @@ class TestBankingRate:
 
 # ── ensure_can_afford() ─────────────────────────────────────────────────
 
+
 class TestEnsureCanAfford:
     async def _make_user_wallet(
-        self, ledger: PgCoinLedger, *,
+        self,
+        ledger: PgCoinLedger,
+        *,
         owner_id: str = "u-afford",
         denomination: str = "copper",
         budget: int = 500_000,
     ):
         await ledger.upsert_wallet(
-            owner_type="user", owner_id=owner_id, org_id="org-1",
-            team_id="team-1", label="test", billing_cycle="monthly",
-            denomination=denomination, budget_microchips=budget,
-            hard_limit_microchips=budget, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="user",
+            owner_id=owner_id,
+            org_id="org-1",
+            team_id="team-1",
+            label="test",
+            billing_cycle="monthly",
+            denomination=denomination,
+            budget_microchips=budget,
+            hard_limit_microchips=budget,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
 
     async def test_allowed_with_budget(self, ledger: PgCoinLedger):
         await self._make_user_wallet(ledger)
         result = await ledger.ensure_can_afford(
-            org_id="org-1", team_id="team-1", user_id="u-afford",
-            model_used="test-small", provider="test_provider",
-            input_tokens=100, output_tokens=100,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-afford",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=100,
+            output_tokens=100,
         )
         assert result["allowed"] is True
         assert "quote" in result
@@ -426,93 +513,145 @@ class TestEnsureCanAfford:
         await self._make_user_wallet(ledger, budget=1)
         with pytest.raises(QuotaExhaustedError, match="Insufficient.*balance"):
             await ledger.ensure_can_afford(
-                org_id="org-1", team_id="team-1", user_id="u-afford",
-                model_used="test-small", provider="test_provider",
-                input_tokens=10_000, output_tokens=10_000,
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-afford",
+                model_used="test-small",
+                provider="test_provider",
+                input_tokens=10_000,
+                output_tokens=10_000,
             )
 
     async def test_denomination_too_low(self, ledger: PgCoinLedger):
         await self._make_user_wallet(ledger, denomination="copper", budget=10_000_000)
         with pytest.raises(QuotaExhaustedError, match="requires gold"):
             await ledger.ensure_can_afford(
-                org_id="org-1", team_id="team-1", user_id="u-afford",
-                model_used="test-large", provider="test_provider",
-                input_tokens=100, output_tokens=100,
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-afford",
+                model_used="test-large",
+                provider="test_provider",
+                input_tokens=100,
+                output_tokens=100,
             )
 
     async def test_higher_denomination_can_access_lower_model(self, ledger: PgCoinLedger):
         await self._make_user_wallet(ledger, denomination="gold", budget=10_000_000)
         result = await ledger.ensure_can_afford(
-            org_id="org-1", team_id="team-1", user_id="u-afford",
-            model_used="test-small", provider="test_provider",
-            input_tokens=100, output_tokens=100,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-afford",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=100,
+            output_tokens=100,
         )
         assert result["allowed"] is True
 
     async def test_org_budget_exceeded(self, ledger: PgCoinLedger):
         await ledger.upsert_wallet(
-            owner_type="org", owner_id="org-tiny", org_id="org-tiny",
-            team_id="", label="org-budget", billing_cycle="monthly",
-            denomination="copper", budget_microchips=1,
-            hard_limit_microchips=1, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="org",
+            owner_id="org-tiny",
+            org_id="org-tiny",
+            team_id="",
+            label="org-budget",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=1,
+            hard_limit_microchips=1,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         with pytest.raises(QuotaExhaustedError, match="org.*budget exceeded"):
             await ledger.ensure_can_afford(
-                org_id="org-tiny", team_id="team-1", user_id="u-no-wallet",
-                model_used="test-small", provider="test_provider",
-                input_tokens=10_000, output_tokens=10_000,
+                org_id="org-tiny",
+                team_id="team-1",
+                user_id="u-no-wallet",
+                model_used="test-small",
+                provider="test_provider",
+                input_tokens=10_000,
+                output_tokens=10_000,
             )
 
     async def test_team_budget_exceeded(self, ledger: PgCoinLedger):
         await ledger.upsert_wallet(
-            owner_type="team", owner_id="team-tiny", org_id="org-1",
-            team_id="team-tiny", label="team-budget", billing_cycle="monthly",
-            denomination="copper", budget_microchips=1,
-            hard_limit_microchips=1, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="team",
+            owner_id="team-tiny",
+            org_id="org-1",
+            team_id="team-tiny",
+            label="team-budget",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=1,
+            hard_limit_microchips=1,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         with pytest.raises(QuotaExhaustedError, match="team.*budget exceeded"):
             await ledger.ensure_can_afford(
-                org_id="org-1", team_id="team-tiny", user_id="u-no-wallet",
-                model_used="test-small", provider="test_provider",
-                input_tokens=10_000, output_tokens=10_000,
+                org_id="org-1",
+                team_id="team-tiny",
+                user_id="u-no-wallet",
+                model_used="test-small",
+                provider="test_provider",
+                input_tokens=10_000,
+                output_tokens=10_000,
             )
 
-    async def test_no_wallets_still_allowed(self, ledger: PgCoinLedger):
-        result = await ledger.ensure_can_afford(
-            org_id="org-1", team_id="team-1", user_id="u-none",
-            model_used="test-small", provider="test_provider",
-            input_tokens=100, output_tokens=100,
-        )
-        assert result["allowed"] is True
+    async def test_no_wallets_raises_quota_exhausted(self, ledger: PgCoinLedger):
+        with pytest.raises(QuotaExhaustedError, match="[Ww]allet"):
+            await ledger.ensure_can_afford(
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-none",
+                model_used="test-small",
+                provider="test_provider",
+                input_tokens=100,
+                output_tokens=100,
+            )
 
 
 # ── charge_usage() ──────────────────────────────────────────────────────
 
+
 class TestChargeUsage:
     async def _make_wallet(
-        self, ledger: PgCoinLedger, *,
+        self,
+        ledger: PgCoinLedger,
+        *,
         owner_type: str = "user",
         owner_id: str = "u-charge",
         denomination: str = "copper",
         budget: int = 1_000_000,
     ):
         await ledger.upsert_wallet(
-            owner_type=owner_type, owner_id=owner_id,
-            org_id="org-1", team_id="team-1", label="charge-test",
-            billing_cycle="monthly", denomination=denomination,
-            budget_microchips=budget, hard_limit_microchips=budget,
-            soft_limit_ratio=0.8, overage_allowed=False, active=True,
+            owner_type=owner_type,
+            owner_id=owner_id,
+            org_id="org-1",
+            team_id="team-1",
+            label="charge-test",
+            billing_cycle="monthly",
+            denomination=denomination,
+            budget_microchips=budget,
+            hard_limit_microchips=budget,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
 
     async def test_charge_deducts_from_wallet(self, ledger: PgCoinLedger):
         await self._make_wallet(ledger)
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-charge",
-            model_used="test-small", provider="test_provider",
-            input_tokens=1000, output_tokens=1000,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-charge",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=1000,
+            output_tokens=1000,
         )
         assert result["charged_microchips"] > 0
         assert result["wallet_count"] >= 1
@@ -524,9 +663,13 @@ class TestChargeUsage:
     async def test_charge_no_wallets(self, ledger: PgCoinLedger):
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-ghost",
-            model_used="test-small", provider="test_provider",
-            input_tokens=100, output_tokens=100,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-ghost",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=100,
+            output_tokens=100,
         )
         assert result["wallet_count"] == 0
         assert result["charged_microchips"] >= 0
@@ -536,25 +679,39 @@ class TestChargeUsage:
         await self._make_wallet(ledger, denomination="gold", budget=1_000_000)
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-charge",
-            model_used="test-small", provider="test_provider",
-            input_tokens=1000, output_tokens=1000,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-charge",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=1000,
+            output_tokens=1000,
         )
         assert result["wallet_count"] >= 1
         assert result.get("charged_denomination") == "silver"
 
     async def test_charge_also_debits_org_wallet(self, ledger: PgCoinLedger):
         await self._make_wallet(
-            ledger, owner_type="org", owner_id="org-1", budget=5_000_000,
+            ledger,
+            owner_type="org",
+            owner_id="org-1",
+            budget=5_000_000,
         )
         await self._make_wallet(
-            ledger, owner_type="user", owner_id="u-charge", budget=1_000_000,
+            ledger,
+            owner_type="user",
+            owner_id="u-charge",
+            budget=1_000_000,
         )
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-charge",
-            model_used="test-small", provider="test_provider",
-            input_tokens=1000, output_tokens=1000,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-charge",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=1000,
+            output_tokens=1000,
         )
         assert result["wallet_count"] == 2
 
@@ -562,9 +719,13 @@ class TestChargeUsage:
         await self._make_wallet(ledger, denomination="copper", budget=10_000_000)
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-charge",
-            model_used="test-large", provider="test_provider",
-            input_tokens=100, output_tokens=100,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-charge",
+            model_used="test-large",
+            provider="test_provider",
+            input_tokens=100,
+            output_tokens=100,
         )
         assert result["wallet_count"] == 0
 
@@ -572,9 +733,13 @@ class TestChargeUsage:
         await self._make_wallet(ledger, denomination="copper", budget=1)
         result = await ledger.charge_usage(
             request_id=str(uuid.uuid4()),
-            org_id="org-1", team_id="team-1", user_id="u-charge",
-            model_used="test-small", provider="test_provider",
-            input_tokens=10_000, output_tokens=10_000,
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-charge",
+            model_used="test-small",
+            provider="test_provider",
+            input_tokens=10_000,
+            output_tokens=10_000,
         )
         assert result["wallet_count"] == 0
 
@@ -583,9 +748,13 @@ class TestChargeUsage:
         for _ in range(3):
             await ledger.charge_usage(
                 request_id=str(uuid.uuid4()),
-                org_id="org-1", team_id="team-1", user_id="u-charge",
-                model_used="test-small", provider="test_provider",
-                input_tokens=1000, output_tokens=1000,
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-charge",
+                model_used="test-small",
+                provider="test_provider",
+                input_tokens=1000,
+                output_tokens=1000,
             )
         wallets = await ledger.list_wallets(owner_id="u-charge")
         single_quote = ledger.quote("test-small", "test_provider", 1000, 1000)
@@ -594,28 +763,54 @@ class TestChargeUsage:
 
 # ── _hydrate_wallet integration ──────────────────────────────────────────
 
+
 class TestHydrateWallet:
     async def test_hydrated_fields_present(self, ledger: PgCoinLedger):
         await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-hydrate", org_id="org-1",
-            team_id="team-1", label="hydrate-test", billing_cycle="monthly",
-            denomination="silver", budget_microchips=500_000,
-            hard_limit_microchips=500_000, soft_limit_ratio=0.75,
-            overage_allowed=True, active=True,
+            owner_type="user",
+            owner_id="u-hydrate",
+            org_id="org-1",
+            team_id="team-1",
+            label="hydrate-test",
+            billing_cycle="monthly",
+            denomination="silver",
+            budget_microchips=500_000,
+            hard_limit_microchips=500_000,
+            soft_limit_ratio=0.75,
+            overage_allowed=True,
+            active=True,
         )
         wallets = await ledger.list_wallets(owner_id="u-hydrate")
         w = wallets[0]
         expected_keys = {
-            "id", "owner_type", "owner_id", "org_id", "team_id", "label",
-            "billing_cycle", "denomination", "budget_microchips", "budget_display",
-            "hard_limit_microchips", "hard_limit_display",
-            "credited_microchips", "credited_display",
-            "effective_budget_microchips", "effective_budget_display",
-            "used_microchips", "used_display",
-            "remaining_microchips", "remaining_display",
-            "soft_limit_microchips", "soft_limit_display",
-            "soft_limit_ratio", "overage_allowed", "active",
-            "cycle_key", "created_at", "updated_at",
+            "id",
+            "owner_type",
+            "owner_id",
+            "org_id",
+            "team_id",
+            "label",
+            "billing_cycle",
+            "denomination",
+            "budget_microchips",
+            "budget_display",
+            "hard_limit_microchips",
+            "hard_limit_display",
+            "credited_microchips",
+            "credited_display",
+            "effective_budget_microchips",
+            "effective_budget_display",
+            "used_microchips",
+            "used_display",
+            "remaining_microchips",
+            "remaining_display",
+            "soft_limit_microchips",
+            "soft_limit_display",
+            "soft_limit_ratio",
+            "overage_allowed",
+            "active",
+            "cycle_key",
+            "created_at",
+            "updated_at",
         }
         assert expected_keys.issubset(set(w.keys()))
         assert w["denomination"] == "silver"
@@ -625,20 +820,30 @@ class TestHydrateWallet:
     async def test_credited_microchips_affect_remaining(self, ledger: PgCoinLedger, pg_pool):
         """Credits increase the effective budget and remaining balance."""
         w = await ledger.upsert_wallet(
-            owner_type="user", owner_id="u-credit", org_id="org-1",
-            team_id="team-1", label="credit-test", billing_cycle="monthly",
-            denomination="copper", budget_microchips=100_000,
-            hard_limit_microchips=100_000, soft_limit_ratio=0.8,
-            overage_allowed=False, active=True,
+            owner_type="user",
+            owner_id="u-credit",
+            org_id="org-1",
+            team_id="team-1",
+            label="credit-test",
+            billing_cycle="monthly",
+            denomination="copper",
+            budget_microchips=100_000,
+            hard_limit_microchips=100_000,
+            soft_limit_ratio=0.8,
+            overage_allowed=False,
+            active=True,
         )
         from stronghold.quota.billing import cycle_key
+
         ck = cycle_key("monthly")
         async with pg_pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO coin_ledger_entries
                    (wallet_id, cycle_key, entry_kind, delta_microchips)
                    VALUES ($1, $2, 'credit', $3)""",
-                w["id"], ck, 50_000,
+                w["id"],
+                ck,
+                50_000,
             )
         wallets = await ledger.list_wallets(owner_id="u-credit")
         w2 = wallets[0]

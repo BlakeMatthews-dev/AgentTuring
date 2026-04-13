@@ -133,11 +133,14 @@ def validate_and_repair(
                     )
                 )
 
-    # Determine verdict
-    has_errors = any(v.severity == "error" for v in violations)
-    if has_errors and not was_repaired:
+    # Determine verdict: reject if ANY unresolved errors remain.
+    # A repair on one field must not suppress errors on other fields.
+    unresolved_errors = [v for v in violations if v.severity == "error" and v.repair_action is None]
+    if unresolved_errors:
         return SentinelVerdict(
             allowed=False,
+            repaired=was_repaired,
+            repaired_data=repaired if was_repaired else None,
             violations=tuple(violations),
         )
 

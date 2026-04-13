@@ -12,6 +12,7 @@ using the same RateLimiter protocol.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
@@ -44,12 +45,45 @@ class InMemoryRateLimiter:
         self._windows: dict[str, deque[float]] = defaultdict(deque)
         self._check_count = 0
         self._last_eviction = time.monotonic()
+        self._lock = asyncio.Lock()
 
     async def check(self, key: str) -> tuple[bool, dict[str, str]]:
-        """Check if request is allowed. Returns (allowed, rate_limit_headers)."""
+        """Check if request is allowed. Returns (allowed, rate_limit_headers).
+
+        NOTE: For atomic check-and-increment, prefer check_and_record().
+        Using check() + record() separately is still safe (both acquire the
+        lock), but a concurrent caller may slip between the two calls.
+        """
         if not self._enabled:
             return True, {}
 
+        async with self._lock:
+            return self._check_unlocked(key)
+
+    async def check_and_record(self, key: str) -> tuple[bool, dict[str, str]]:
+        """Atomically check and, if allowed, record the request.
+
+        This eliminates the TOCTOU gap between separate check()+record() calls.
+        Returns (allowed, rate_limit_headers).
+        """
+        if not self._enabled:
+            return True, {}
+
+        async with self._lock:
+            allowed, headers = self._check_unlocked(key)
+            if allowed:
+                self._windows[key].append(time.monotonic())
+            return allowed, headers
+
+    async def record(self, key: str) -> None:
+        """Record a request against the key."""
+        if not self._enabled:
+            return
+        async with self._lock:
+            self._windows[key].append(time.monotonic())
+
+    def _check_unlocked(self, key: str) -> tuple[bool, dict[str, str]]:
+        """Core check logic. Caller must hold self._lock."""
         now = time.monotonic()
         window = self._windows[key]
 
@@ -85,12 +119,6 @@ class InMemoryRateLimiter:
             self._evict_stale_keys(now)
 
         return True, headers
-
-    async def record(self, key: str) -> None:
-        """Record a request against the key."""
-        if not self._enabled:
-            return
-        self._windows[key].append(time.monotonic())
 
     def evict_stale_keys(self) -> int:
         """Public API: evict stale keys and return the count evicted."""

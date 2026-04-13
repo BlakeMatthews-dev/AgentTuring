@@ -14,6 +14,7 @@ from stronghold.quota.coins import (
     MICROCHIPS_PER_COPPER,
     CoinQuote,
     NoOpCoinLedger,
+    PgCoinLedger,
     _decimal,
     _extract_provider,
     _find_model,
@@ -334,6 +335,140 @@ class TestRateValue:
 # ---------------------------------------------------------------------------
 # NoOpCoinLedger
 # ---------------------------------------------------------------------------
+
+
+class TestWalletlessUserCannotAfford:
+    """H13: Users with no wallet must be denied by ensure_can_afford."""
+
+    async def test_no_wallets_means_cannot_afford(self) -> None:
+        """When _load_wallets returns nothing for the user, ensure_can_afford
+        must raise QuotaExhaustedError, not silently allow."""
+        from unittest.mock import AsyncMock
+
+        from stronghold.types.errors import QuotaExhaustedError
+
+        ledger = PgCoinLedger.__new__(PgCoinLedger)
+        ledger._models = {}
+        ledger._providers = {}
+        ledger._pool = AsyncMock()
+        # Simulate _load_wallets returning empty list
+        ledger._load_wallets = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(QuotaExhaustedError):
+            await ledger.ensure_can_afford(
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-none",
+                model_used="test-model",
+                provider="test-provider",
+                input_tokens=100,
+                output_tokens=100,
+            )
+
+    async def test_no_wallets_error_message_is_clear(self) -> None:
+        """The error message for wallet-less users must mention wallet."""
+        from unittest.mock import AsyncMock
+
+        from stronghold.types.errors import QuotaExhaustedError
+
+        ledger = PgCoinLedger.__new__(PgCoinLedger)
+        ledger._models = {}
+        ledger._providers = {}
+        ledger._pool = AsyncMock()
+        ledger._load_wallets = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        with pytest.raises(QuotaExhaustedError, match="[Ww]allet"):
+            await ledger.ensure_can_afford(
+                org_id="org-1",
+                team_id="team-1",
+                user_id="u-none",
+                model_used="test-model",
+                provider="test-provider",
+                input_tokens=100,
+                output_tokens=100,
+            )
+
+
+class TestChargeUsageTOCTOU:
+    """H12: charge_usage must use SELECT FOR UPDATE to prevent TOCTOU race."""
+
+    async def test_charge_usage_uses_select_for_update(self) -> None:
+        """The charge path must read wallet balance inside the same transaction
+        that writes the debit (SELECT FOR UPDATE pattern)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Build a mock pool/conn that records SQL
+        executed_sql: list[str] = []
+
+        mock_conn = AsyncMock()
+
+        async def track_execute(sql: str, *args: object) -> None:
+            executed_sql.append(sql)
+
+        async def track_fetchrow(sql: str, *args: object) -> dict:
+            executed_sql.append(sql)
+            return {
+                "id": 1,
+                "remaining_microchips": 999_999,
+                "denomination": "copper",
+                "owner_type": "user",
+                "owner_id": "u-toctou",
+            }
+
+        async def track_fetch(sql: str, *args: object) -> list:
+            executed_sql.append(sql)
+            return []
+
+        mock_conn.execute = track_execute
+        mock_conn.fetchrow = track_fetchrow
+        mock_conn.fetch = track_fetch
+
+        mock_tx = AsyncMock()
+        mock_conn.transaction = MagicMock(return_value=mock_tx)
+
+        mock_pool = AsyncMock()
+        mock_pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
+
+        ledger = PgCoinLedger.__new__(PgCoinLedger)
+        ledger._models = {}
+        ledger._providers = {}
+        ledger._pool = mock_pool
+
+        # Pre-load wallets with a user wallet that has enough balance
+        ledger._load_wallets = AsyncMock(
+            return_value=[  # type: ignore[method-assign]
+                {
+                    "id": 1,
+                    "owner_type": "user",
+                    "owner_id": "u-toctou",
+                    "denomination": "copper",
+                    "remaining_microchips": 999_999,
+                    "cycle_key": "2026-04",
+                },
+            ]
+        )
+
+        await ledger.charge_usage(
+            request_id="req-1",
+            org_id="org-1",
+            team_id="team-1",
+            user_id="u-toctou",
+            model_used="test-model",
+            provider="test-provider",
+            input_tokens=100,
+            output_tokens=100,
+        )
+
+        # The SQL within the transaction must include FOR UPDATE locking
+        all_sql = " ".join(executed_sql).upper()
+        assert "FOR UPDATE" in all_sql, (
+            f"charge_usage must use SELECT FOR UPDATE inside transaction. SQL: {all_sql}"
+        )
 
 
 class TestNoOpCoinLedger:

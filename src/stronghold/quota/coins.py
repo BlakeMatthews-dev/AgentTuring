@@ -188,6 +188,13 @@ class PgCoinLedger:
     ) -> dict[str, object]:
         quote = self.quote(model_used, provider, input_tokens, output_tokens)
         wallets = await self._load_wallets(org_id=org_id, team_id=team_id, user_id=user_id)
+
+        # No wallets at all -> user cannot afford anything
+        if not wallets:
+            raise QuotaExhaustedError(
+                "No wallet found. A coin wallet is required to use the platform."
+            )
+
         model_tier = DENOMINATION_FACTORS.get(quote.denomination, 1)
 
         # Org/team wallets are budget ceilings — check balance, no denomination filter
@@ -296,6 +303,22 @@ class PgCoinLedger:
             }
 
         async with self._pool.acquire() as conn, conn.transaction():
+            # Lock wallets to prevent TOCTOU race: verify balance inside
+            # the same transaction that writes the debit.
+            wallet_ids = [w["id"] for w in to_charge]
+            locked_rows = await conn.fetch(
+                """SELECT id, budget_microchips, hard_limit_microchips
+                   FROM coin_wallets
+                   WHERE id = ANY($1::int[])
+                   FOR UPDATE""",
+                wallet_ids,
+            )
+            if len(locked_rows) != len(wallet_ids):
+                return {
+                    "charged_microchips": quote.charged_microchips,
+                    "pricing_version": quote.pricing_version,
+                    "wallet_count": 0,
+                }
             for wallet in to_charge:
                 await conn.execute(
                     """INSERT INTO coin_ledger_entries

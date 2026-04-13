@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from types import SimpleNamespace
 
@@ -23,7 +24,10 @@ from stronghold.quota.coins import (
 )
 from stronghold.types.errors import QuotaExhaustedError
 
-PG_DSN = "postgresql://stronghold:stronghold@localhost:5432/stronghold"
+PG_DSN = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://stronghold:stronghold@localhost:5432/stronghold",
+)
 
 
 async def _can_connect() -> bool:

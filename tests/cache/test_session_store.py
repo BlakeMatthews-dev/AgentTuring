@@ -7,6 +7,7 @@ import time
 
 import fakeredis.aioredis
 import pytest
+import redis
 
 from stronghold.cache.session_store import RedisSessionStore
 
@@ -23,6 +24,7 @@ def store(redis_client):
 
 # ---- get_history ----
 
+
 async def test_get_history_empty(store):
     result = await store.get_history("org/team/user:sess1")
     assert result == []
@@ -35,10 +37,13 @@ async def test_get_history_rejects_bare_session_id(store):
 
 
 async def test_get_history_returns_messages(store):
-    await store.append_messages("org/team/user:s1", [
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "hi"},
-    ])
+    await store.append_messages(
+        "org/team/user:s1",
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ],
+    )
     history = await store.get_history("org/team/user:s1")
     assert len(history) == 2
     assert history[0] == {"role": "user", "content": "hello"}
@@ -70,15 +75,19 @@ async def test_get_history_respects_max_messages(store):
 
 async def test_get_history_refreshes_ttl(store, redis_client):
     """Accessing history refreshes the key TTL."""
-    await store.append_messages("org/team/user:s4", [
-        {"role": "user", "content": "test"},
-    ])
+    await store.append_messages(
+        "org/team/user:s4",
+        [
+            {"role": "user", "content": "test"},
+        ],
+    )
     await store.get_history("org/team/user:s4")
     ttl = await redis_client.ttl("stronghold:session:org/team/user:s4")
     assert ttl > 0
 
 
 # ---- append_messages ----
+
 
 async def test_append_rejects_bare_session_id(store, redis_client):
     with pytest.raises(ValueError, match="org-scoped"):
@@ -93,12 +102,15 @@ async def test_append_empty_messages_noop(store, redis_client):
 
 async def test_append_filters_invalid_roles(store):
     """Only user and assistant roles are stored."""
-    await store.append_messages("org/team/user:s6", [
-        {"role": "system", "content": "sys"},
-        {"role": "user", "content": "hello"},
-        {"role": "tool", "content": "result"},
-        {"role": "assistant", "content": "hi"},
-    ])
+    await store.append_messages(
+        "org/team/user:s6",
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {"role": "tool", "content": "result"},
+            {"role": "assistant", "content": "hi"},
+        ],
+    )
     history = await store.get_history("org/team/user:s6")
     assert len(history) == 2
     assert history[0]["content"] == "hello"
@@ -107,10 +119,13 @@ async def test_append_filters_invalid_roles(store):
 
 async def test_append_filters_non_string_content(store):
     """Non-string content messages are skipped."""
-    await store.append_messages("org/team/user:s7", [
-        {"role": "user", "content": ["not", "a", "string"]},
-        {"role": "user", "content": "valid"},
-    ])
+    await store.append_messages(
+        "org/team/user:s7",
+        [
+            {"role": "user", "content": ["not", "a", "string"]},
+            {"role": "user", "content": "valid"},
+        ],
+    )
     history = await store.get_history("org/team/user:s7")
     assert len(history) == 1
     assert history[0]["content"] == "valid"
@@ -119,9 +134,12 @@ async def test_append_filters_non_string_content(store):
 async def test_append_trims_to_max(store, redis_client):
     """List is trimmed to max_messages after append."""
     for i in range(20):
-        await store.append_messages("org/team/user:s8", [
-            {"role": "user", "content": f"msg-{i}"},
-        ])
+        await store.append_messages(
+            "org/team/user:s8",
+            [
+                {"role": "user", "content": f"msg-{i}"},
+            ],
+        )
     key = "stronghold:session:org/team/user:s8"
     length = await redis_client.llen(key)
     assert length <= 10
@@ -129,10 +147,14 @@ async def test_append_trims_to_max(store, redis_client):
 
 # ---- delete_session ----
 
+
 async def test_delete_session(store, redis_client):
-    await store.append_messages("org/team/user:s9", [
-        {"role": "user", "content": "hello"},
-    ])
+    await store.append_messages(
+        "org/team/user:s9",
+        [
+            {"role": "user", "content": "hello"},
+        ],
+    )
     await store.delete_session("org/team/user:s9")
     history = await store.get_history("org/team/user:s9")
     assert history == []
@@ -142,3 +164,43 @@ async def test_delete_session_rejects_bare_id(store, redis_client):
     """Bare session ID delete raises ValueError."""
     with pytest.raises(ValueError, match="org-scoped"):
         await store.delete_session("bare-id")
+
+
+# ---- Redis-down resilience (H20) ----
+
+
+class _DeadRedis:
+    """Fake Redis client that raises ConnectionError on every call."""
+
+    async def lrange(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    async def delete(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    def pipeline(self):
+        raise redis.ConnectionError("Redis is down")
+
+
+@pytest.fixture
+def dead_store():
+    return RedisSessionStore(redis=_DeadRedis(), ttl_seconds=3600, max_messages=10)
+
+
+async def test_get_history_returns_empty_when_redis_down(dead_store):
+    """Session store returns empty history when Redis is unreachable."""
+    result = await dead_store.get_history("org/team/user:s1")
+    assert result == []
+
+
+async def test_append_messages_does_not_raise_when_redis_down(dead_store):
+    """Session store append is a silent no-op when Redis is unreachable."""
+    await dead_store.append_messages(
+        "org/team/user:s1",
+        [{"role": "user", "content": "hello"}],
+    )  # should not raise
+
+
+async def test_delete_session_does_not_raise_when_redis_down(dead_store):
+    """Session store delete is a silent no-op when Redis is unreachable."""
+    await dead_store.delete_session("org/team/user:s1")  # should not raise

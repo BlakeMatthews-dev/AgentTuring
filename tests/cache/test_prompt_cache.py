@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fakeredis.aioredis
 import pytest
+import redis
 
 from stronghold.cache.prompt_cache import RedisPromptCache
 
@@ -57,6 +58,7 @@ async def test_invalidate_pattern(cache):
 async def test_set_serializes_non_json_types(cache):
     """Values with non-serializable types use str() fallback."""
     from datetime import datetime
+
     val = {"ts": datetime(2026, 1, 1, 12, 0, 0)}
     await cache.set("ts-key", val)
     result = await cache.get("ts-key")
@@ -68,3 +70,51 @@ async def test_invalidate_pattern_no_matches(cache):
     await cache.set("keep", "value")
     await cache.invalidate_pattern("nomatch.*")
     assert await cache.get("keep") == "value"
+
+
+# ---- Redis-down resilience (H18) ----
+
+
+class _DeadRedis:
+    """Fake Redis client that raises ConnectionError on every call."""
+
+    async def get(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    async def set(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    async def delete(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    async def scan(self, *a, **kw):
+        raise redis.ConnectionError("Redis is down")
+
+    def pipeline(self):
+        raise redis.ConnectionError("Redis is down")
+
+
+@pytest.fixture
+def dead_cache():
+    return RedisPromptCache(redis=_DeadRedis(), ttl_seconds=300)
+
+
+async def test_get_returns_none_when_redis_down(dead_cache):
+    """Cache get returns None (cache-miss) when Redis is unreachable."""
+    result = await dead_cache.get("any-key")
+    assert result is None
+
+
+async def test_set_does_not_raise_when_redis_down(dead_cache):
+    """Cache set is a silent no-op when Redis is unreachable."""
+    await dead_cache.set("any-key", {"data": "value"})  # should not raise
+
+
+async def test_delete_does_not_raise_when_redis_down(dead_cache):
+    """Cache delete is a silent no-op when Redis is unreachable."""
+    await dead_cache.delete("any-key")  # should not raise
+
+
+async def test_invalidate_pattern_does_not_raise_when_redis_down(dead_cache):
+    """Cache invalidate_pattern is a silent no-op when Redis is unreachable."""
+    await dead_cache.invalidate_pattern("agent.*")  # should not raise

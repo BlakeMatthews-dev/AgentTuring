@@ -6,6 +6,10 @@ Redis sorted sets for distributed rate limiting across multiple instances.
 Algorithm: sliding window log via ZRANGEBYSCORE + ZADD.
 Each request is logged with its timestamp as the score. To check the rate,
 we count entries within the current window. O(log N) per operation.
+
+All Redis operations are resilient to connection failures -- a Redis
+outage causes the limiter to fail open (allow the request) rather than
+crashing the caller.
 """
 
 from __future__ import annotations
@@ -13,9 +17,12 @@ from __future__ import annotations
 import logging
 import time
 
+import redis
 import redis.asyncio as aioredis  # noqa: TC002
 
 logger = logging.getLogger("stronghold.cache.rate_limiter")
+
+_REDIS_ERRORS = (redis.RedisError, ConnectionError, OSError)
 
 
 class RedisRateLimiter:
@@ -36,17 +43,32 @@ class RedisRateLimiter:
         self._window = window_seconds
         self._prefix = key_prefix
 
+    def _fail_open_headers(self) -> dict[str, str]:
+        """Return permissive headers when Redis is unavailable."""
+        return {
+            "X-RateLimit-Limit": str(self._max),
+            "X-RateLimit-Remaining": str(self._max),
+            "X-RateLimit-Reset": str(self._window),
+        }
+
     async def check(self, key: str) -> tuple[bool, dict[str, str]]:
-        """Check if a request is allowed for the given key."""
+        """Check if a request is allowed for the given key.
+
+        Fails open (allows request) when Redis is unavailable.
+        """
         now = time.time()
         window_start = now - self._window
         rkey = f"{self._prefix}{key}"
 
-        pipe = self._redis.pipeline()
-        pipe.zremrangebyscore(rkey, 0, window_start)  # Evict expired entries
-        pipe.zcard(rkey)  # Count entries in window
-        pipe.zrange(rkey, 0, 0, withscores=True)  # Oldest entry for reset calc
-        results = await pipe.execute()
+        try:
+            pipe = self._redis.pipeline()
+            pipe.zremrangebyscore(rkey, 0, window_start)  # Evict expired entries
+            pipe.zcard(rkey)  # Count entries in window
+            pipe.zrange(rkey, 0, 0, withscores=True)  # Oldest entry for reset calc
+            results = await pipe.execute()
+        except _REDIS_ERRORS as e:
+            logger.warning("Redis rate-limit CHECK failed for %s: %s", key, e)
+            return True, self._fail_open_headers()
 
         count: int = results[1]
         remaining = max(0, self._max - count)
@@ -69,7 +91,10 @@ class RedisRateLimiter:
         return allowed, headers
 
     async def record(self, key: str) -> None:
-        """Record a request against the key's rate limit."""
+        """Record a request against the key's rate limit.
+
+        Silent no-op when Redis is unavailable.
+        """
         now = time.time()
         rkey = f"{self._prefix}{key}"
 
@@ -78,7 +103,10 @@ class RedisRateLimiter:
 
         member = f"{now}:{os.urandom(4).hex()}"
 
-        pipe = self._redis.pipeline()
-        pipe.zadd(rkey, {member: now})
-        pipe.expire(rkey, self._window + 10)  # TTL = window + buffer
-        await pipe.execute()
+        try:
+            pipe = self._redis.pipeline()
+            pipe.zadd(rkey, {member: now})
+            pipe.expire(rkey, self._window + 10)  # TTL = window + buffer
+            await pipe.execute()
+        except _REDIS_ERRORS as e:
+            logger.warning("Redis rate-limit RECORD failed for %s: %s", key, e)

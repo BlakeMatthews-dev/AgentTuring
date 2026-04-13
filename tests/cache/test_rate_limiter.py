@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fakeredis.aioredis
 import pytest
+import redis
 
 from stronghold.cache.rate_limiter import RedisRateLimiter
 
@@ -73,3 +74,30 @@ async def test_check_no_entries_reset_is_window(limiter):
     """When no entries exist, reset equals window_seconds."""
     _, headers = await limiter.check("user:8")
     assert headers["X-RateLimit-Reset"] == "60"
+
+
+# ---- Redis-down resilience (H19) ----
+
+
+class _DeadRedis:
+    """Fake Redis client that raises ConnectionError on every call."""
+
+    def pipeline(self):
+        raise redis.ConnectionError("Redis is down")
+
+
+@pytest.fixture
+def dead_limiter():
+    return RedisRateLimiter(redis=_DeadRedis(), max_requests=5, window_seconds=60)
+
+
+async def test_check_allows_when_redis_down(dead_limiter):
+    """Rate limiter fails open -- allows request when Redis is unreachable."""
+    allowed, headers = await dead_limiter.check("user:any")
+    assert allowed is True
+    assert "X-RateLimit-Limit" in headers
+
+
+async def test_record_does_not_raise_when_redis_down(dead_limiter):
+    """Rate limiter record is a silent no-op when Redis is unreachable."""
+    await dead_limiter.record("user:any")  # should not raise

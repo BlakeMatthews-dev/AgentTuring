@@ -43,9 +43,21 @@ mcp:
   github:
     devMode: true
 
+# Local registry on PVE host (no ghcr.io needed for private repo).
+# Images stored on MergerFS at /mnt/storage/registry.
+image:
+  repository: 10.10.42.100:5000/stronghold
+  tag: latest
+  pullPolicy: Always
+
 # Homelab resource tuning (single-node, 32GB RAM, 10 vCPU).
 strongholdApi:
   replicas: 1
+  image:
+    registry: ""
+    repository: 10.10.42.100:5000/stronghold
+    tag: latest
+    pullPolicy: Always
   resources:
     requests:
       cpu: 500m

@@ -34,6 +34,12 @@ GITHUB_TOOL_DEF = ToolDefinition(
                     "get_pr_diff",
                     "post_pr_comment",
                     "list_pr_comments",
+                    "submit_review",
+                    "close_pr",
+                    "merge_pr",
+                    "add_labels",
+                    "remove_label",
+                    "close_issue",
                 ],
                 "description": "The GitHub operation to perform.",
             },
@@ -54,6 +60,20 @@ GITHUB_TOOL_DEF = ToolDefinition(
                 "enum": ["open", "closed", "all"],
                 "description": "Issue state filter.",
             },
+            "event": {
+                "type": "string",
+                "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+                "description": "Review verdict for submit_review.",
+            },
+            "merge_method": {
+                "type": "string",
+                "enum": ["squash", "merge", "rebase"],
+                "description": "Merge method for merge_pr (default: squash).",
+            },
+            "label": {
+                "type": "string",
+                "description": "Single label name (for remove_label).",
+            },
         },
         "required": ["action", "owner", "repo"],
     },
@@ -62,14 +82,110 @@ GITHUB_TOOL_DEF = ToolDefinition(
 )
 
 
+# ── GitHub App bot identities ───────────────────────────────────────
+#
+# Four bots, each a separate GitHub App installed on Agent-StrongHold:
+#
+#   gatekeeper    — Auditor, Janitor, CI triage, Master-at-Arms
+#   quartermaster — Quartermaster + Herald (both planners)
+#   archie        — Archie (scaffolding)
+#   mason         — Mason (building)
+
+_BOT_REGISTRY: dict[str, dict[str, str]] = {
+    "gatekeeper": {
+        "app_id": "3354708",
+        "installation_id": "123359098",
+        "key_path": "~/.conductor-secrets/gatekeeper.pem",
+    },
+    "archie": {
+        "app_id": "3354872",
+        "installation_id": "123361328",
+        "key_path": "~/.conductor-secrets/archie.pem",
+    },
+    "mason": {
+        "app_id": "3354924",
+        "installation_id": "123362160",
+        "key_path": "~/.conductor-secrets/mason.pem",
+    },
+    "quartermaster": {
+        "app_id": "3355040",
+        "installation_id": "123365500",
+        "key_path": "~/.conductor-secrets/quartermaster.pem",
+    },
+}
+
+
+def _get_app_installation_token(bot: str = "gatekeeper") -> str:
+    """Generate a short-lived installation token for a named bot identity."""
+    try:
+        import jwt as pyjwt  # noqa: PLC0415
+    except ImportError:
+        logger.debug("PyJWT not installed — GitHub App auth unavailable")
+        return ""
+
+    import time  # noqa: PLC0415
+
+    reg = _BOT_REGISTRY.get(bot, _BOT_REGISTRY["gatekeeper"])
+    app_id = os.environ.get("GITHUB_APP_ID", reg["app_id"])
+    key_path = os.environ.get(
+        "GITHUB_APP_PRIVATE_KEY_PATH",
+        os.path.expanduser(reg["key_path"]),
+    )
+    installation_id = os.environ.get("GITHUB_APP_INSTALLATION_ID", reg["installation_id"])
+
+    if not app_id or not installation_id:
+        return ""
+
+    try:
+        with open(key_path) as f:
+            private_key = f.read()
+    except FileNotFoundError:
+        logger.debug("GitHub App private key not found at %s", key_path)
+        return ""
+
+    now = int(time.time())
+    jwt_token = pyjwt.encode(
+        {"iat": now - 60, "exp": now + 600, "iss": app_id},
+        private_key,
+        algorithm="RS256",
+    )
+
+    try:
+        import httpx  # noqa: PLC0415
+
+        resp = httpx.post(
+            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        token = resp.json().get("token", "")
+        if token:
+            logger.info("GitHub App token generated for bot=%s", bot)
+        return token
+    except Exception:
+        logger.warning("Failed to generate GitHub App token for bot=%s", bot, exc_info=True)
+        return ""
+
+
 class GitHubToolExecutor:
     """Executes GitHub operations via the REST API.
 
     Implements the ToolExecutor protocol.
+
+    Auth priority:
+    1. GitHub App installation token (posts as the named bot)
+    2. Explicit token param
+    3. GITHUB_TOKEN env var (PAT — posts as the user)
     """
 
-    def __init__(self, token: str = "") -> None:
-        self._token = token or os.environ.get("GITHUB_TOKEN", "")
+    def __init__(self, token: str = "", bot: str = "gatekeeper") -> None:
+        app_token = _get_app_installation_token(bot)
+        self._token = app_token or token or os.environ.get("GITHUB_TOKEN", "")
+        self._bot = bot
         self._base_url = "https://api.github.com"
 
     @property
@@ -292,6 +408,138 @@ class GitHubToolExecutor:
                 "state": issue["state"],
             }
 
+    async def _submit_review(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Submit a formal PR review (APPROVE, REQUEST_CHANGES, or COMMENT).
+
+        Args:
+            owner, repo, issue_number (PR number)
+            event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"
+            body: review comment (required for REQUEST_CHANGES)
+        """
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        pr_number = args["issue_number"]
+        event = args.get("event", "COMMENT").upper()
+        body = args.get("body", "")
+
+        if event not in ("APPROVE", "REQUEST_CHANGES", "COMMENT"):
+            return {
+                "error": f"Invalid review event: {event}. "
+                "Use APPROVE, REQUEST_CHANGES, or COMMENT.",
+            }
+
+        if event == "REQUEST_CHANGES" and not body:
+            return {"error": "body is required for REQUEST_CHANGES reviews"}
+
+        payload: dict[str, str] = {"event": event}
+        if body:
+            payload["body"] = body
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self._base_url}/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+                headers=self._headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+            review = resp.json()
+            return {
+                "id": review["id"],
+                "state": review["state"],
+                "user": review["user"]["login"],
+                "submitted_at": review.get("submitted_at", ""),
+            }
+
+    async def _close_pr(self, args: dict[str, Any]) -> dict[str, str]:
+        """Close a pull request."""
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        pr_number = args["issue_number"]
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.patch(
+                f"{self._base_url}/repos/{owner}/{repo}/pulls/{pr_number}",
+                headers=self._headers(),
+                json={"state": "closed"},
+            )
+            resp.raise_for_status()
+            return {"state": "closed", "number": str(pr_number)}
+
+    async def _merge_pr(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Merge a pull request (squash by default)."""
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        pr_number = args["issue_number"]
+        merge_method = args.get("merge_method", "squash")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.put(
+                f"{self._base_url}/repos/{owner}/{repo}/pulls/{pr_number}/merge",
+                headers=self._headers(),
+                json={"merge_method": merge_method},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "merged": data.get("merged", False),
+                "sha": data.get("sha", ""),
+                "message": data.get("message", ""),
+            }
+
+    async def _add_labels(self, args: dict[str, Any]) -> list[str]:
+        """Add labels to an issue or PR."""
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        issue_number = args["issue_number"]
+        labels = args.get("labels", [])
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{self._base_url}/repos/{owner}/{repo}/issues/{issue_number}/labels",
+                headers=self._headers(),
+                json={"labels": labels},
+            )
+            resp.raise_for_status()
+            return [label["name"] for label in resp.json()]
+
+    async def _remove_label(self, args: dict[str, Any]) -> dict[str, str]:
+        """Remove a label from an issue or PR."""
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        issue_number = args["issue_number"]
+        label = args.get("label", "")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(
+                f"{self._base_url}/repos/{owner}/{repo}/issues/{issue_number}/labels/{label}",
+                headers=self._headers(),
+            )
+            if resp.status_code == 404:
+                return {"status": "not_found", "label": label}
+            resp.raise_for_status()
+            return {"status": "removed", "label": label}
+
+    async def _close_issue(self, args: dict[str, Any]) -> dict[str, str]:
+        """Close an issue."""
+        import httpx  # noqa: PLC0415
+
+        owner, repo = args["owner"], args["repo"]
+        issue_number = args["issue_number"]
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.patch(
+                f"{self._base_url}/repos/{owner}/{repo}/issues/{issue_number}",
+                headers=self._headers(),
+                json={"state": "closed"},
+            )
+            resp.raise_for_status()
+            return {"state": "closed", "number": str(issue_number)}
+
     _handlers: dict[str, Any] = {
         "list_issues": _list_issues,
         "get_issue": _get_issue,
@@ -301,4 +549,10 @@ class GitHubToolExecutor:
         "get_pr_diff": _get_pr_diff,
         "post_pr_comment": _post_pr_comment,
         "list_pr_comments": _list_pr_comments,
+        "submit_review": _submit_review,
+        "close_pr": _close_pr,
+        "merge_pr": _merge_pr,
+        "add_labels": _add_labels,
+        "remove_label": _remove_label,
+        "close_issue": _close_issue,
     }

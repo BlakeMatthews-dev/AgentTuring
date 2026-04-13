@@ -49,3 +49,4 @@ Thumbs.db
 deploy/k8s/litellm_config.yaml
 litellm_config.yaml
 .hypothesis/
+.claude/worktrees/

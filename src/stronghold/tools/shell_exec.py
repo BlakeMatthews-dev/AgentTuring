@@ -4,6 +4,8 @@ Sandboxed to a workspace directory. Supports the quality gate
 commands Mason needs: pytest, ruff, mypy, bandit, git.
 
 Blocks dangerous commands (rm -rf /, etc.) via allowlist.
+Rejects shell metacharacters to prevent injection via chained commands.
+Uses create_subprocess_exec (not shell) so the OS shell never interprets input.
 """
 
 from __future__ import annotations
@@ -11,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +134,10 @@ _BLOCKED_PATTERNS = (
     "wget | sh",
 )
 
+# Shell metacharacters that enable command injection.
+# Reject any command containing these before execution.
+_SHELL_METACHAR_RE = re.compile(r"[;|&`$()><]")
+
 
 class ShellExecutor:
     """Sandboxed shell command execution."""
@@ -152,6 +160,13 @@ class ShellExecutor:
         if not command.strip():
             return ToolResult(success=False, error="empty command")
 
+        # Security: reject shell metacharacters (prevents chaining, substitution, redirection)
+        if _SHELL_METACHAR_RE.search(command):
+            return ToolResult(
+                success=False,
+                error="command not allowed: shell metacharacters are forbidden (;|&`$()><)",
+            )
+
         # Security: check allowlist
         cmd_lower = command.strip().lower()
         if not any(cmd_lower.startswith(p) for p in _ALLOWED_PREFIXES):
@@ -165,8 +180,11 @@ class ShellExecutor:
                 return ToolResult(success=False, error="blocked: dangerous command")
 
         try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
+            # Use exec (not shell) so the OS shell never interprets the command.
+            # shlex.split safely tokenizes the command string into argv.
+            argv = shlex.split(command)
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
                 cwd=ws,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

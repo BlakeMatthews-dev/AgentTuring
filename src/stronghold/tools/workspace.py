@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -51,6 +52,18 @@ WORKSPACE_TOOL_DEF = ToolDefinition(
     },
     groups=("code_gen",),
 )
+
+
+def _sanitize_secrets(text: str) -> str:
+    """Remove known secret patterns from text to prevent leaking in error messages."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and token in text:
+        text = text.replace(token, "***")
+    # Also strip any x-access-token:TOKEN@ patterns (legacy or third-party)
+    text = re.sub(r"x-access-token:[^@]+@", "x-access-token:***@", text)
+    # Strip Authorization: Bearer <token> patterns
+    text = re.sub(r"Authorization: Bearer \S+", "Authorization: Bearer ***", text)
+    return text
 
 
 class WorkspaceManager:
@@ -99,7 +112,12 @@ class WorkspaceManager:
             return ToolResult(success=False, error=str(e))
 
     def _ensure_clone(self, owner: str, repo: str) -> Path:
-        """Clone the repo if not already cloned."""
+        """Clone the repo if not already cloned.
+
+        Uses git config http.extraHeader for authentication instead of
+        embedding tokens in the clone URL. URL-embedded tokens leak to
+        ps output, /proc/*/cmdline, git error messages, and .git/config.
+        """
         key = f"{owner}/{repo}"
         if key in self._repos:
             return self._repos[key]
@@ -109,17 +127,36 @@ class WorkspaceManager:
             self._repos[key] = repo_dir
             return repo_dir
 
+        url = f"https://github.com/{owner}/{repo}.git"
         token = os.environ.get("GITHUB_TOKEN", "")
-        if token:
-            url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
-        else:
-            url = f"https://github.com/{owner}/{repo}.git"
 
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
-        self._run(["git", "clone", "--depth=1", url, str(repo_dir)])
+
+        # Clone with auth header (not URL-embedded token) to avoid leaking
+        # secrets in process listings, error messages, and .git/config.
+        clone_cmd = ["git", "clone", "--depth=1"]
+        if token:
+            clone_cmd += [
+                "-c",
+                f"http.https://github.com/.extraheader=Authorization: Bearer {token}",
+            ]
+        clone_cmd += [url, str(repo_dir)]
+        self._run(clone_cmd)
+
         # Configure git identity for commits
         self._run(["git", "config", "user.email", "mason@stronghold.local"], cwd=repo_dir)
         self._run(["git", "config", "user.name", "Mason"], cwd=repo_dir)
+        # Persist auth for future fetches/pushes in this repo
+        if token:
+            self._run(
+                [
+                    "git",
+                    "config",
+                    "http.https://github.com/.extraheader",
+                    f"Authorization: Bearer {token}",
+                ],
+                cwd=repo_dir,
+            )
         self._repos[key] = repo_dir
         logger.info("Cloned %s/%s to %s", owner, repo, repo_dir)
         return repo_dir
@@ -226,5 +263,7 @@ class WorkspaceManager:
         )
         if result.returncode != 0:
             msg = result.stderr.strip() or result.stdout.strip()
+            # Sanitize any tokens from error messages to prevent leaks
+            msg = _sanitize_secrets(msg)
             raise RuntimeError(f"{' '.join(cmd[:3])}: {msg}")
         return result.stdout

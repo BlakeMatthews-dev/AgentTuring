@@ -56,9 +56,11 @@ class FileOpsExecutor:
         if not ws.is_dir():
             return ToolResult(success=False, error=f"workspace not found: {workspace}")
 
-        # Resolve and sandbox
+        # Resolve and sandbox — use is_relative_to() instead of string prefix
+        # to prevent bypass when sibling dirs share a prefix (e.g. /ws/foo vs /ws/foobar)
+        ws_resolved = ws.resolve()
         target = (ws / rel_path).resolve()
-        if not str(target).startswith(str(ws.resolve())):
+        if not target.is_relative_to(ws_resolved):
             return ToolResult(success=False, error="path escapes workspace")
 
         try:

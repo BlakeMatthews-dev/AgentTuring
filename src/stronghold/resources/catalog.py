@@ -8,6 +8,7 @@ Per-call vault credential injection at the resolver layer.
 from __future__ import annotations
 
 import logging
+import posixpath
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -95,7 +96,6 @@ class ResourceCatalog:
         path = match.group("path")
 
         # Normalize path to prevent traversal attacks (../)
-        import posixpath
         path = posixpath.normpath(path)
         if path.startswith("..") or "/../" in f"/{path}/":
             logger.warning("Path traversal attempt blocked: %s", uri)

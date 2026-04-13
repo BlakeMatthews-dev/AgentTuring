@@ -1,7 +1,7 @@
 # Stronghold — Secure Agent Governance Platform
 # Multi-stage build for minimal production image
 
-FROM python:3.12-slim AS builder
+FROM python:3.12.11-slim AS builder
 
 WORKDIR /build
 COPY pyproject.toml .
@@ -10,10 +10,14 @@ COPY src/ src/
 # in the runtime image: pytest, ruff, mypy, and bandit.
 RUN pip install --no-cache-dir --prefix=/install ".[dev]"
 
-FROM python:3.12-slim
+FROM python:3.12.11-slim
 
 # Mason needs git to create branches, worktrees, commit, push
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for runtime
+RUN groupadd --gid 1000 stronghold && \
+    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash stronghold
 
 WORKDIR /app
 COPY --from=builder /install /usr/local
@@ -28,7 +32,12 @@ COPY pyproject.toml .
 RUN pip uninstall -y uvloop 2>/dev/null; true
 
 # Workspace directory for Mason worktrees
-RUN mkdir -p /workspace && chmod 777 /workspace
+RUN mkdir -p /workspace && chown 1000:1000 /workspace
+
+# Ensure app files are readable by non-root user
+RUN chown -R 1000:1000 /app
+
+USER 1000:1000
 
 EXPOSE 8100
 

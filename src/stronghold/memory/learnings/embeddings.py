@@ -131,6 +131,7 @@ class HybridLearningStore:
         user_text: str,
         *,
         agent_id: str | None = None,
+        org_id: str = "",
         max_results: int = 10,
     ) -> list[Learning]:
         """Hybrid search: keyword score + embedding cosine similarity.
@@ -138,10 +139,11 @@ class HybridLearningStore:
         Combined score = keyword_score * KEYWORD_WEIGHT + cosine_sim * EMBEDDING_WEIGHT
         Falls back to keyword-only if embedding client unavailable.
         """
-        # Get keyword results from underlying store
+        # Get keyword results from underlying store (org_id forwarded for tenant isolation)
         keyword_results = await self._store.find_relevant(
             user_text,
             agent_id=agent_id,
+            org_id=org_id,
             max_results=max_results * 2,
         )
 
@@ -189,8 +191,12 @@ class HybridLearningStore:
     async def mark_used(self, learning_ids: list[int]) -> None:
         await self._store.mark_used(learning_ids)
 
-    async def check_auto_promotions(self, threshold: int = 5) -> list[Learning]:
-        return await self._store.check_auto_promotions(threshold)
+    async def check_auto_promotions(
+        self, threshold: int = 5, *, org_id: str = ""
+    ) -> list[Learning]:
+        return await self._store.check_auto_promotions(threshold, org_id=org_id)
 
-    async def get_promoted(self, task_type: str | None = None) -> list[Learning]:
-        return await self._store.get_promoted(task_type)
+    async def get_promoted(
+        self, task_type: str | None = None, *, org_id: str = ""
+    ) -> list[Learning]:
+        return await self._store.get_promoted(task_type, org_id=org_id)

@@ -22,6 +22,24 @@ metadata:
   name: vault
   namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vault-data
+  namespace: {{ .Values.vault.namespace | default "stronghold-system" }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/part-of: stronghold
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.vault.persistence.size | default "5Gi" }}
+  {{- if .Values.vault.persistence.storageClassName }}
+  storageClassName: {{ .Values.vault.persistence.storageClassName | quote }}
+  {{- end }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,6 +65,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 100
+        runAsGroup: 1000
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
@@ -58,18 +77,18 @@ spec:
             - -config=/vault/config/vault.hcl
           ports:
             - containerPort: 8200
-              name: http
+              name: https
               protocol: TCP
           env:
             - name: VAULT_ADDR
-              value: "http://127.0.0.1:8200"
+              value: "https://127.0.0.1:8200"
             - name: VAULT_API_ADDR
-              value: "http://vault.{{ .Values.vault.namespace | default "stronghold-system" }}.svc.cluster.local:8200"
+              value: "https://vault.{{ .Values.vault.namespace | default "stronghold-system" }}.svc.cluster.local:8200"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-              add: ["IPC_LOCK"]  # Required for Vault mlock
+              add: ["IPC_LOCK"]
             readOnlyRootFilesystem: true
           resources:
             requests:
@@ -83,18 +102,23 @@ spec:
               mountPath: /vault/config
             - name: vault-data
               mountPath: /vault/data
+            - name: vault-tls
+              mountPath: /vault/tls
+              readOnly: true
             - name: tmp
               mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
               port: 8200
+              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /v1/sys/health?standbyok=true
               port: 8200
+              scheme: HTTPS
             initialDelaySeconds: 15
             periodSeconds: 30
       volumes:
@@ -102,7 +126,11 @@ spec:
           configMap:
             name: vault-config
         - name: vault-data
-          emptyDir: {}  # Use PVC for production persistence
+          persistentVolumeClaim:
+            claimName: vault-data
+        - name: vault-tls
+          secret:
+            secretName: {{ .Values.vault.tlsSecretName | default "vault-tls" }}
         - name: tmp
           emptyDir: {}
 ---
@@ -114,11 +142,12 @@ metadata:
 data:
   vault.hcl: |
     ui = false
-    disable_mlock = true
+    disable_mlock = false
 
     listener "tcp" {
       address     = "0.0.0.0:8200"
-      tls_disable = 1  # TLS terminated at Ingress/Service mesh
+      tls_cert_file = "/vault/tls/tls.crt"
+      tls_key_file  = "/vault/tls/tls.key"
     }
 
     storage "file" {
@@ -154,7 +183,7 @@ spec:
     - port: 8200
       targetPort: 8200
       protocol: TCP
-      name: http
+      name: https
   selector:
     app.kubernetes.io/name: vault
 ---

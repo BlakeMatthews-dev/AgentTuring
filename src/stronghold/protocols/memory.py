@@ -80,7 +80,8 @@ class EpisodicStore(Protocol):
         *,
         agent_id: str | None = None,
         user_id: str | None = None,
-        team: str | None = None,
+        team_id: str | None = None,
+        org_id: str | None = None,
         task_type: str = "",
         limit: int = 5,
     ) -> list[EpisodicMemory]:

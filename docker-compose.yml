@@ -15,7 +15,7 @@ services:
     volumes:
       - ./.kubeconfig-docker:/home/stronghold/.kube/config:ro
     environment:
-      - DATABASE_URL=postgresql://stronghold:stronghold@postgres:5432/stronghold
+      - DATABASE_URL=postgresql://stronghold:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/stronghold
       - LITELLM_URL=http://litellm:4000
       - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
       - KUBECONFIG=/home/stronghold/.kube/config
@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=stronghold
-      - POSTGRES_PASSWORD=stronghold
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_DB=stronghold
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -59,7 +59,7 @@ services:
       - stronghold
 
   phoenix:
-    image: arizephoenix/phoenix:latest
+    image: arizephoenix/phoenix:8.22.0
     restart: unless-stopped
     ports:
       - "6006:6006"
@@ -81,7 +81,7 @@ services:
       - stronghold
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:main-v1.81.12-stable
     restart: unless-stopped
     security_opt:
       - apparmor:unconfined
@@ -115,7 +115,7 @@ services:
   # Users see both governed and direct models in the model picker.
 
   pipelines:
-    image: ghcr.io/open-webui/pipelines:main
+    image: ghcr.io/open-webui/pipelines:0.4.8
     restart: unless-stopped
     ports:
       - "9099:9099"
@@ -140,7 +140,7 @@ services:
       - stronghold
 
   openwebui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:0.6.6
     restart: unless-stopped
     ports:
       - "3000:8080"

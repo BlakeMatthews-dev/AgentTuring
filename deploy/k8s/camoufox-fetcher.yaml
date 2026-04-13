@@ -21,9 +21,16 @@ spec:
         app: camoufox-fetcher
         tier: elite
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: camoufox-fetcher
-          image: stronghold/camoufox-fetcher:latest
+          image: stronghold/camoufox-fetcher:0.1.0
           ports:
             - containerPort: 8080
           resources:
@@ -33,6 +40,14 @@ spec:
             limits:
               memory: "2Gi"
               cpu: "1000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           livenessProbe:
             httpGet:
               path: /health
@@ -45,6 +60,13 @@ spec:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service

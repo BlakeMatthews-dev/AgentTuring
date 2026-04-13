@@ -39,7 +39,9 @@ spec:
       automountServiceAccountToken: false
       priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P1" "root" .) }}
       securityContext:
-        runAsNonRoot: false  # TODO: fix images to run as non-root
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
         seccompProfile:
           type: RuntimeDefault
         fsGroup: 999
@@ -74,13 +76,15 @@ spec:
             {{- toYaml .Values.postgresql.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
-            runAsNonRoot: false  # TODO: fix images to run as non-root
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
             # postgres image runs as uid 999 by default; readOnlyRootFilesystem
             # is left false because initdb writes to /var/run/postgresql.
             readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
-              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

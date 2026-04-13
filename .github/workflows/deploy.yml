@@ -52,7 +52,6 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/agent-stronghold/stronghold:latest
             ghcr.io/agent-stronghold/stronghold:${{ steps.version.outputs.version }}
 
   deploy:
@@ -72,13 +71,13 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd /root/github/stronghold
+            cd ~/stronghold
 
             # Pull latest code
             git pull origin main
 
-            # Pull new image
-            docker pull ghcr.io/agent-stronghold/stronghold:latest
+            # Pull new image (versioned tag, no :latest)
+            docker pull "ghcr.io/agent-stronghold/stronghold:${{ needs.build.outputs.version }}"
 
             # Blue-green swap
             # 1. Start green (new version) alongside blue (current)

@@ -19,9 +19,9 @@ class TestScopeIsolation:
                 scope=MemoryScope.GLOBAL,
             )
         )
-        # Both agents should see it
-        results_a = await store.retrieve("testing", agent_id="agent-a")
-        results_b = await store.retrieve("testing", agent_id="agent-b")
+        # Both agents within the same org should see it (H17: org context required)
+        results_a = await store.retrieve("testing", agent_id="agent-a", org_id="org-1")
+        results_b = await store.retrieve("testing", agent_id="agent-b", org_id="org-1")
         assert len(results_a) == 1
         assert len(results_b) == 1
 
@@ -135,5 +135,6 @@ class TestMixedScopes:
                 scope=MemoryScope.AGENT,
             )
         )
-        results = await store.retrieve("testing", agent_id="agent-x")
+        # H17: org context required for GLOBAL visibility
+        results = await store.retrieve("testing", agent_id="agent-x", org_id="org-1")
         assert len(results) == 2

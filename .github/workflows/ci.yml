@@ -60,11 +60,15 @@ jobs:
 
       - name: Mypy strict (changed files only)
         if: steps.changed.outputs.files != ''
-        run: mypy ${{ steps.changed.outputs.files }} --strict
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+        run: mypy $CHANGED_FILES --strict
 
       - name: Bandit security scan (changed files only)
         if: steps.changed.outputs.files != ''
-        run: bandit ${{ steps.changed.outputs.files }} -ll -q --skip B608
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+        run: bandit $CHANGED_FILES -ll -q --skip B608
 
   security:
     name: Security Tests

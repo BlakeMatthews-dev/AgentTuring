@@ -1,0 +1,40 @@
+# Stronghold .dockerignore — exclude non-runtime files from build context
+.git
+.github
+.claude
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+*.pyo
+
+# Tests and docs are not needed in production images
+# (dev image copies tests/ explicitly in Dockerfile)
+docs/
+Documentation/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Deployment configs (not needed inside container)
+deploy/
+k8s/
+docker-compose*.yml
+
+# Worktrees and archives
+_archive/

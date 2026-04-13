@@ -27,7 +27,10 @@ postgresql:
   enabled: true
   auth:
     username: stronghold
-    password: stronghold
+    # password intentionally empty — must be supplied via --set or values override.
+    # Helm install will fail if this is not provided. Use:
+    #   helm install ... --set postgresql.auth.password=YOUR_SECRET
+    password: ""
     database: stronghold
   primary:
     persistence:
@@ -49,7 +52,7 @@ phoenix:
   enabled: true
   image:
     repository: arizephoenix/phoenix
-    tag: latest
+    tag: "8.22.0"
   service:
     port: 6006
 
@@ -295,8 +298,8 @@ phoenixSvc:
   image:
     registry: ""
     repository: arizephoenix/phoenix
-    tag: "latest"
-    pullPolicy: Always
+    tag: "8.22.0"
+    pullPolicy: IfNotPresent
   containerPort: 6006
   exposed: false
   resources:
@@ -332,8 +335,8 @@ mcp:
     image:
       registry: ghcr.io
       repository: modelcontextprotocol/server-github
-      tag: "latest"
-      pullPolicy: Always
+      tag: "2025.1.10"
+      pullPolicy: IfNotPresent
     containerPort: 3000
     patSecretName: github-pat
     resources:
@@ -362,6 +365,24 @@ mcp:
       limits:
         cpu: 500m
         memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# Vault — per-user credential store (ADR-K8S-018)
+# -----------------------------------------------------------------------------
+vault:
+  enabled: false
+  namespace: stronghold-system
+  image:
+    repository: openbao/openbao
+    tag: "2.2.0"
+  # TLS secret must contain tls.crt and tls.key. Create via cert-manager
+  # or manually before enabling vault:
+  #   kubectl create secret tls vault-tls -n stronghold-system \
+  #     --cert=vault.crt --key=vault.key
+  tlsSecretName: vault-tls
+  persistence:
+    size: 5Gi
+    storageClassName: ""
 
 # -----------------------------------------------------------------------------
 # NetworkPolicy (ADR-K8S-004: default-deny baseline + explicit allow rules)

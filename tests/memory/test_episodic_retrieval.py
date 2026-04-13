@@ -39,7 +39,8 @@ class TestBasicRetrieval:
         store = InMemoryEpisodicStore()
         await store.store(_make_memory("Python is a great programming language"))
         retriever = ScoredEpisodicRetrieval(store)
-        results = await retriever.retrieve("python programming")
+        # H17: org context required for GLOBAL-scoped memories
+        results = await retriever.retrieve("python programming", org_id="org-test")
         assert len(results) == 1
 
     @pytest.mark.asyncio
@@ -47,7 +48,7 @@ class TestBasicRetrieval:
         store = InMemoryEpisodicStore()
         await store.store(_make_memory("Python programming"))
         retriever = ScoredEpisodicRetrieval(store)
-        results = await retriever.retrieve("completely unrelated query")
+        results = await retriever.retrieve("completely unrelated query", org_id="org-test")
         assert results == []
 
     @pytest.mark.asyncio
@@ -56,7 +57,7 @@ class TestBasicRetrieval:
         for i in range(10):
             await store.store(_make_memory(f"memory about topic {i} with python"))
         retriever = ScoredEpisodicRetrieval(store)
-        results = await retriever.retrieve("python topic", limit=3)
+        results = await retriever.retrieve("python topic", limit=3, org_id="org-test")
         assert len(results) <= 3
 
 
@@ -81,7 +82,8 @@ class TestWeightBasedRanking:
             )
         )
         retriever = ScoredEpisodicRetrieval(store)
-        results = await retriever.retrieve("python")
+        # H17: org context required for GLOBAL-scoped memories
+        results = await retriever.retrieve("python", org_id="org-test")
         assert len(results) == 2
         # Higher weight should be first
         assert results[0].weight >= results[1].weight
@@ -193,7 +195,8 @@ class TestEmbeddingRetrieval:
         store = InMemoryEpisodicStore()
         await store.store(_make_memory("python programming language"))
         retriever = ScoredEpisodicRetrieval(store, embedding_client=NoopEmbeddingClient())
-        results = await retriever.retrieve("python programming")
+        # H17: org context required for GLOBAL-scoped memories
+        results = await retriever.retrieve("python programming", org_id="org-test")
         assert len(results) == 1
 
     @pytest.mark.asyncio
@@ -208,5 +211,5 @@ class TestEmbeddingRetrieval:
             )
         )
         retriever = ScoredEpisodicRetrieval(store)
-        results = await retriever.retrieve("python")
+        results = await retriever.retrieve("python", org_id="org-test")
         assert results == []

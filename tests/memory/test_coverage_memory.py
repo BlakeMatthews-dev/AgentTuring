@@ -103,7 +103,8 @@ class TestEpisodicRetrievalEdgeCases:
         )
         retrieval = ScoredEpisodicRetrieval(store, embedding_client=FailOnSecondEmbed())
         # Should not crash; falls back to keyword similarity for that memory
-        results = await retrieval.retrieve("relevant test")
+        # H17: org context required for GLOBAL-scoped memories
+        results = await retrieval.retrieve("relevant test", org_id="org-test")
         # The memory should still be found via keyword fallback
         assert len(results) == 1
         assert results[0].memory_id == "m1"
@@ -120,7 +121,7 @@ class TestEpisodicRetrievalEdgeCases:
             )
         )
         retrieval = ScoredEpisodicRetrieval(store)
-        results = await retrieval.retrieve("nothing matching here")
+        results = await retrieval.retrieve("nothing matching here", org_id="org-test")
         assert isinstance(results, list)
         assert len(results) == 0
 

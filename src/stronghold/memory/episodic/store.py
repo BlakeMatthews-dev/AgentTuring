@@ -25,11 +25,15 @@ def _matches_scope(
 
     for scope, value in filters:
         if scope == MemoryScope.GLOBAL and mem.scope == MemoryScope.GLOBAL:
-            # C10: GLOBAL memories must still be org-scoped to prevent cross-tenant leakage.
-            # A GLOBAL memory is visible to all users/teams WITHIN the same org,
-            # not across orgs. If the memory has an org_id set, it must match the caller's.
-            if mem.org_id and caller_org and mem.org_id != caller_org:
-                continue  # Different org's global memory — skip
+            # H17: GLOBAL memories require explicit org context to prevent
+            # cross-tenant leakage. A caller with no org_id must not see
+            # any GLOBAL memories -- neither org-scoped nor unscoped ones.
+            if not caller_org:
+                continue  # No org context = no GLOBAL visibility
+            # If the memory is org-scoped, it must match the caller's org.
+            # Unscoped GLOBAL memories (org_id="") are visible to any org caller.
+            if mem.org_id and mem.org_id != caller_org:
+                continue  # Different org's global memory -- skip
             return True
         if mem.scope != scope:
             continue

@@ -69,7 +69,6 @@ jobs:
   security:
     name: Security Tests
     runs-on: k3s-runners
-    needs: lint
     steps:
       - uses: actions/checkout@v4
       - name: Install system deps
@@ -99,7 +98,6 @@ jobs:
   sast:
     name: SAST & Supply Chain
     runs-on: k3s-runners
-    needs: lint
     steps:
       - uses: actions/checkout@v4
       - name: Install system deps
@@ -175,7 +173,6 @@ jobs:
   test:
     name: Tests
     runs-on: k3s-runners
-    needs: lint
 
     env:
       ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters

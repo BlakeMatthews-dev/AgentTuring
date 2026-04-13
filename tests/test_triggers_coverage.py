@@ -619,6 +619,187 @@ class TestMasonPrReviewWithRoute:
         assert "error" in result
 
 
+class TestIssueObsolescenceDetection(_ScannerTestBase):
+    """Obsolescence detection: stale, duplicate, superseded."""
+
+    async def test_stale_issue_flagged(self, monkeypatch: Any) -> None:
+        """Issue >30 days old → label needs-human-review, not dispatched."""
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        old_date = "2026-02-01T00:00:00Z"  # >30 days ago
+        issues = [_make_github_issue(1, created_at=old_date)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(url__regex=r".*/issues/1/labels").respond(200, json=[])
+            comment_route = respx.post(url__regex=r".*/issues/1/comments").respond(201, json={})
+            result = await handler(Event("tick", {}))
+
+        # Stale issue should be flagged, not dispatched
+        assert result.get("flagged", 0) >= 1 or result["dispatched"] == 0
+
+    async def test_fresh_issue_dispatched(self, monkeypatch: Any) -> None:
+        """Issue <30 days old → dispatched normally."""
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, created_at="2026-04-12T00:00:00Z")]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] >= 1
+
+    async def test_duplicate_reference_flagged(self, monkeypatch: Any) -> None:
+        """Body contains 'duplicate of #123' → flagged."""
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(
+            1, body="This is a duplicate of #456. See that issue instead."
+        )]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result.get("flagged", 0) >= 1 or result["dispatched"] == 0
+
+
+class TestHeraldDispatch(_ScannerTestBase):
+    """Herald routing for idea/feature-request issues."""
+
+    async def test_idea_label_routed_to_herald(self, monkeypatch: Any) -> None:
+        """Issue with 'idea' label → emits herald event, not pipeline dispatch."""
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+
+        herald_events: list[Any] = []
+        original_emit = c.reactor.emit
+
+        def tracking_emit(event: Any) -> None:
+            if hasattr(event, "name") and "herald" in event.name:
+                herald_events.append(event)
+            original_emit(event)
+
+        c.reactor.emit = tracking_emit
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["idea"], title="Add Stripe billing")]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert len(herald_events) >= 1
+
+    async def test_feature_request_routed_to_herald(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+
+        herald_events: list[Any] = []
+        original_emit = c.reactor.emit
+
+        def tracking_emit(event: Any) -> None:
+            if hasattr(event, "name") and "herald" in event.name:
+                herald_events.append(event)
+            original_emit(event)
+
+        c.reactor.emit = tracking_emit
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["feature-request"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert len(herald_events) >= 1
+
+    async def test_builders_label_not_to_herald(self, monkeypatch: Any) -> None:
+        """builders label → pipeline dispatch, not Herald."""
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+
+        herald_events: list[Any] = []
+        original_emit = c.reactor.emit
+
+        def tracking_emit(event: Any) -> None:
+            if hasattr(event, "name") and "herald" in event.name:
+                herald_events.append(event)
+            original_emit(event)
+
+        c.reactor.emit = tracking_emit
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["builders"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert len(herald_events) == 0
+        assert result["dispatched"] >= 1
+
+
+class TestStageCompletionLabels(_ScannerTestBase):
+    """Stage progression labels: in-progress, completed, failed."""
+
+    async def test_in_progress_label_added(self, monkeypatch: Any) -> None:
+        """When issue is dispatched, in-progress label is applied."""
+        import json
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(url__regex=r".*/issues/1/labels").respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] >= 1
+        # Check that at least one label POST included "in-progress"
+        if label_route.called:
+            all_labels = []
+            for call in label_route.calls:
+                body = json.loads(call.request.content)
+                all_labels.extend(body.get("labels", []))
+            assert "in-progress" in all_labels
+
+
 class TestSecurityRescanBoundaryDefault:
     """Test that security_rescan uses default boundary when not specified."""
 

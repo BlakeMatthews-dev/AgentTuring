@@ -94,6 +94,13 @@ class ResourceCatalog:
         scope = match.group("scope")
         path = match.group("path")
 
+        # Normalize path to prevent traversal attacks (../)
+        import posixpath
+        path = posixpath.normpath(path)
+        if path.startswith("..") or "/../" in f"/{path}/":
+            logger.warning("Path traversal attempt blocked: %s", uri)
+            return None
+
         # Enforce tenant/user namespace isolation
         if scope == "user" and (not user_id or not path.startswith(f"{user_id}/")):
             logger.warning(

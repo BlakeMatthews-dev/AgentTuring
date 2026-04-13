@@ -87,7 +87,7 @@ class InMemoryAgentStore:
         strategy_cls = strategy_map.get(identity.reasoning_strategy, DirectStrategy)
         strategy = strategy_cls()
 
-        # Get shared dependencies from an existing agent
+        # Get shared dependencies from an existing agent (ALL deps, not a subset)
         ref_agent = next(iter(self._agents.values()), None)
         if ref_agent:
             agent = Agent(
@@ -97,7 +97,17 @@ class InMemoryAgentStore:
                 context_builder=ref_agent._context_builder,
                 prompt_manager=ref_agent._prompt_manager,
                 warden=ref_agent._warden,
+                learning_store=ref_agent._learning_store,
+                learning_extractor=ref_agent._learning_extractor,
+                rca_extractor=ref_agent._rca_extractor,
+                learning_promoter=ref_agent._learning_promoter,
+                sentinel=ref_agent._sentinel,
+                outcome_store=ref_agent._outcome_store,
                 session_store=ref_agent._session_store,
+                quota_tracker=ref_agent._quota_tracker,
+                coin_ledger=ref_agent._coin_ledger,
+                tracer=ref_agent._tracer,
+                tool_executor=ref_agent._tool_executor,
             )
         else:
             msg = "No existing agents to clone dependencies from"

@@ -127,6 +127,8 @@ def _build_tool_schema(name: str) -> dict[str, object]:
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from stronghold.agents.context_builder import ContextBuilder
     from stronghold.memory.learnings.extractor import RCAExtractor, ToolCorrectionExtractor
     from stronghold.memory.learnings.promoter import LearningPromoter
@@ -135,9 +137,22 @@ if TYPE_CHECKING:
     from stronghold.protocols.prompts import PromptManager
     from stronghold.protocols.quota import QuotaTracker
     from stronghold.protocols.tracing import TracingBackend
+    from stronghold.quota.coins import NoOpCoinLedger, PgCoinLedger
+    from stronghold.security.sentinel.policy import Sentinel
     from stronghold.security.warden.detector import Warden
     from stronghold.types.agent import AgentIdentity
     from stronghold.types.auth import AuthContext
+
+    # Type alias: any object with an async reason() method (DirectStrategy,
+    # ReactStrategy, DelegateStrategy, BuildersLearningStrategy, etc.).
+    # Defined here to avoid creating a protocol file outside allowed scope.
+    ReasoningStrategy = Any  # noqa: UP040
+
+    # Type alias: coin ledger (NoOpCoinLedger | PgCoinLedger).
+    CoinLedger = NoOpCoinLedger | PgCoinLedger
+
+    # Type alias: async tool executor callback.
+    ToolExecutorFn = Callable[..., Coroutine[Any, Any, str]]
 
 
 class Agent:
@@ -146,7 +161,7 @@ class Agent:
     def __init__(
         self,
         identity: AgentIdentity,
-        strategy: Any,  # ReasoningStrategy protocol
+        strategy: ReasoningStrategy,
         *,
         llm: LLMClient,
         context_builder: ContextBuilder,
@@ -156,13 +171,13 @@ class Agent:
         learning_extractor: ToolCorrectionExtractor | None = None,
         rca_extractor: RCAExtractor | None = None,
         learning_promoter: LearningPromoter | None = None,
-        sentinel: Any = None,
+        sentinel: Sentinel | None = None,
         outcome_store: OutcomeStore | None = None,
         session_store: SessionStore | None = None,
         quota_tracker: QuotaTracker | None = None,
-        coin_ledger: Any = None,
+        coin_ledger: CoinLedger | None = None,
         tracer: TracingBackend | None = None,
-        tool_executor: Any = None,
+        tool_executor: ToolExecutorFn | None = None,
     ) -> None:
         self.identity = identity
         self._strategy = strategy
@@ -402,6 +417,8 @@ class Agent:
                 )
                 if rca:
                     rca.agent_id = self.identity.name
+                    rca.org_id = auth.org_id
+                    rca.team_id = auth.team_id
                     await self._learning_store.store(rca)
 
         # 8. Post-turn: learning extraction — traced

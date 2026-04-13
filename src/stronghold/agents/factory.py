@@ -23,13 +23,30 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from stronghold.agents.base import Agent
 from stronghold.agents.strategies.direct import DirectStrategy
 from stronghold.types.agent import AgentIdentity
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from stronghold.agents.context_builder import ContextBuilder
+    from stronghold.memory.learnings.extractor import ToolCorrectionExtractor
+    from stronghold.protocols.llm import LLMClient
+    from stronghold.protocols.memory import LearningStore, OutcomeStore, SessionStore
+    from stronghold.protocols.prompts import PromptManager
+    from stronghold.protocols.quota import QuotaTracker
+    from stronghold.protocols.tracing import TracingBackend
+    from stronghold.quota.coins import NoOpCoinLedger, PgCoinLedger
+    from stronghold.security.sentinel.policy import Sentinel
+    from stronghold.security.warden.detector import Warden
+
+    CoinLedger = NoOpCoinLedger | PgCoinLedger
+    ToolExecutorFn = Callable[..., Coroutine[Any, Any, str]]
 
 logger = logging.getLogger("stronghold.agents.factory")
 
@@ -246,19 +263,19 @@ def _instantiate(identity: AgentIdentity, **deps: Any) -> Agent:
 async def create_agents(
     *,
     agents_dir: str | Path,
-    prompt_manager: Any,
-    llm: Any,
-    context_builder: Any,
-    warden: Any,
-    sentinel: Any,
-    learning_store: Any,
-    learning_extractor: Any,
-    outcome_store: Any,
-    session_store: Any,
-    quota_tracker: Any,
-    tracer: Any,
-    coin_ledger: Any = None,
-    tool_executor: Any = None,
+    prompt_manager: PromptManager,
+    llm: LLMClient,
+    context_builder: ContextBuilder,
+    warden: Warden,
+    sentinel: Sentinel | None,
+    learning_store: LearningStore,
+    learning_extractor: ToolCorrectionExtractor,
+    outcome_store: OutcomeStore,
+    session_store: SessionStore,
+    quota_tracker: QuotaTracker,
+    tracer: TracingBackend,
+    coin_ledger: CoinLedger | None = None,
+    tool_executor: ToolExecutorFn | None = None,
     sa_engine: Any = None,
 ) -> dict[str, Agent]:
     """Load or seed agents, then instantiate runtime Agent objects.

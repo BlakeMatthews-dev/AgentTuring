@@ -10,12 +10,16 @@ import base64
 import hashlib
 from typing import Any
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from stronghold.mcp.oauth.endpoints import router, set_oauth_store
-from stronghold.mcp.oauth.store import InMemoryOAuthStore, OAuthStore, _hash_token
+from stronghold.mcp.oauth.store import (
+    InMemoryOAuthStore,
+    OAuthStore,
+    _hash_token,
+    issue_access_token,
+)
 from stronghold.mcp.oauth.types import TokenClaims
 
 
@@ -25,6 +29,47 @@ def _make_app(store: OAuthStore | None = None) -> tuple[TestClient, OAuthStore]:
     s = store or InMemoryOAuthStore()
     set_oauth_store(s)
     return TestClient(app), s
+
+
+def _store_token_sync(store: InMemoryOAuthStore, token_obj: Any) -> None:
+    """Store a token synchronously by writing directly to the store's internal dict."""
+    store._tokens[token_obj.token_hash] = token_obj
+
+
+def _validate_token_sync(store: InMemoryOAuthStore, token_value: str) -> Any:
+    """Validate a token synchronously by reading the store's internal dict."""
+    from datetime import UTC, datetime
+
+    token_hash = _hash_token(token_value)
+    token = store._tokens.get(token_hash)
+    if token is None or token.revoked:
+        return None
+    if token.expires_at < datetime.now(UTC):
+        return None
+    return TokenClaims(
+        user_id=token.user_id,
+        tenant_id=token.tenant_id,
+        client_id=token.client_id,
+        scope=token.scope,
+        token_type=token.token_type,
+    )
+
+
+def _make_bearer(store: InMemoryOAuthStore) -> str:
+    """Create a valid bearer token in the store and return the raw token value."""
+    access_value, access_token_obj = issue_access_token(
+        client_id="test-bootstrap",
+        user_id="test-user",
+        tenant_id="test-tenant",
+        scope="tools prompts resources",
+    )
+    _store_token_sync(store, access_token_obj)
+    return access_value
+
+
+def _make_bearer_from_token(store: InMemoryOAuthStore, token_obj: Any) -> None:
+    """Store a pre-created token object into the store."""
+    _store_token_sync(store, token_obj)
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -56,10 +101,13 @@ class TestDiscovery:
 class TestRegistration:
     def test_register_returns_credentials(self) -> None:
         client, _ = _make_app()
-        resp = client.post("/oauth/register", json={
-            "client_name": "Claude Desktop",
-            "redirect_uris": ["http://localhost:8080/callback"],
-        })
+        resp = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "Claude Desktop",
+                "redirect_uris": ["http://localhost:8080/callback"],
+            },
+        )
         assert resp.status_code == 201
         data = resp.json()
         assert data["client_id"].startswith("mcp_")
@@ -74,86 +122,129 @@ class TestRegistration:
 
 class TestAuthorization:
     def _register(self, client: TestClient) -> dict[str, Any]:
-        resp = client.post("/oauth/register", json={
-            "client_name": "test",
-            "redirect_uris": ["http://localhost/cb"],
-        })
+        resp = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "test",
+                "redirect_uris": ["http://localhost/cb"],
+            },
+        )
         return resp.json()
 
     def test_issues_auth_code(self) -> None:
-        client, _ = _make_app()
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
         creds = self._register(client)
         _, challenge = _pkce_pair()
-        resp = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-            "scope": "tools",
-            "state": "xyz",
-        })
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "scope": "tools",
+                "state": "xyz",
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "code" in data
         assert data["state"] == "xyz"
 
     def test_rejects_unknown_client(self) -> None:
-        client, _ = _make_app()
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
         _, challenge = _pkce_pair()
-        resp = client.get("/oauth/authorize", params={
-            "client_id": "unknown",
-            "redirect_uri": "http://localhost/cb",
-            "code_challenge": challenge,
-        })
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": "unknown",
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        )
         assert resp.status_code == 400
 
     def test_rejects_unregistered_redirect(self) -> None:
-        client, _ = _make_app()
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
         creds = self._register(client)
         _, challenge = _pkce_pair()
-        resp = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://evil.com/steal",
-            "code_challenge": challenge,
-        })
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://evil.com/steal",
+                "code_challenge": challenge,
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        )
         assert resp.status_code == 400
 
     def test_rejects_missing_pkce(self) -> None:
-        client, _ = _make_app()
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
         creds = self._register(client)
-        resp = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        )
         assert resp.status_code == 400
 
 
 class TestTokenExchange:
-    def _full_auth_flow(self, client: TestClient) -> tuple[dict, str, str]:
-        """Register + authorize, return (creds, code, verifier)."""
-        creds = client.post("/oauth/register", json={
-            "client_name": "test",
-            "redirect_uris": ["http://localhost/cb"],
-        }).json()
+    def _full_auth_flow(
+        self,
+        client: TestClient,
+        store: InMemoryOAuthStore,
+    ) -> tuple[dict, str, str]:
+        """Register + authorize with bearer, return (creds, code, verifier)."""
+        bearer = _make_bearer(store)
+        creds = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "test",
+                "redirect_uris": ["http://localhost/cb"],
+            },
+        ).json()
         verifier, challenge = _pkce_pair()
-        auth_resp = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-        }).json()
+        auth_resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        ).json()
         return creds, auth_resp["code"], verifier
 
     def test_exchange_returns_tokens(self) -> None:
-        client, _ = _make_app()
-        creds, code, verifier = self._full_auth_flow(client)
-        resp = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, code, verifier = self._full_auth_flow(client, store)
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "access_token" in data
@@ -162,128 +253,320 @@ class TestTokenExchange:
         assert data["expires_in"] == 900
 
     def test_wrong_verifier_fails(self) -> None:
-        client, _ = _make_app()
-        creds, code, _ = self._full_auth_flow(client)
-        resp = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": "wrong-verifier",
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, code, _ = self._full_auth_flow(client, store)
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": "wrong-verifier",
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
         assert resp.status_code == 400
         assert "PKCE" in resp.json()["detail"]
 
     def test_code_replay_fails(self) -> None:
-        client, _ = _make_app()
-        creds, code, verifier = self._full_auth_flow(client)
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, code, verifier = self._full_auth_flow(client, store)
         # First exchange succeeds
-        client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
         # Replay fails
-        resp = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
         assert resp.status_code == 400
 
     def test_missing_verifier_rejected(self) -> None:
-        client, _ = _make_app()
-        creds, code, _ = self._full_auth_flow(client)
-        resp = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        })
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, code, _ = self._full_auth_flow(client, store)
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
         assert resp.status_code == 400
 
 
 class TestRefresh:
-    def _get_tokens(self, client: TestClient) -> tuple[dict, dict]:
-        creds = client.post("/oauth/register", json={
-            "client_name": "test",
-            "redirect_uris": ["http://localhost/cb"],
-        }).json()
+    def _get_tokens(
+        self,
+        client: TestClient,
+        store: InMemoryOAuthStore,
+    ) -> tuple[dict, dict]:
+        bearer = _make_bearer(store)
+        creds = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "test",
+                "redirect_uris": ["http://localhost/cb"],
+            },
+        ).json()
         verifier, challenge = _pkce_pair()
-        code = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-            "code_challenge": challenge,
-        }).json()["code"]
-        tokens = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        }).json()
+        code = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        ).json()["code"]
+        tokens = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        ).json()
         return creds, tokens
 
     def test_refresh_returns_new_tokens(self) -> None:
-        client, _ = _make_app()
-        creds, tokens = self._get_tokens(client)
-        resp = client.post("/oauth/token", data={
-            "grant_type": "refresh_token",
-            "refresh_token": tokens["refresh_token"],
-            "client_id": creds["client_id"],
-        })
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, tokens = self._get_tokens(client, store)
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": tokens["refresh_token"],
+                "client_id": creds["client_id"],
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["access_token"] != tokens["access_token"]
         assert data["refresh_token"] != tokens["refresh_token"]
 
     def test_old_refresh_token_revoked(self) -> None:
-        client, store = _make_app()
-        creds, tokens = self._get_tokens(client)
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        creds, tokens = self._get_tokens(client, store)
         # Use refresh token
-        client.post("/oauth/token", data={
-            "grant_type": "refresh_token",
-            "refresh_token": tokens["refresh_token"],
-            "client_id": creds["client_id"],
-        })
+        client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": tokens["refresh_token"],
+                "client_id": creds["client_id"],
+            },
+        )
         # Old refresh token should be revoked
-        resp = client.post("/oauth/token", data={
-            "grant_type": "refresh_token",
-            "refresh_token": tokens["refresh_token"],
-            "client_id": creds["client_id"],
-        })
+        resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": tokens["refresh_token"],
+                "client_id": creds["client_id"],
+            },
+        )
         assert resp.status_code == 400
 
 
 class TestRevocation:
     def test_revoke_access_token(self) -> None:
-        client, store = _make_app()
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
         # Get tokens through full flow
-        creds = client.post("/oauth/register", json={
-            "client_name": "test",
-            "redirect_uris": ["http://localhost/cb"],
-        }).json()
+        creds = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "test",
+                "redirect_uris": ["http://localhost/cb"],
+            },
+        ).json()
         verifier, challenge = _pkce_pair()
-        code = client.get("/oauth/authorize", params={
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-            "code_challenge": challenge,
-        }).json()["code"]
-        tokens = client.post("/oauth/token", data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "code_verifier": verifier,
-            "client_id": creds["client_id"],
-            "redirect_uri": "http://localhost/cb",
-        }).json()
+        code = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        ).json()["code"]
+        tokens = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        ).json()
 
         # Revoke
         resp = client.post("/oauth/revoke", data={"token": tokens["access_token"]})
         assert resp.status_code == 200
+
+
+class TestAuthorizeRejectsUserSuppliedIdentity:
+    """C6: /oauth/authorize must not auto-approve with user-supplied identity."""
+
+    def _register(self, client: TestClient) -> dict[str, Any]:
+        resp = client.post(
+            "/oauth/register",
+            json={
+                "client_name": "test",
+                "redirect_uris": ["http://localhost/cb"],
+            },
+        )
+        return resp.json()
+
+    def test_rejects_user_supplied_user_id(self) -> None:
+        """Attacker cannot set user_id via query param to impersonate another user."""
+        client, _ = _make_app()
+        creds = self._register(client)
+        _, challenge = _pkce_pair()
+        # No bearer token -- the user_id/tenant_id in params should not help
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "user_id": "admin-user",
+                "tenant_id": "admin-tenant",
+            },
+        )
+        # Must reject: no verified session means no auto-approve
+        assert resp.status_code == 403
+
+    def test_rejects_user_supplied_tenant_id(self) -> None:
+        """Attacker cannot set tenant_id to access another tenant."""
+        client, _ = _make_app()
+        creds = self._register(client)
+        _, challenge = _pkce_pair()
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "tenant_id": "victim-tenant",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_rejects_without_session(self) -> None:
+        """Without a verified session/bearer token, authorize must reject."""
+        client, _ = _make_app()
+        creds = self._register(client)
+        _, challenge = _pkce_pair()
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_authorize_with_valid_bearer_succeeds(self) -> None:
+        """With a valid bearer token, authorize issues a code using token identity."""
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+        bearer = _make_bearer(store)
+        creds = self._register(client)
+        _, challenge = _pkce_pair()
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+            headers={"Authorization": f"Bearer {bearer}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "code" in data
+
+    def test_authorize_ignores_user_supplied_ids_with_bearer(self) -> None:
+        """Even with a valid bearer, user_id/tenant_id in params must be ignored."""
+        store = InMemoryOAuthStore()
+        client, _ = _make_app(store)
+
+        # Create a bearer token for "real-user" / "real-tenant"
+        real_access_value, real_access_obj = issue_access_token(
+            client_id="bootstrap",
+            user_id="real-user",
+            tenant_id="real-tenant",
+            scope="tools",
+        )
+        _make_bearer_from_token(store, real_access_obj)
+
+        creds = self._register(client)
+        _, challenge = _pkce_pair()
+        resp = client.get(
+            "/oauth/authorize",
+            params={
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "user_id": "attacker",
+                "tenant_id": "attacker-tenant",
+            },
+            headers={"Authorization": f"Bearer {real_access_value}"},
+        )
+        assert resp.status_code == 200
+
+        # Exchange the code and verify identity is from the token, not params
+        code = resp.json()["code"]
+        verifier, _ = _pkce_pair()
+        token_resp = client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "client_id": creds["client_id"],
+                "redirect_uri": "http://localhost/cb",
+            },
+        )
+        assert token_resp.status_code == 200
+        # Validate the issued token to check the stored identity
+        access_tok = token_resp.json()["access_token"]
+        claims = _validate_token_sync(store, access_tok)
+        assert claims is not None
+        assert claims.user_id == "real-user"
+        assert claims.tenant_id == "real-tenant"
 
 
 class TestStoreProtocol:

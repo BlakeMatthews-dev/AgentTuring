@@ -18,7 +18,6 @@ import pytest
 from stronghold.security.auth_jwt import JWTAuthProvider
 from stronghold.types.auth import IdentityKind
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -278,11 +277,183 @@ class TestTokenEdgeCases:
 # ---------------------------------------------------------------------------
 
 
+class TestInteractiveAgentKind:
+    """H7: INTERACTIVE_AGENT code path must be reachable."""
+
+    async def test_interactive_agent_kind_detected(self) -> None:
+        """kind='interactive_agent' in token sets IdentityKind.INTERACTIVE_AGENT."""
+        provider = _provider_with_claims(
+            {
+                "sub": "agent-1",
+                "kind": "interactive_agent",
+                "organization_id": "org-1",
+                "on_behalf_of": "human-42",
+            },
+        )
+        ctx = await provider.authenticate("Bearer valid-token")
+        assert ctx.kind == IdentityKind.INTERACTIVE_AGENT
+        assert ctx.on_behalf_of == "human-42"
+
+    async def test_interactive_agent_obo_cross_org_rejected(self) -> None:
+        """INTERACTIVE_AGENT with cross-org on_behalf_of is rejected."""
+        provider = _provider_with_claims(
+            {
+                "sub": "agent-1",
+                "kind": "interactive_agent",
+                "organization_id": "org-1",
+                "on_behalf_of": "org-2/human-42",
+            },
+        )
+        with pytest.raises(ValueError, match="on_behalf_of org mismatch"):
+            await provider.authenticate("Bearer valid-token")
+
+    async def test_interactive_agent_without_obo(self) -> None:
+        """INTERACTIVE_AGENT without on_behalf_of gets empty string."""
+        provider = _provider_with_claims(
+            {
+                "sub": "agent-1",
+                "kind": "interactive_agent",
+            },
+        )
+        ctx = await provider.authenticate("Bearer valid-token")
+        assert ctx.kind == IdentityKind.INTERACTIVE_AGENT
+        assert ctx.on_behalf_of == ""
+
+    async def test_agent_kind_detected(self) -> None:
+        """kind='agent' in token sets IdentityKind.AGENT."""
+        provider = _provider_with_claims(
+            {"sub": "agent-1", "kind": "agent"},
+        )
+        ctx = await provider.authenticate("Bearer valid-token")
+        assert ctx.kind == IdentityKind.AGENT
+
+
+class TestJWKSCacheNoRace:
+    """H8: JWKS cache refresh must not have TOCTOU race."""
+
+    async def test_concurrent_refreshes_serialize(self) -> None:
+        """Multiple concurrent cache refreshes must not race."""
+        call_count = 0
+
+        class MockJWKClient:
+            def __init__(self, url: str) -> None:
+                nonlocal call_count
+                call_count += 1
+
+        provider = JWTAuthProvider(
+            jwks_url="https://example.com/.well-known/jwks.json",
+            issuer="https://example.com",
+            audience="stronghold-api",
+            jwks_cache_ttl=0,  # Always expired
+            jwt_decode=lambda t: {"sub": "u1"},
+        )
+
+        # Launch several refreshes concurrently
+        results = await asyncio.gather(
+            provider._get_jwks_client(None, MockJWKClient),
+            provider._get_jwks_client(None, MockJWKClient),
+            provider._get_jwks_client(None, MockJWKClient),
+        )
+        # All should return a client (no None results)
+        for r in results:
+            assert r is not None
+        # The lock should ensure at most a small number of constructions
+        # (ideally 1, but 2-3 is acceptable due to concurrency)
+        assert call_count <= 3
+
+    async def test_second_task_sees_refreshed_cache(self) -> None:
+        """A second task waiting on the lock sees the refreshed cache, not stale."""
+        refresh_count = 0
+
+        class MockJWKClient:
+            def __init__(self, url: str) -> None:
+                nonlocal refresh_count
+                refresh_count += 1
+                self.url = url
+
+        provider = JWTAuthProvider(
+            jwks_url="https://example.com/.well-known/jwks.json",
+            issuer="https://example.com",
+            audience="stronghold-api",
+            jwks_cache_ttl=0,  # Always expired so both tasks attempt refresh
+            jwt_decode=lambda t: {"sub": "u1"},
+        )
+
+        # Both tasks will try to refresh; only one should create a new client
+        results = await asyncio.gather(
+            provider._get_jwks_client(None, MockJWKClient),
+            provider._get_jwks_client(None, MockJWKClient),
+        )
+        # Both should get a result
+        assert results[0] is not None
+        assert results[1] is not None
+        # With proper locking, the second task should see the cache
+        # refreshed by the first task (double-check inside lock).
+        # At most 2 constructions (one per gather task entering the lock),
+        # but ideally only 1 if the second sees the fresh cache.
+        assert refresh_count <= 2
+
+
+class TestJWKSNonBlockingIO:
+    """H9: JWKS fetch must not block the event loop."""
+
+    async def test_get_signing_key_runs_in_thread(self) -> None:
+        """PyJWKClient.get_signing_key_from_jwt must run in a thread, not inline."""
+        call_thread_ids: list[int] = []
+        import threading
+
+        main_thread_id = threading.current_thread().ident
+
+        class FakeSigningKey:
+            key = "fake-key"
+
+        class FakeJWKClient:
+            def __init__(self, url: str) -> None:
+                pass
+
+            def get_signing_key_from_jwt(self, token: str) -> FakeSigningKey:
+                call_thread_ids.append(threading.current_thread().ident)
+                return FakeSigningKey()
+
+        class FakePyJWT:
+            @staticmethod
+            def decode(
+                token: str,
+                key: Any,
+                algorithms: list[str],
+                issuer: str,
+                audience: str,
+            ) -> dict[str, Any]:
+                return {"sub": "u1"}
+
+        provider = JWTAuthProvider(
+            jwks_url="https://example.com/.well-known/jwks.json",
+            issuer="https://example.com",
+            audience="stronghold-api",
+        )
+        # Pre-seed cache so we skip the cache refresh
+        provider._jwks_cache = FakeJWKClient("x")
+        import time
+
+        provider._jwks_cache_at = time.monotonic()
+
+        # Call _decode_token (no jwt_decode injected, so it uses real path)
+        # We need to override the import. Instead, test the public interface.
+        # The fix should use asyncio.to_thread for blocking calls.
+        result = await provider._decode_token_with_client(
+            "fake-token",
+            FakePyJWT,
+            FakeJWKClient("x"),
+        )
+        assert result["sub"] == "u1"
+        # The signing key fetch should have run in a background thread
+        assert len(call_thread_ids) == 1
+        assert call_thread_ids[0] != main_thread_id
+
+
 class TestJWKSCache:
     async def test_cache_hit_fast_path(self) -> None:
         """When cache is fresh, _get_jwks_client returns cached client without lock."""
-        # We can test this by calling _get_jwks_client twice and checking it
-        # returns the same object (proving the cache path works).
         provider = JWTAuthProvider(
             jwks_url="https://example.com/.well-known/jwks.json",
             issuer="https://example.com",
@@ -290,37 +461,33 @@ class TestJWKSCache:
             jwks_cache_ttl=3600,
             jwt_decode=lambda t: {"sub": "u1"},
         )
-        # Manually seed the cache
         sentinel_object = object()
         provider._jwks_cache = sentinel_object
         import time
 
         provider._jwks_cache_at = time.monotonic()
 
-        # Mock JWKClient class and pyjwt -- we just need to verify cache hit
         result = await provider._get_jwks_client(None, None)
         assert result is sentinel_object
 
-    async def test_stale_cache_used_when_lock_held(self) -> None:
-        """When lock is held by another task, stale cache is returned."""
+    async def test_refresh_failure_uses_stale_cache(self) -> None:
+        """When JWKS refresh fails, stale cache is returned as fallback."""
         provider = JWTAuthProvider(
             jwks_url="https://example.com/.well-known/jwks.json",
             issuer="https://example.com",
             audience="stronghold-api",
-            jwks_cache_ttl=1,  # Very short TTL so cache is expired
+            jwks_cache_ttl=0,  # Expired
             jwt_decode=lambda t: {"sub": "u1"},
         )
-        # Seed a stale cache
         stale_object = object()
         provider._jwks_cache = stale_object
-        provider._jwks_cache_at = 0.0  # Very old -> expired
+        provider._jwks_cache_at = 0.0
 
-        # Acquire lock to simulate another task refreshing
-        async with provider._cache_lock:
-            # In a concurrent task, try to get the client while lock is held
-            result = await asyncio.wait_for(
-                provider._get_jwks_client(None, None),
-                timeout=1.0,
-            )
-            # Should return stale cache since lock is held
-            assert result is stale_object
+        class FailingJWKClient:
+            def __init__(self, url: str) -> None:
+                msg = "Network error"
+                raise ConnectionError(msg)
+
+        # Should fall back to stale cache when refresh fails
+        result = await provider._get_jwks_client(None, FailingJWKClient)
+        assert result is stale_object

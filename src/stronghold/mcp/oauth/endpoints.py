@@ -145,10 +145,25 @@ async def authorize(request: Request) -> JSONResponse:
     if redirect_uri not in client.redirect_uris:
         raise HTTPException(400, "redirect_uri not registered for this client")
 
-    # Auto-approve for now (production: redirect to consent UI)
-    # The user_id/tenant_id would come from the session in production
-    user_id = params.get("user_id", "demo-user")
-    tenant_id = params.get("tenant_id", "demo-tenant")
+    # Require a valid bearer token to prove identity.
+    # User-supplied user_id/tenant_id query params are ignored to prevent impersonation.
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            403,
+            "Authorization required: provide a valid bearer token to prove identity",
+        )
+
+    bearer_value = auth_header.removeprefix("Bearer ").strip()
+    if not bearer_value:
+        raise HTTPException(403, "Empty bearer token")
+
+    token_claims = await _store.validate_token(bearer_value)
+    if token_claims is None:
+        raise HTTPException(403, "Invalid or expired bearer token")
+
+    user_id = token_claims.user_id
+    tenant_id = token_claims.tenant_id
 
     code = generate_auth_code()
     auth_code = AuthorizationCode(

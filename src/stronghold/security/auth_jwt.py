@@ -100,10 +100,14 @@ class JWTAuthProvider:
         org_id = str(org_id_raw) if org_id_raw else ""
         team_id = str(team_id_raw) if team_id_raw else ""
 
-        # Determine identity kind
+        # Determine identity kind from token claim
         kind = IdentityKind.USER
         if kind_raw == "service_account":
             kind = IdentityKind.SERVICE_ACCOUNT
+        elif kind_raw == "interactive_agent":
+            kind = IdentityKind.INTERACTIVE_AGENT
+        elif kind_raw == "agent":
+            kind = IdentityKind.AGENT
 
         if not user_id:
             msg = "Token missing 'sub' claim"
@@ -154,7 +158,14 @@ class JWTAuthProvider:
         # Fetch JWKS with caching
         jwks_client = await self._get_jwks_client(pyjwt, PyJWKClient)
 
-        try:
+        return await self._decode_token_with_client(token, pyjwt, jwks_client)
+
+    async def _decode_token_with_client(
+        self, token: str, pyjwt: Any, jwks_client: Any
+    ) -> dict[str, Any]:
+        """Decode JWT using the given JWKS client. Runs blocking I/O in a thread."""
+
+        def _blocking_decode() -> dict[str, Any]:
             signing_key = jwks_client.get_signing_key_from_jwt(token)
             decoded: dict[str, Any] = pyjwt.decode(
                 token,
@@ -163,49 +174,41 @@ class JWTAuthProvider:
                 issuer=self._issuer,
                 audience=self._audience,
             )
+            return decoded
+
+        try:
+            return await asyncio.to_thread(_blocking_decode)
         except Exception as e:
             msg = f"JWT validation failed: {e}"
             raise ValueError(msg) from e
 
-        return decoded
-
     async def _get_jwks_client(self, pyjwt: Any, jwk_client_cls: type) -> Any:
-        """Get JWKS client with TTL-based caching. Non-blocking under contention.
+        """Get JWKS client with TTL-based caching.
 
-        If the cache is expired and another task is already refreshing,
-        returns the stale cache instead of blocking. This prevents cascading
-        timeouts when JWKS endpoint is slow.
+        Uses asyncio.Lock to serialize refreshes. If the cache is expired,
+        exactly one task refreshes while others wait (and then see the new cache).
+        Stale cache is used as fallback if the refresh fails.
         """
-        # Fast path: check without lock
+        # Fast path: check without lock (immutable read of cache + timestamp)
         now = time.monotonic()
         if self._jwks_cache is not None and (now - self._jwks_cache_at) < self._jwks_cache_ttl:
             return self._jwks_cache
 
-        # Try to acquire lock non-blocking first
-        if self._cache_lock.locked():
-            # Another task is refreshing — use stale cache if available
-            if self._jwks_cache is not None:
-                logger.debug("JWKS refresh in progress, using stale cache")
-                return self._jwks_cache
-            # No cache at all — must wait
-            async with self._cache_lock:
-                return self._jwks_cache or jwk_client_cls(self._jwks_url)
-
-        # We got the lock — refresh
+        # Serialize refreshes through the lock
         async with self._cache_lock:
-            # Double-check after acquiring
+            # Double-check after acquiring -- another task may have refreshed
             now = time.monotonic()
             if self._jwks_cache is not None and (now - self._jwks_cache_at) < self._jwks_cache_ttl:
                 return self._jwks_cache
 
             try:
-                client = jwk_client_cls(self._jwks_url)
+                client = await asyncio.to_thread(jwk_client_cls, self._jwks_url)
                 self._jwks_cache = client
-                self._jwks_cache_at = now
+                self._jwks_cache_at = time.monotonic()
                 logger.info("JWKS refreshed from %s", self._jwks_url)
                 return client
             except Exception:
-                # JWKS fetch failed — use stale cache if available
+                # JWKS fetch failed -- use stale cache if available
                 if self._jwks_cache is not None:
                     logger.warning("JWKS refresh failed, using stale cache")
                     return self._jwks_cache

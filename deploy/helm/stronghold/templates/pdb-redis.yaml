@@ -1,0 +1,18 @@
+{{- if .Values.redis.enabled }}
+# PodDisruptionBudget for Redis. With a single replica this ensures the
+# pod is not voluntarily evicted during node drain without acknowledgement.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stronghold.fullname" . }}-redis
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+{{- end }}

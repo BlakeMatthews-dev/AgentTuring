@@ -1,0 +1,24 @@
+# ClusterIP Service for Redis. Provides stable DNS at
+#   <release>-redis.<namespace>.svc.cluster.local
+# for the Stronghold API cache layer to connect to.
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "stronghold.fullname" . }}-redis
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+    stronghold.io/priority-tier: P1
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "stronghold.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+{{- end }}

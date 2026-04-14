@@ -1,0 +1,109 @@
+# Redis Deployment for distributed caching, rate limiting, and session storage.
+#
+# Stronghold's cache layer (prompt_cache, rate_limiter, session_store) connects
+# to Redis for low-latency state sharing across API replicas. Without Redis
+# the system degrades gracefully (H18-H20 fixes) but loses distributed rate
+# limiting, session persistence, and prompt cache hit rates.
+#
+# Single-replica is sufficient for development; production should use Redis
+# Sentinel or a managed offering.
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-redis
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+    stronghold.io/priority-tier: P1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+        stronghold.io/priority-tier: P1
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image.repository | default "redis" }}:{{ .Values.redis.image.tag | default "7.4-alpine" }}
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - redis-server
+            - --maxmemory
+            - {{ .Values.redis.maxmemory | default "256mb" | quote }}
+            - --maxmemory-policy
+            - {{ .Values.redis.maxmemoryPolicy | default "allkeys-lru" | quote }}
+            {{- if .Values.redis.requirepass }}
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            {{- end }}
+          {{- if .Values.redis.requirepass }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stronghold.fullname" . }}-redis-auth
+                  key: password
+          {{- end }}
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: redis-data
+          {{- if .Values.redis.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "stronghold.fullname" . }}-redis
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 10Mi
+{{- end }}

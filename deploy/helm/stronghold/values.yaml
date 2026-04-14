@@ -385,6 +385,36 @@ vault:
     storageClassName: ""
 
 # -----------------------------------------------------------------------------
+# Redis (distributed caching, rate limiting, session storage)
+# -----------------------------------------------------------------------------
+
+# Redis enables distributed prompt caching, rate limiting persistence, and
+# session storage across API replicas. Without Redis the system degrades
+# gracefully (uncached, in-memory-only) but loses cross-replica consistency.
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7.4-alpine"
+    pullPolicy: IfNotPresent
+  # requirepass: set to true and create a secret for password-protected Redis.
+  # The secret must be named <release>-redis-auth with key "password".
+  requirepass: false
+  maxmemory: "256mb"
+  maxmemoryPolicy: allkeys-lru
+  persistence:
+    enabled: false
+    size: 2Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
 # NetworkPolicy (ADR-K8S-004: default-deny baseline + explicit allow rules)
 # -----------------------------------------------------------------------------
 

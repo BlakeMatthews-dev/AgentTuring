@@ -139,8 +139,19 @@
   <!-- Header -->
   <div class="text-center pt-8 pb-4 px-8">
     <div class="crest crest-pulse mb-3">&#x1F3F0;</div>
-    <h1 class="text-2xl mb-1">The Gates of Stronghold</h1>
-    <p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p>
+    <h1 class="text-2xl mb-1">Welcome to Stronghold</h1>
+    <p class="text-sm text-[var(--parchment)] mt-2 mb-1" style="line-height:1.6">The secure agent orchestration platform.</p>
+    <p class="text-xs text-[var(--iron-light)]" style="line-height:1.5">MCP Server &middot; AI Gateway &middot; Agent Governance<br>Agent, Skill, and MCP Registry</p>
+  </div>
+
+  <!-- Access policy note -->
+  <div class="px-8 pb-3">
+    <div style="background:rgba(45,106,79,0.12);border:1px solid rgba(45,106,79,0.3);border-radius:8px;padding:10px 14px;font-size:0.75rem;color:var(--iron-light);line-height:1.6">
+      Open to <strong style="color:var(--parchment)">@anthropic.com</strong>,
+      <strong style="color:var(--parchment)">@disney.com</strong>, and
+      <strong style="color:var(--parchment)">@agentstronghold.com</strong>.
+      Sign up with your organization email to get started.
+    </div>
   </div>
 
   <!-- Messages area -->
@@ -198,7 +209,7 @@
       <input type="text" id="reg-org" placeholder="your-org">
 
       <label class="text-xs text-[var(--iron-light)] mb-2 mt-3 block">Team</label>
-      <input type="text" id="reg-team" placeholder="your-team" value="default">
+      <input type="text" id="reg-team" placeholder="your-team" value="demo">
 
       <button type="submit" class="btn-sso mt-4" id="register-btn">Request Access</button>
     </form>
@@ -479,8 +490,15 @@ async function submitRegister(e) {
   var team = document.getElementById('reg-team').value.trim() || 'default';
 
   if (!email) { showMsg('Please enter your email.', 'error'); return; }
+  var allowedDomains = ['anthropic.com', 'disney.com', 'agentstronghold.com'];
+  var emailDomain = email.split('@')[1] || '';
+  if (allowedDomains.indexOf(emailDomain.toLowerCase()) === -1) {
+    showMsg('Registration is open to @anthropic.com, @disney.com, and @agentstronghold.com addresses.', 'error');
+    return;
+  }
   if (!password) { showMsg('Please choose a password.', 'error'); return; }
   if (!org) { showMsg('Please enter an organization.', 'error'); return; }
+  if (!team) { showMsg('Please enter a team.', 'error'); return; }
 
   document.getElementById('register-btn').disabled = true;
 

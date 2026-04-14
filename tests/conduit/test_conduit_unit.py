@@ -53,7 +53,9 @@ def _make_config(**overrides: Any) -> StrongholdConfig:
         },
         "task_types": {
             "chat": TaskTypeConfig(keywords=["hello", "hi"], preferred_strengths=["chat"]),
-            "code": TaskTypeConfig(keywords=["code", "function", "bug"], preferred_strengths=["code"]),
+            "code": TaskTypeConfig(
+                keywords=["code", "function", "bug"], preferred_strengths=["code"]
+            ),
         },
         "permissions": {"admin": ["*"]},
         "router_api_key": "sk-test",
@@ -187,8 +189,10 @@ class TestSessionStickiness:
             session_id="sess-B",
         )
         # sess-B should not inherit sess-A's agent
-        assert conduit._session_agents.get("sess-B") != conduit._session_agents.get("sess-A") or \
-            "sess-B" not in conduit._session_agents
+        assert (
+            conduit._session_agents.get("sess-B") != conduit._session_agents.get("sess-A")
+            or "sess-B" not in conduit._session_agents
+        )
 
 
 # ── Data Sharing Consent ──
@@ -248,8 +252,9 @@ class TestDataSharingConsent:
                 auth=SYSTEM_AUTH,
                 session_id=sid,
             )
-            assert "ds-prov" in conduit._session_consents.get(sid, set()), \
+            assert "ds-prov" in conduit._session_consents.get(sid, set()), (
                 f"Expected consent granted for '{word}'"
+            )
 
 
 # ── Quota Pre-check ──

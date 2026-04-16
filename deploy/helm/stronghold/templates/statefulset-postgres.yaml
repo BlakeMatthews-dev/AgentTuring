@@ -1,3 +1,4 @@
+{{- if .Values.postgresql.enabled }}
 # PostgreSQL StatefulSet.
 #
 # Replaces the Deployment from deploy/k8s/postgres.yaml. A StatefulSet is
@@ -106,3 +107,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.postgresql.persistence.size | quote }}
+{{- end }}

@@ -1,0 +1,115 @@
+{{- if .Values.buildersSpot.enabled }}
+# Stronghold Builders Spot Deployment — KEDA-scaled burst capacity.
+#
+# Same role as stronghold-builders but runs on spot/preemptible nodes.
+# KEDA scales this from 0 to N based on the builders queue depth.
+# When evicted by Azure, the pod is rescheduled on another spot node
+# or waits until one is available (cluster autoscaler handles node scaling).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-builders-spot
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-builders-spot
+    stronghold.io/priority-tier: P5
+spec:
+  # Replicas managed by KEDA ScaledObject — set to 0 as the idle baseline.
+  replicas: 0
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: stronghold-builders-spot
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: stronghold-builders-spot
+        stronghold.io/priority-tier: P5
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-stronghold.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+      automountServiceAccountToken: true
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P5" "root" .) }}
+      nodeSelector:
+        kubernetes.azure.com/scalesetpriority: spot
+      tolerations:
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stronghold-builders
+          image: {{ include "stronghold.image" (dict "image" .Values.builders.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.builders.image) }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.strongholdApi.containerPort }}
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/$(POSTGRES_DB)
+            - name: LITELLM_URL
+              value: http://{{ include "stronghold.fullname" . }}-litellm:{{ .Values.litellmProxy.containerPort }}
+            - name: PHOENIX_COLLECTOR_ENDPOINT
+              value: http://{{ include "stronghold.fullname" . }}-phoenix:{{ .Values.phoenixSvc.containerPort }}
+            - name: STRONGHOLD_CONFIG
+              value: {{ .Values.strongholdApi.config.strongholdConfigPath | quote }}
+            - name: STRONGHOLD_MAX_CONCURRENCY
+              value: {{ .Values.builders.maxConcurrency | default 3 | quote }}
+            - name: STRONGHOLD_WORKSPACE
+              value: /workspace
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          {{- with .Values.builders.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.buildersSpot.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "stronghold.fullname" . }}-config
+        - name: workspace
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

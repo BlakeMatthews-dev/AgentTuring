@@ -1,0 +1,21 @@
+{{- if and .Values.builders.enabled .Values.builders.workspace.create }}
+# Workspace PVC for builders — git clone + worktrees for Mason and Frank.
+# ReadWriteOnce because only one builder pod writes at a time.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "stronghold.fullname" . }}-workspace
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-builders
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.builders.workspace.storageClassName }}
+  storageClassName: {{ .Values.builders.workspace.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.builders.workspace.size | default "2Gi" | quote }}
+{{- end }}

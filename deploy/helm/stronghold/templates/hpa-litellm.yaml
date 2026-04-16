@@ -1,0 +1,50 @@
+{{- if .Values.autoscaling.litellm.enabled }}
+# HorizontalPodAutoscaler for the LiteLLM proxy Deployment.
+#
+# LiteLLM is the LLM traffic hot path (P1). Scale-up should be aggressive
+# since each pod has a finite connection pool to upstream providers.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "stronghold.fullname" . }}-litellm
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: litellm
+    stronghold.io/priority-tier: P1
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "stronghold.fullname" . }}-litellm
+  minReplicas: {{ .Values.autoscaling.litellm.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.litellm.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.litellm.targetCPUUtilization }}
+    {{- if .Values.autoscaling.litellm.targetMemoryUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.litellm.targetMemoryUtilization }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.litellm.scaleUpStabilization | default 30 }}
+      policies:
+        - type: Pods
+          value: {{ .Values.autoscaling.litellm.scaleUpMaxPods | default 2 }}
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.litellm.scaleDownStabilization | default 300 }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

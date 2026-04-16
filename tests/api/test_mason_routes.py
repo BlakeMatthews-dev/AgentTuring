@@ -463,22 +463,49 @@ class TestCreateScannedIssues:
 
 class TestGithubWebhook:
     @pytest.mark.asyncio
-    async def test_issue_assigned_event_queues(
+    async def test_issue_assigned_with_builders_label_logs_only(
         self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
     ) -> None:
+        """Issues with builders label are logged, not dispatched directly."""
+        _, reactor = fakes
+        resp = await client.post(
+            "/v1/stronghold/webhooks/github",
+            headers={"X-GitHub-Event": "issues"},
+            json={
+                "action": "labeled",
+                "issue": {
+                    "number": 7,
+                    "title": "Bug fix",
+                    "labels": [{"name": "builders"}],
+                },
+                "repository": {"owner": {"login": "org"}, "name": "repo"},
+            },
+        )
+        assert resp.status_code == 200
+        # No event emitted — backlog scanner picks it up
+        assert len(reactor.emitted) == 0
+
+    @pytest.mark.asyncio
+    async def test_issue_without_builders_label_ignored(
+        self, client: httpx.AsyncClient, fakes: tuple[_FakeQueue, _FakeReactor]
+    ) -> None:
+        """Issues without builders label are ignored."""
         _, reactor = fakes
         resp = await client.post(
             "/v1/stronghold/webhooks/github",
             headers={"X-GitHub-Event": "issues"},
             json={
                 "action": "assigned",
-                "issue": {"number": 7, "title": "Bug fix"},
+                "issue": {
+                    "number": 8,
+                    "title": "Random issue",
+                    "labels": [{"name": "bug"}],
+                },
                 "repository": {"owner": {"login": "org"}, "name": "repo"},
             },
         )
         assert resp.status_code == 200
-        assert len(reactor.emitted) == 1
-        assert reactor.emitted[0].name == "mason.issue_assigned"
+        assert len(reactor.emitted) == 0
 
     @pytest.mark.asyncio
     async def test_pr_opened_event_emits(

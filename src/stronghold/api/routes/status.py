@@ -98,3 +98,56 @@ async def version_v1() -> dict[str, Any]:
         "python_version": sys.version,
         "service": "stronghold",
     }
+
+
+@router.get("/metrics")
+async def prometheus_metrics(request: Request) -> Any:
+    """Prometheus metrics — builders queue depth for KEDA scaling.
+
+    Exposes the mason_queue status as Prometheus gauge metrics.
+    No auth required (scraped by Prometheus / KEDA metrics adapter).
+    """
+    from fastapi.responses import PlainTextResponse  # noqa: PLC0415
+
+    lines: list[str] = []
+
+    # Builders queue metrics
+    container = getattr(request.app.state, "container", None)
+    queue = getattr(container, "mason_queue", None) if container else None
+    if queue is not None:
+        status = queue.status()
+        queued = status.get("queued", 0)
+        in_progress = status.get("in_progress", 0)
+        completed = status.get("completed", 0)
+        failed = status.get("failed", 0)
+        total = status.get("total", 0)
+
+        lines.append("# HELP builders_queue_depth Number of issues in each state")
+        lines.append("# TYPE builders_queue_depth gauge")
+        lines.append(f'builders_queue_depth{{state="queued"}} {queued}')
+        lines.append(f'builders_queue_depth{{state="in_progress"}} {in_progress}')
+        lines.append(f'builders_queue_depth{{state="completed"}} {completed}')
+        lines.append(f'builders_queue_depth{{state="failed"}} {failed}')
+
+        lines.append("# HELP builders_queue_total Total issues tracked")
+        lines.append("# TYPE builders_queue_total gauge")
+        lines.append(f"builders_queue_total {total}")
+
+        lines.append("# HELP builders_queue_actionable Issues queued or in progress")
+        lines.append("# TYPE builders_queue_actionable gauge")
+        lines.append(f"builders_queue_actionable {queued + in_progress}")
+    else:
+        lines.append("# HELP builders_queue_actionable Issues queued or in progress")
+        lines.append("# TYPE builders_queue_actionable gauge")
+        lines.append("builders_queue_actionable 0")
+
+    # Orchestrator metrics
+    orchestrator = getattr(request.app.state, "orchestrator", None)
+    if orchestrator is not None:
+        orch_status = orchestrator.status()
+        lines.append("# HELP orchestrator_active_workers Active agent workers")
+        lines.append("# TYPE orchestrator_active_workers gauge")
+        lines.append(f"orchestrator_active_workers {orch_status.get('active', 0)}")
+
+    lines.append("")
+    return PlainTextResponse("\n".join(lines), media_type="text/plain; version=0.0.4")

@@ -44,8 +44,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Start the Orchestrator engine (agent execution)
     from stronghold.orchestrator.engine import OrchestratorEngine  # noqa: PLC0415
 
-    orchestrator = OrchestratorEngine(container, max_concurrent=3)
+    max_concurrent = int(os.environ.get("STRONGHOLD_MAX_CONCURRENCY", "3"))
+    orchestrator = OrchestratorEngine(container, max_concurrent=max_concurrent)
     app.state.orchestrator = orchestrator
+    container.orchestrator = orchestrator  # expose to triggers + pipeline
 
     # Start the reactor loop (1000Hz, runs in background)
     disable_reactor = os.environ.get("STRONGHOLD_DISABLE_REACTOR_AUTOSTART") == "1"

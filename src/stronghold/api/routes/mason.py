@@ -382,27 +382,20 @@ async def github_webhook(request: Request) -> JSONResponse:
     from stronghold.types.reactor import Event
 
     # Issue assigned -> queue for Mason
-    if event_type == "issues" and action == "assigned":
+    if event_type == "issues" and action in ("assigned", "labeled"):
         issue = payload.get("issue", {})
-        repo = payload.get("repository", {})
-        queue = _queue()
-        queued = queue.assign(
-            issue_number=issue.get("number", 0),
-            title=issue.get("title", ""),
-            owner=repo.get("owner", {}).get("login", ""),
-            repo=repo.get("name", ""),
-        )
-        _reactor().emit(
-            Event(
-                name="mason.issue_assigned",
-                data={
-                    "issue_number": queued.issue_number,
-                    "title": queued.title,
-                    "source": "github_webhook",
-                },
+        issue_labels = {label["name"] for label in issue.get("labels", [])}
+
+        # Only react to issues with the `builders` label
+        if "builders" not in issue_labels:
+            logger.debug("Webhook: issue #%d has no builders label, ignoring", issue.get("number"))
+        else:
+            # The backlog scanner (runs every 5 min) will pick this up.
+            # We just log it here — no direct dispatch to Mason.
+            logger.info(
+                "Webhook: issue #%d labeled builders — will be picked up by backlog scanner",
+                issue.get("number", 0),
             )
-        )
-        logger.info("Webhook: issue #%d assigned to Mason", queued.issue_number)
 
     # PR opened -> trigger Auditor review
     elif event_type == "pull_request" and action == "opened":

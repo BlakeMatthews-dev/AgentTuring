@@ -1,3 +1,4 @@
+{{- if .Values.postgresql.enabled }}
 # Headless Service for the postgres StatefulSet. clusterIP: None gives
 # each pod a stable DNS record of the form
 #   <pod>.<service>.<namespace>.svc.cluster.local
@@ -23,3 +24,4 @@ spec:
       port: {{ .Values.postgresql.containerPort }}
       targetPort: postgres
       protocol: TCP
+{{- end }}

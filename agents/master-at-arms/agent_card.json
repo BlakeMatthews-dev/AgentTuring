@@ -1,0 +1,18 @@
+{
+  "id": "master-at-arms",
+  "name": "master-at-arms",
+  "description": "Daily retrospective learning agent that reviews pipeline runs and extracts patterns to improve all agents.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "react",
+    "tools": ["github", "file_ops"],
+    "skills": [],
+    "max_tool_rounds": 5
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P4",
+  "model": "auto",
+  "model_fallbacks": ["google-gemini-3.1-pro", "mistral-large", "google-gemini-3-flash"],
+  "active": true
+}

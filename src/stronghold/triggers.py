@@ -193,61 +193,171 @@ def register_core_triggers(container: Container) -> None:
         _rlhf_feedback,
     )
 
-    # 9. Mason dispatch — start work when issues are assigned
-    async def _mason_dispatch(event: Event) -> dict[str, Any]:
-        """Dispatch assigned issues to Mason via the Conduit pipeline."""
-        issue_number = event.data.get("issue_number", 0)
-        title = event.data.get("title", "")
-        owner = event.data.get("owner", "")
-        repo = event.data.get("repo", "")
+    # 9. Issue backlog scanner — pick up work through the full pipeline
+    async def _scan_issue_backlog(event: Event) -> dict[str, Any]:
+        """Scan GitHub for open `builders` issues and dispatch through the
+        full pipeline: Gatekeeper triage → Quartermaster → Archie → Mason
+        → Auditor → Gatekeeper cleanup.
 
-        if not issue_number:
-            return {"skipped": True}
+        Runs every 5 minutes. Picks up issues labeled `builders` that are
+        not already `in-progress` or `blocked`. Respects concurrency limit.
+        """
+        # Try GitHub App token first, fall back to GITHUB_TOKEN env var
+        token = ""
+        try:
+            from stronghold.tools.github import _get_app_installation_token  # noqa: PLC0415
 
-        # Mark as in-progress
-        if hasattr(container, "mason_queue"):
-            container.mason_queue.start(issue_number)
+            token = _get_app_installation_token("gatekeeper")
+        except ImportError:
+            logger.debug(
+                "GitHub App token helper unavailable; falling back to GITHUB_TOKEN",
+            )
+        if not token:
+            import os  # noqa: PLC0415
 
-        # Route through Conduit as a synthetic request
-        from stronghold.types.auth import SYSTEM_AUTH  # noqa: PLC0415
+            token = os.environ.get("GITHUB_TOKEN", "")
+        if not token:
+            return {"skipped": True, "reason": "no github token"}
 
         try:
-            await container.route_request(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Implement GitHub issue #{issue_number}: {title}\n"
-                            f"Repository: {owner}/{repo}\n"
-                            f"Read the issue details, then follow your 8-phase "
-                            f"evidence-driven TDD pipeline."
-                        ),
-                    }
-                ],
-                auth=SYSTEM_AUTH,
-                intent_hint="code_gen",
-            )
-            # Mark complete
-            if hasattr(container, "mason_queue"):
-                container.mason_queue.complete(issue_number)
-            logger.info("Mason completed issue #%d", issue_number)
-            return {"issue_number": issue_number, "status": "completed"}
-        except Exception as e:
-            if hasattr(container, "mason_queue"):
-                container.mason_queue.fail(
-                    issue_number,
-                    error=str(e),
+            import httpx  # noqa: PLC0415
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    "https://api.github.com/repos/Agent-StrongHold/stronghold/issues",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github+json",
+                    },
+                    params={
+                        "labels": "builders",
+                        "state": "open",
+                        "per_page": "10",
+                        "sort": "created",
+                        "direction": "asc",
+                    },
                 )
-            logger.warning("Mason failed issue #%d: %s", issue_number, e)
-            return {"issue_number": issue_number, "status": "failed", "error": str(e)}
+                if resp.status_code != 200:
+                    return {"error": f"GitHub API returned {resp.status_code}"}
+
+                issues = resp.json()
+        except Exception as e:
+            logger.warning("Issue backlog scan failed: %s", e)
+            return {"error": str(e)}
+
+        if not issues:
+            return {"scanned": 0, "dispatched": 0}
+
+        # Filter out issues already in progress or blocked
+        skip_labels = {"in-progress", "blocked", "wontfix", "duplicate"}
+        actionable = [
+            issue
+            for issue in issues
+            if not skip_labels.intersection(label["name"] for label in issue.get("labels", []))
+            and not issue.get("pull_request")  # skip PRs
+        ]
+
+        if not actionable:
+            return {"scanned": len(issues), "dispatched": 0}
+
+        # Check concurrency — don't overload the pipeline
+        max_concurrent = 3
+        queue = getattr(container, "mason_queue", None)
+        if queue is not None:
+            in_progress = len([r for r in queue.list_all() if r.get("status") == "in_progress"])
+            slots = max(0, max_concurrent - in_progress)
+            actionable = actionable[:slots]
+        else:
+            actionable = actionable[:max_concurrent]
+
+        if not actionable:
+            return {"scanned": len(issues), "dispatched": 0, "reason": "at concurrency limit"}
+
+        dispatched = 0
+        for issue in actionable:
+            issue_number = issue["number"]
+            title = issue["title"]
+            body = issue.get("body", "") or ""
+            issue_labels = {label["name"] for label in issue.get("labels", [])}
+
+            # ── Gatekeeper triage: atomic or decomposable? ──
+            # Explicit labels override heuristics
+            if "atomic" in issue_labels or "size/S" in issue_labels:
+                is_atomic = True
+            elif "epic" in issue_labels or "decompose" in issue_labels:
+                is_atomic = False
+            else:
+                # Heuristic: issues with sub-tasks (checkboxes), multiple
+                # "## " sections, or 500+ chars body likely need decomposition
+                has_checkboxes = "- [ ]" in body
+                has_sections = body.count("## ") >= 2
+                is_long = len(body) > 500
+                is_atomic = not (has_checkboxes or has_sections or is_long)
+
+            logger.info(
+                "Backlog scanner: triaging issue #%d (%s) — %s",
+                issue_number,
+                title[:60],
+                "atomic → Archie+Mason" if is_atomic else "decomposable → Quartermaster first",
+            )
+
+            # Label the issue with triage result for visibility
+            try:
+                triage_label = "atomic" if is_atomic else "needs-decomposition"
+                async with httpx.AsyncClient(timeout=15.0) as label_client:
+                    await label_client.post(
+                        f"https://api.github.com/repos/Agent-StrongHold/stronghold"
+                        f"/issues/{issue_number}/labels",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/vnd.github+json",
+                        },
+                        json={"labels": [triage_label, "in-progress"]},
+                    )
+            except Exception:
+                pass  # Labeling is best-effort
+
+            # ── Dispatch through BuilderPipeline (full chain) ──
+            # skip_decompose=True → skips Quartermaster, goes to Archie+Mason
+            # skip_decompose=False → Quartermaster decomposes into sub-issues first
+            orchestrator = getattr(container, "orchestrator", None)
+            if orchestrator is None:
+                reactor.emit(
+                    Event(
+                        name="pipeline.issue_ready",
+                        data={
+                            "issue_number": issue_number,
+                            "title": title,
+                            "repo": "Agent-StrongHold/stronghold",
+                            "atomic": is_atomic,
+                        },
+                    )
+                )
+            else:
+                from stronghold.orchestrator.pipeline import BuilderPipeline  # noqa: PLC0415
+
+                pipeline = BuilderPipeline(orchestrator)
+                try:
+                    await pipeline.execute(
+                        issue_number=issue_number,
+                        title=title,
+                        repo="Agent-StrongHold/stronghold",
+                        skip_decompose=is_atomic,
+                    )
+                except Exception as e:
+                    logger.warning("Pipeline failed for issue #%d: %s", issue_number, e)
+
+            dispatched += 1
+
+        return {"scanned": len(issues), "dispatched": dispatched}
 
     reactor.register(
         TriggerSpec(
-            name="mason_dispatch",
-            mode=TriggerMode.EVENT,
-            event_pattern=r"mason\.issue_assigned",
+            name="issue_backlog_scanner",
+            mode=TriggerMode.INTERVAL,
+            interval_secs=300,  # every 5 minutes
         ),
-        _mason_dispatch,
+        _scan_issue_backlog,
     )
 
     # 10. Mason PR review — review and improve an existing PR

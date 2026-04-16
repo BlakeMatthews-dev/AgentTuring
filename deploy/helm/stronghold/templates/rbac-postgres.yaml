@@ -1,4 +1,4 @@
-{{- if .Values.rbac.create }}
+{{- if and .Values.rbac.create .Values.postgresql.enabled }}
 # Minimal Role for the postgres StatefulSet service account.
 #
 # Postgres itself does not need any Kubernetes API access at runtime — it

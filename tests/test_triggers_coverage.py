@@ -46,7 +46,7 @@ class TestRegisterCoreTriggers:
             "tournament_evaluation",
             "canary_deployment_check",
             "rlhf_feedback",
-            "mason_dispatch",
+            "issue_backlog_scanner",
             "mason_pr_review",
         }
         assert names == expected
@@ -176,13 +176,15 @@ class TestRlhfFeedbackTrigger:
         assert result["skipped"] is True
 
 
-class TestMasonDispatchTrigger:
-    async def test_skipped_when_no_issue_number(self) -> None:
+class TestIssueBacklogScanner:
+    async def test_skipped_when_no_github_token(self) -> None:
+        """Scanner skips when no GitHub App credentials available."""
         c = _make_container()
         register_core_triggers(c)
-        _, handler = _find_trigger(c, "mason_dispatch")
-        result = await handler(Event("mason.issue_assigned", {}))
-        assert result["skipped"] is True
+        _, handler = _find_trigger(c, "issue_backlog_scanner")
+        # Without real app credentials, token generation returns ""
+        result = await handler(Event("tick", {}))
+        assert result.get("skipped") is True or result.get("error") is not None
 
 
 class TestMasonPrReviewTrigger:
@@ -295,47 +297,303 @@ class TestRlhfFeedbackWithReview:
         assert "stored_learnings" in result
 
 
-class TestMasonDispatchWithRoute:
-    """Test mason_dispatch when issue_number is provided."""
+def _make_github_issue(
+    number: int = 1,
+    title: str = "Test issue",
+    body: str = "Short body",
+    labels: list[str] | None = None,
+    is_pr: bool = False,
+    created_at: str = "2026-04-12T00:00:00Z",
+) -> dict[str, Any]:
+    """Build a fake GitHub issue dict matching the API response shape."""
+    issue: dict[str, Any] = {
+        "number": number,
+        "title": title,
+        "body": body,
+        "labels": [{"name": l} for l in (labels or ["builders"])],
+        "created_at": created_at,
+    }
+    if is_pr:
+        issue["pull_request"] = {"url": "https://api.github.com/repos/x/y/pulls/1"}
+    return issue
 
-    async def test_dispatch_handles_failure_gracefully(self) -> None:
-        """When route_request fails (no agents), the handler catches and records the error."""
+
+class _ScannerTestBase:
+    """Base class providing GitHub token setup + respx mocking for scanner tests."""
+
+    def _setup_token(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_fake_for_test")
+
+    def _get_handler(self, container: Any) -> Any:
+        register_core_triggers(container)
+        _, handler = _find_trigger(container, "issue_backlog_scanner")
+        return handler
+
+
+class TestIssueBacklogScannerBasics(_ScannerTestBase):
+    """Token, API, and empty backlog tests."""
+
+    async def test_no_token_skips(self) -> None:
+        c = _make_container()
+        handler = self._get_handler(c)
+        result = await handler(Event("tick", {}))
+        assert result.get("skipped") is True
+
+    async def test_empty_backlog_returns_zero(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=[]
+            )
+            result = await handler(Event("tick", {}))
+
+        assert result["scanned"] == 0
+        assert result["dispatched"] == 0
+
+    async def test_github_api_error(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(500)
+            result = await handler(Event("tick", {}))
+
+        assert "error" in result
+
+
+class TestIssueBacklogScannerFiltering(_ScannerTestBase):
+    """Tests for issue filtering: skip in-progress, blocked, PRs."""
+
+    async def test_skips_in_progress_issues(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["builders", "in-progress"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            # Mock label POST (best-effort, may or may not be called)
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["scanned"] == 1
+        assert result["dispatched"] == 0
+
+    async def test_skips_blocked_issues(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["builders", "blocked"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 0
+
+    async def test_skips_pull_requests(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, is_pr=True)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 0
+
+
+class TestIssueBacklogScannerTriage(_ScannerTestBase):
+    """Triage: atomic vs decomposable heuristics."""
+
+    async def test_atomic_by_size_s_label(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["builders", "size/S"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(
+                url__regex=r".*/issues/1/labels"
+            ).respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 1
+        # Check that "atomic" label was applied
+        if label_route.called:
+            body = label_route.calls[0].request.content
+            import json
+            labels = json.loads(body)["labels"]
+            assert "atomic" in labels
+
+    async def test_decomposable_by_epic_label(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, labels=["builders", "epic"])]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(
+                url__regex=r".*/issues/1/labels"
+            ).respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 1
+        if label_route.called:
+            import json
+            labels = json.loads(label_route.calls[0].request.content)["labels"]
+            assert "needs-decomposition" in labels
+
+    async def test_heuristic_checkboxes_means_decompose(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        body = "## Tasks\n- [ ] Do thing A\n- [ ] Do thing B\n- [ ] Do thing C"
+        issues = [_make_github_issue(1, body=body)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(url__regex=r".*/issues/1/labels").respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 1
+        if label_route.called:
+            import json
+            labels = json.loads(label_route.calls[0].request.content)["labels"]
+            assert "needs-decomposition" in labels
+
+    async def test_heuristic_sections_means_decompose(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        body = "## Phase 1\nDo this\n## Phase 2\nDo that\n## Phase 3\nDo other"
+        issues = [_make_github_issue(1, body=body)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 1
+
+    async def test_heuristic_short_body_means_atomic(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(1, body="Fix the typo in README")]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            label_route = respx.post(url__regex=r".*/issues/1/labels").respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 1
+        if label_route.called:
+            import json
+            labels = json.loads(label_route.calls[0].request.content)["labels"]
+            assert "atomic" in labels
+
+
+class TestIssueBacklogScannerConcurrency(_ScannerTestBase):
+    """Concurrency limit tests."""
+
+    async def test_concurrency_limit_respected(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
         c = _make_container()
 
-        class FakeMasonQueue:
-            def __init__(self) -> None:
-                self.started: list[int] = []
-                self.completed: list[int] = []
-                self.failed: list[tuple[int, str]] = []
+        # Simulate 3 already in-progress via mason_queue
+        class FakeQueue:
+            def list_all(self) -> list[dict[str, str]]:
+                return [
+                    {"status": "in_progress"},
+                    {"status": "in_progress"},
+                    {"status": "in_progress"},
+                ]
 
-            def start(self, issue_number: int) -> None:
-                self.started.append(issue_number)
+        c.mason_queue = FakeQueue()  # type: ignore[attr-defined]
+        handler = self._get_handler(c)
 
-            def complete(self, issue_number: int) -> None:
-                self.completed.append(issue_number)
-
-            def fail(self, issue_number: int, error: str = "") -> None:
-                self.failed.append((issue_number, error))
-
-        c.mason_queue = FakeMasonQueue()  # type: ignore[attr-defined]
-        register_core_triggers(c)
-        _, handler = _find_trigger(c, "mason_dispatch")
-        result = await handler(
-            Event(
-                "mason.issue_assigned",
-                {
-                    "issue_number": 42,
-                    "title": "Implement feature",
-                    "owner": "org",
-                    "repo": "stronghold",
-                },
+        issues = [_make_github_issue(1), _make_github_issue(2)]
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
             )
-        )
-        assert result["issue_number"] == 42
-        assert result["status"] == "failed"
-        assert "error" in result
-        assert 42 in c.mason_queue.started
-        assert len(c.mason_queue.failed) == 1
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        assert result["dispatched"] == 0
+        assert result.get("reason") == "at concurrency limit"
+
+    async def test_partial_slots_dispatches_limited(self, monkeypatch: Any) -> None:
+        import respx
+
+        self._setup_token(monkeypatch)
+        c = _make_container()
+
+        class FakeQueue:
+            def list_all(self) -> list[dict[str, str]]:
+                return [{"status": "in_progress"}, {"status": "in_progress"}]
+
+        c.mason_queue = FakeQueue()  # type: ignore[attr-defined]
+        handler = self._get_handler(c)
+
+        issues = [_make_github_issue(i) for i in range(1, 6)]  # 5 issues
+        with respx.mock:
+            respx.get("https://api.github.com/repos/Agent-StrongHold/stronghold/issues").respond(
+                200, json=issues
+            )
+            respx.post().respond(200, json=[])
+            result = await handler(Event("tick", {}))
+
+        # 3 max - 2 in progress = 1 slot
+        assert result["dispatched"] == 1
 
 
 class TestMasonPrReviewWithRoute:

@@ -1,0 +1,63 @@
+# values-dev.yaml
+#
+# Development overlay — single-replica, relaxed security, higher concurrency.
+# Layer on top of a cloud overlay (values-aks.yaml, values-vanilla-k8s.yaml).
+#
+# Usage:
+#   helm install stronghold deploy/helm/stronghold \
+#     -f values-vanilla-k8s.yaml \
+#     -f values-aks.yaml \
+#     -f values-dev.yaml
+
+# --- Disable HA / cost-saving overrides ---------------------------------------
+
+# Single replicas everywhere (spot builders stays KEDA-controlled)
+strongholdApi:
+  replicas: 1
+  resources:
+    limits:
+      memory: 2Gi  # Extra headroom for dev debugging
+
+litellmProxy:
+  replicas: 1
+
+phoenixSvc:
+  replicas: 1
+
+# Disable HPA — fixed replicas in dev
+autoscaling:
+  strongholdApi:
+    enabled: false
+  litellm:
+    enabled: false
+
+# Disable PDBs — single replicas make PDBs useless
+podDisruptionBudgets:
+  enabled: false
+
+# Disable network policies — dev clusters rarely have Calico/Cilium
+networkPolicy:
+  enabled: false
+
+# Disable vault
+vault:
+  enabled: false
+
+# --- In-cluster postgres fallback (for local dev without Flexible Server) -----
+# Override postgresql.enabled: true if you want in-cluster postgres locally.
+# This caps memory since dev workloads share a smaller node.
+postgresql:
+  resources:
+    limits:
+      memory: 1Gi
+
+# --- Higher concurrency for faster dev iteration -----------------------------
+# Override in deployment env — see deployment-stronghold.yaml template.
+# Not yet wired as a values key, so set via:
+#   --set strongholdApi.extraEnv[0].name=STRONGHOLD_MAX_CONCURRENCY \
+#   --set strongholdApi.extraEnv[0].value="10"
+
+# --- Builders (keep warm slot, spot stays KEDA-controlled) --------------------
+builders:
+  replicas: 1
+  maxConcurrency: 10

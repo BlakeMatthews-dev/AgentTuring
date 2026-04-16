@@ -85,6 +85,7 @@ class Container:
     coin_ledger: Any = None
     tournament: Any = None
     canary_manager: Any = None
+    orchestrator: Any = None  # OrchestratorEngine, set in app.py lifespan
     learning_approval_gate: Any = None
     learning_promoter: Any = None
     strike_tracker: Any = None  # InMemoryStrikeTracker

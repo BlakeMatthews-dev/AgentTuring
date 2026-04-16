@@ -1,0 +1,122 @@
+{{- if .Values.builders.enabled }}
+# Stronghold Builders Deployment — always-warm slot for heavy agents.
+#
+# Runs Mason, Frank, Auditor, Archie, Quartermaster, and Gatekeeper
+# pipeline stages. Same image as stronghold-api, but sized for subprocess
+# spawning (pytest, mypy, ruff) and mounted with a /workspace PVC for
+# git worktrees.
+#
+# Per ADR-K8S-014 builders are P5 (lowest eviction priority).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stronghold.fullname" . }}-builders
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-builders
+    stronghold.io/priority-tier: P5
+spec:
+  replicas: {{ .Values.builders.replicas }}
+  selector:
+    matchLabels:
+      {{- include "stronghold.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: stronghold-builders
+  template:
+    metadata:
+      labels:
+        {{- include "stronghold.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: stronghold-builders
+        stronghold.io/priority-tier: P5
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-stronghold.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "stronghold.serviceAccountName.strongholdApi" . }}
+      automountServiceAccountToken: true
+      priorityClassName: {{ include "stronghold.priorityClassName" (dict "tier" "P5" "root" .) }}
+      {{- with .Values.builders.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.builders.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: false  # TODO: fix images to run as non-root
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: stronghold-builders
+          image: {{ include "stronghold.image" (dict "image" .Values.builders.image "root" .) }}
+          imagePullPolicy: {{ include "stronghold.imagePullPolicy" (dict "image" .Values.builders.image) }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.strongholdApi.containerPort }}
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ include "stronghold.fullname" . }}-postgres:{{ .Values.postgresql.containerPort }}/$(POSTGRES_DB)
+            - name: LITELLM_URL
+              value: http://{{ include "stronghold.fullname" . }}-litellm:{{ .Values.litellmProxy.containerPort }}
+            - name: PHOENIX_COLLECTOR_ENDPOINT
+              value: http://{{ include "stronghold.fullname" . }}-phoenix:{{ .Values.phoenixSvc.containerPort }}
+            - name: STRONGHOLD_CONFIG
+              value: {{ .Values.strongholdApi.config.strongholdConfigPath | quote }}
+            - name: STRONGHOLD_MAX_CONCURRENCY
+              value: {{ .Values.builders.maxConcurrency | default 3 | quote }}
+            - name: STRONGHOLD_WORKSPACE
+              value: /workspace
+          envFrom:
+            - secretRef:
+                name: {{ if .Values.postgresql.existingSecret }}{{ .Values.postgresql.existingSecret }}{{ else }}{{ include "stronghold.fullname" . }}-postgres-credentials{{ end }}
+          {{- with .Values.builders.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.builders.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false  # TODO: fix images to run as non-root
+            readOnlyRootFilesystem: false  # Mason writes to /workspace
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "stronghold.fullname" . }}-config
+        - name: workspace
+          {{- if .Values.builders.workspacePvcName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.builders.workspacePvcName }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 2Gi
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}

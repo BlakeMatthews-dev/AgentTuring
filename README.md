@@ -14,6 +14,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
 The initial commit (March 25, 2026) established the security-first architecture with 481 files — the Warden/Gate/Sentinel stack, 6-agent roster, scarcity-based model routing, and self-improving memory — informed by Maistro's and Conductor's battle-tested patterns but redesigned for zero-trust from the ground up.
 
+## Research
+
+**Project Touring** (`research/project-touring`) is a separate research track — not wired into `src/`, not part of the enterprise governance roadmap. It explores what the 7-tier episodic memory model becomes when extended into an *autonoetic* (self-knowing) reasoning layer built on top of the Arbiter. The thesis: the seven tiers are already an autonoetic gradient, and what's missing is the self as a first-class indexed entity. Lineage traces to CoinSwarm's start in November 2025.
+
+Read the design at [`research/project-touring/DESIGN.md`](https://github.com/Agent-StrongHold/stronghold/blob/research/project-touring/research/project-touring/DESIGN.md) on the `research/project-touring` branch. Nothing on that branch is deployed or deployable; findings may or may not feed back to `main`.
+
 ## Timeline
 
 | Date | Milestone |

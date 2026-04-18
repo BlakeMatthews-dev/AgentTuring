@@ -1,0 +1,52 @@
+# values-integration.yaml
+#
+# Integration-environment overlay for the k3s cluster (10.10.42.31).
+# Composed on top of values.yaml + values-vanilla-k8s.yaml.
+# Image tag is supplied separately by values-integration-image.yaml,
+# which CI (.github/workflows/deploy.yml) bumps on every push to integration.
+#
+# Footprint is intentionally smaller than production (single replica,
+# autoscaling off) so multiple integration revisions can coexist on the
+# same cluster without resource contention.
+
+openshift:
+  enabled: false
+
+namespace:
+  create: false
+  name: stronghold-integration
+
+priorityClasses:
+  create: true
+
+rbac:
+  create: true
+
+extraNamespaces:
+  create: true
+
+networkPolicy:
+  enabled: true
+
+ingressRoutes:
+  enabled: false
+
+# Dev-mode shared-PAT for the github-mcp template is acceptable in the
+# integration env (single-tenant). Production sets devMode: false.
+mcp:
+  github:
+    devMode: true
+
+image:
+  repository: ghcr.io/agent-stronghold/stronghold
+  pullPolicy: Always
+
+strongholdApi:
+  replicas: 1
+  image:
+    registry: ghcr.io
+    repository: agent-stronghold/stronghold
+    pullPolicy: Always
+
+autoscaling:
+  enabled: false

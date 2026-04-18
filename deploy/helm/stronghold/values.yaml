@@ -22,6 +22,10 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Vault sidecar (disabled by default; enabled per-environment for prod overlays)
+vault:
+  enabled: false
+
 # PostgreSQL (bundled or external)
 postgresql:
   enabled: true

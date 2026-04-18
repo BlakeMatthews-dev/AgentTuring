@@ -22,6 +22,13 @@ ingress:
           pathType: Prefix
   tls: []
 
+# OpenBao / HashiCorp Vault (per-user credential vault — ADR-K8S-018).
+# Off by default; the full deployment arrives with #957 (OpenBao Helm subchart).
+# This block must exist (even disabled) because templates/vault-deployment.yaml
+# references `.Values.vault.enabled` — absent map = helm lint nil-pointer error.
+vault:
+  enabled: false
+
 # PostgreSQL (bundled or external)
 postgresql:
   enabled: true

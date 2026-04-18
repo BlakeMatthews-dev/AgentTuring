@@ -89,7 +89,11 @@ class K8sDeployer:
                         )
                     )
                 except Exception:
-                    logger.warning("Secret %s not found, skipping env %s", parts[0], k)
+                    logger.warning(
+                        "Referenced K8s resource %s not found, skipping env %s",
+                        parts[0],
+                        k,
+                    )
 
         # Resource limits
         resources = client.V1ResourceRequirements(

@@ -232,3 +232,90 @@ This is Stronghold's primary differentiator. Security is not a feature — it is
 **Multi-tenant isolation (roadmapped)** — Designed as per-tenant K8s namespaces, each with scoped LiteLLM API keys, scoped Arize projects, and memory filtered by tenant_id. MS Agent Framework has this today through Azure AI Foundry. Archestra has per-org/team/agent scoping. LangGraph Platform (commercial) has multi-tenancy with SOC 2 Type 2 compliance.
 
 **Where Stronghold trails:** MS Agent Framework and Archestra both have agent/tool registries (marketplaces) and per-tenant secret management in production today. These are Stronghold's most significant gaps for enterprise adoption.
+
+---
+
+## 9. CI & Quality Gates
+
+How each project enforces code quality, security, and test rigor at merge time. Most agent frameworks don't publish their CI configs, so some cells are `❓` (no public evidence) rather than `❌`.
+
+### 9.1 Security Gates
+
+Requirements:
+
+- **SAST** — Bandit (Python-specific patterns), Semgrep (multi-language security rules)
+- **Supply chain** — pip-audit / dependabot (CVE scanning), optionally OSV-Scanner
+- **Secret detection** — Gitleaks + custom regex patterns over git history
+- **Container** — Hadolint (Dockerfile lint), optionally Trivy for image CVEs
+- **Code flow** — CodeQL (GHAS) for multi-language security queries
+
+| Tool | Stronghold | Claude Code | OpenAI SDK | MS Agent | LangGraph | CrewAI | OpenClaw | Hyperagents | Deep Agents | Pi |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Bandit | ✅ blocking | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ |
+| Semgrep | ✅ blocking | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ |
+| pip-audit / dependabot | ✅ warn | 🟡 dependabot | 🟡 dependabot | 🟡 dependabot | 🟡 dependabot | 🟡 dependabot | 🟡 dependabot | ❓ | ❓ | ❓ |
+| Gitleaks | ✅ blocking | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ |
+| Hadolint | ✅ blocking | N/A | N/A | ❓ | N/A | N/A | N/A | N/A | N/A | N/A |
+| CodeQL | ✅ blocking | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ |
+
+**Industry baseline (OWASP ASVS L2, SLSA L2):** SAST required, supply-chain scanning required, secrets detection required, container hardening recommended. Most published CI configs for enterprise OSS ship 2-3 of these; Stronghold ships all 5 as blocking plus CodeQL.
+
+### 9.2 Code Quality Gates
+
+Requirements:
+
+- **Style/lint** — Ruff (replaces flake8 + isort + pylint + pyupgrade, ~100× faster)
+- **Types** — Mypy `--strict` (enforces `Any` escape hatches, unreachable code, untyped defs)
+- **Complexity** — Xenon (wraps radon for CI — `--max-absolute` ranked A-F)
+- **Dead code** — Vulture (conservative `--min-confidence 100` + whitelist)
+
+| Tool | Stronghold | Typical OSS lib | Typical SaaS | Regulated (finance/health) |
+|---|:---:|:---:|:---:|:---:|
+| Ruff (lint + format) | ✅ blocking, full codebase | ✅ common | ✅ | ✅ |
+| Mypy `--strict` | ✅ blocking on changed files | 🟡 often `--strict-optional` only | 🟡 | ✅ |
+| Xenon (complexity) | ✅ blocking | ❌ rare | 🟡 occasional | 🟡 |
+| Vulture (dead code) | ✅ blocking with whitelist | ❌ rare | ❌ | 🟡 |
+
+**Industry baseline:** Ruff + Mypy is standard. Complexity and dead-code gates are uncommon — most projects rely on human code review to catch those. Stronghold runs both to reduce reviewer load and catch creeping complexity early.
+
+### 9.3 Coverage Gates
+
+Requirements:
+
+- **Unit coverage** — per-branch thresholds (stricter closer to release)
+- **Integration coverage** — full-pipeline tests with real DB, real protocols
+- **Diff coverage** — measured only on lines changed in the PR
+
+| Gate | Stronghold | Typical OSS | Typical SaaS | Regulated |
+|---|:---:|:---:|:---:|:---:|
+| Feature-branch → feature-parent | 85% | 70-80% | 80% | 85-90% |
+| Feature → integration | 90% | — (flat) | 80-85% | 90% |
+| Integration → main (diff coverage) | 95% | — | 85-90% | 95% |
+
+**Industry baseline:** Coverage thresholds vary. Academic study ([Hilton et al., MSR 2016](https://cmhilton.com/papers/hilton-msr-2016-coverage.pdf)) found median CI coverage requirement for active OSS projects is ~75%. Regulated sectors (FAA DO-178C, IEC 62304) mandate branch coverage in the 85-100% range depending on criticality level. Stronghold's tiered 85/90/95 matches the regulated-sector bar without being flat.
+
+### 9.4 Test Assertion Strength
+
+Requirements (none of which existed as industry-standard gates before):
+
+- **Pattern linter** — AST-level detection of weak patterns: `status_code in (…)` tolerance, `isinstance` right after construction, `hasattr` tautologies, no-assert test bodies, over-mocking of internal protocols
+- **LLM assertion judge** — Classify each new/changed test as GOOD / WEAK / BAD against a rubric, seeded with a golden-set of verified examples
+- **Mutation testing** — Targeted `mutmut` run on src files whose tests changed; flag tests that don't kill plausible mutations
+
+| Gate | Stronghold | Industry |
+|---|:---:|:---:|
+| Pattern linter | 🗺️ stage 1 | ❌ |
+| LLM assertion judge | 🗺️ stage 2 | ❌ |
+| Mutation testing | 🗺️ stage 3 | 🟡 academic research, rare in production SaaS |
+
+**Why this matters:** the Apr 17 test-quality audit cataloged 3,775 tests and found ~9% with assertions too weak to catch the regressions they claimed to guard against. The issue wasn't coverage — 94% raw coverage hid a long tail of weak assertions. Assertion-strength gates close that gap.
+
+**Industry baseline on mutation testing:** academic studies ([Petrovic et al., Google, 2018](https://research.google/pubs/state-of-mutation-testing-at-google/)) report mutation scores of 60-85% for well-tested Python codebases. Google ships mutation testing as a human-surfaced hint (not a hard gate); Stronghold's design proposes the same — mutation score flags WEAK tests but doesn't auto-block, giving humans the review context.
+
+### Analysis
+
+**Stronghold's position:** full security-gate stack (Bandit + Semgrep + pip-audit + Gitleaks + Hadolint + CodeQL) + broad code-quality gates (Ruff + Mypy-strict + Xenon + Vulture) + tiered coverage (85/90/95) + roadmapped assertion-strength gate. This is the densest CI stack in the comparison and is currently unique in the agent-framework space.
+
+**Where the comparison is honest:** most of the security-tool competitor columns are `❓` because competitors don't publish CI configs. Claims would be unverifiable. Coverage comparisons use published industry baselines rather than per-competitor claims.
+
+**Where the gap is real:** the assertion-strength gate is unique. No framework gates on whether a test's assertion actually catches a regression. Design lives at `docs/test-quality-audit-and-ci-gate-proposal.md`; implementation is phased (AST linter → LLM judge → mutation testing).

@@ -70,6 +70,23 @@ jobs:
         if: steps.changed.outputs.files != ''
         run: bandit ${{ steps.changed.outputs.files }} -ll -q --skip B608
 
+      # Quality gates (issue #1035, #1036 — CI debt closeout)
+
+      - name: "Xenon complexity (warn-only baseline)"
+        # Rationale (#1036): current state has rank-E blocks (skills/fixer.py)
+        # and rank-D modules (agents/base.py, api/routes/admin.py). Shipping
+        # as warn-only for v1 rollout so CI goes green on merge; follow-up
+        # refactors will progressively tighten to --max-absolute C, then B.
+        # This mirrors pip-audit (also warn-only) and the staged rollout
+        # pattern in docs/test-quality-audit-and-ci-gate-proposal.md.
+        run: xenon --max-absolute C --max-modules C --max-average C src/stronghold/ || true
+
+      - name: "Vulture dead-code (min confidence 100)"
+        # Rationale (#1035): Protocol method parameters are "unused" by definition.
+        # .vulture_whitelist.py references them to suppress the false positives
+        # while still catching real dead code (unused helpers, imports, classes).
+        run: vulture src/stronghold/ .vulture_whitelist.py --min-confidence 100
+
   security:
     name: Security Tests
     runs-on: k3s-runners
@@ -123,6 +140,37 @@ jobs:
 
       - name: "pip-audit (dependency CVEs)"
         run: pip-audit --strict --desc 2>&1 || true
+
+      # New security gates (issue #1034, #1032, #1038 — CI debt closeout)
+
+      - name: "Semgrep SAST (Flask + Python + secrets rulesets, blocking)"
+        # Rationale (#1038): Semgrep surfaced 5 logger-credential-disclosure
+        # findings + 1 Flask format-string vulnerability that Bandit missed.
+        # Run the three rulesets that caught real issues.
+        run: semgrep --config p/flask --config p/secrets --config p/python --error --skip-unknown-extensions src/stronghold/
+
+      - name: "Gitleaks (blocking, with .gitleaks.toml allowlist)"
+        # Rationale (#1034): doc examples in scan-report.js were false-positives.
+        # .gitleaks.toml allowlists the dashboard file and test fixtures.
+        run: |
+          if ! command -v gitleaks >/dev/null; then
+            GITLEAKS_VERSION=8.21.2
+            curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+              | sudo tar -xz -C /usr/local/bin gitleaks
+          fi
+          gitleaks detect --config=.gitleaks.toml --source=. --no-banner --exit-code=1
+
+      - name: "Hadolint (Dockerfile, blocking)"
+        # Rationale (#1032): DL3008 (pin apt versions) ignored inline — git version
+        # pinning would rot faster than CI can update.
+        run: |
+          if ! command -v hadolint >/dev/null; then
+            HADOLINT_VERSION=2.14.0
+            sudo curl -sSL -o /usr/local/bin/hadolint \
+              "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+            sudo chmod +x /usr/local/bin/hadolint
+          fi
+          hadolint Dockerfile
 
       - name: "Secret detection (hardcoded keys, tokens, passwords)"
         run: |

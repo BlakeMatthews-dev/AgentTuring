@@ -49,6 +49,9 @@ dev = [
     "diff-cover>=9.0.0",
     "fakeredis>=2.20.0",
     "aiosqlite>=0.20.0",
+    "xenon>=0.9.0",
+    "vulture>=2.11",
+    "semgrep>=1.80.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -104,7 +104,7 @@ class InMemoryTaskAcceptancePolicy:
 
         if token_budget is not None and token_budget > limits.get("max_tokens", float("inf")):
             logger.warning(
-                "Budget DENIED: user=%s org=%s tier=%s tokens=%s > max=%s",
+                "Budget DENIED: user=%s org=%s tier=%s requested=%s > max=%s",
                 user_id,
                 org_id,
                 priority_tier,

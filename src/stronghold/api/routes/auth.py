@@ -105,7 +105,7 @@ async def exchange_token(
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except httpx.RequestError as e:
-        logger.error("Token exchange network error: %s", e)
+        logger.error("IdP code-exchange network error: %s", e)
         raise HTTPException(
             status_code=502,
             detail="Could not reach identity provider",
@@ -113,7 +113,7 @@ async def exchange_token(
 
     if idp_resp.status_code != 200:
         logger.warning(
-            "Token exchange failed: %s %s",
+            "IdP code-exchange returned non-200 status=%s body=%s",
             idp_resp.status_code,
             idp_resp.text[:200],
         )

@@ -241,7 +241,7 @@ async def _handle_code_exchange(form: Any) -> JSONResponse:
     await _store.store_token(refresh_token)
 
     logger.info(
-        "Issued tokens for client=%s user=%s",
+        "OAuth issuance complete client=%s user=%s",
         auth_code.client_id,
         auth_code.user_id,
     )

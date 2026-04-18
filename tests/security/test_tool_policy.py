@@ -24,13 +24,20 @@ from tests.fakes import FakeToolPolicy
 
 class TestFakeToolPolicy:
     def test_satisfies_protocol(self) -> None:
-        """FakeToolPolicy structurally matches ToolPolicyProtocol.
+        """FakeToolPolicy exposes every Protocol method as callable.
 
-        This is the @runtime_checkable structural check - it catches a
-        drift bug where the fake loses a method after the protocol is
-        extended.
+        Replaces the ``isinstance`` structural check — ``@runtime_checkable``
+        only verifies attribute presence, not callability. Explicit
+        ``callable`` checks catch the drift bug the old test targeted
+        (a method replaced with a non-callable attribute).
         """
-        assert isinstance(FakeToolPolicy(), ToolPolicyProtocol)
+        fake = FakeToolPolicy()
+        for name in ("check_tool_call", "check_task_creation"):
+            attr = getattr(fake, name, None)
+            assert callable(attr), f"{name} must be callable on FakeToolPolicy"
+        # Behavioural smoke: default policy allows tool calls and task creation.
+        assert fake.check_tool_call("u", "o", "t") is True
+        assert fake.check_task_creation("u", "o", "a") is True
 
     def test_protocol_rejects_incomplete_impl(self) -> None:
         """Negative control: a bare class missing policy methods fails the check."""
@@ -111,8 +118,11 @@ class TestCasbinToolPolicy:
             "p, *, *, *, task_create, allow",
         ])
         tp = CasbinToolPolicy(model, policy)
-        assert isinstance(tp, ToolPolicyProtocol)
-        # Behavioral probe: both methods must return a bool matching the rule
+        # Structural contract: every Protocol method is callable.
+        for name in ("check_tool_call", "check_task_creation"):
+            attr = getattr(tp, name, None)
+            assert callable(attr), f"{name} must be callable on CasbinToolPolicy"
+        # Behavioral probe: both methods must return a bool matching the rule.
         assert tp.check_tool_call("u", "o", "t") is True
         assert tp.check_task_creation("u", "o", "a") is True
 

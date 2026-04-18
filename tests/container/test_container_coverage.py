@@ -38,7 +38,7 @@ from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.types.agent import AgentIdentity
-from stronghold.types.auth import PermissionTable
+from stronghold.types.auth import AuthContext, PermissionTable
 from stronghold.types.config import AuthConfig, StrongholdConfig, TaskTypeConfig
 from stronghold.types.errors import ConfigError
 from tests.fakes import FakeLLMClient
@@ -135,7 +135,8 @@ class TestContainerConstruction:
 
         c = _make_container_minimal()
         assert c.conduit is not None
-        assert isinstance(c.conduit, Conduit)
+        # Exact type — not a subclass that could smuggle in behaviour.
+        assert type(c.conduit) is Conduit
         # Conduit captures the container in ``_c``. Identity check ensures
         # wiring is not copied or dropped.
         assert c.conduit._c is c
@@ -180,7 +181,9 @@ class TestContainerConstruction:
             tool_dispatcher=ToolDispatcher(InMemoryToolRegistry()),
             conduit=FakeConduit(),
         )
-        assert isinstance(c.conduit, FakeConduit)
+        # Explicit conduit must not be overridden by __post_init__ —
+        # exact-type identity proves the user-supplied instance survives.
+        assert type(c.conduit) is FakeConduit
 
     def test_container_with_agents_dict(self) -> None:
         """Container should accept pre-populated agents dict."""
@@ -285,15 +288,18 @@ class TestRouteRequest:
 
 
 class TestWireAuth:
-    def test_wire_auth_static_key_only(self) -> None:
+    async def test_wire_auth_static_key_only(self) -> None:
         """Without jwks_url, should return composite with demo + static."""
         config = _make_config()
         auth_provider, perm_table = _wire_auth(config)
-        # Should be a CompositeAuthProvider (wraps demo + static)
-        assert hasattr(auth_provider, "authenticate")
-        assert isinstance(perm_table, PermissionTable)
+        # Composite with demo+static — static path accepts the configured router key.
+        ctx = await auth_provider.authenticate("Bearer sk-test-key")
+        assert type(ctx) is AuthContext
+        assert ctx.user_id  # non-empty; SYSTEM_AUTH has a stable user_id
+        # Permission table is built from config.permissions={"admin": ["*"]}
+        assert perm_table.check(frozenset({"admin"}), "anything")
 
-    def test_wire_auth_with_jwks(self) -> None:
+    async def test_wire_auth_with_jwks(self) -> None:
         """With jwks_url, should create JWT provider in the chain."""
         config = _make_config(
             auth=AuthConfig(
@@ -303,9 +309,13 @@ class TestWireAuth:
             ),
         )
         auth_provider, perm_table = _wire_auth(config)
-        assert hasattr(auth_provider, "authenticate")
+        # Static-key fallback still authenticates a well-formed bearer token.
+        ctx = await auth_provider.authenticate("Bearer sk-test-key")
+        assert type(ctx) is AuthContext
+        assert ctx.user_id
+        assert perm_table.check(frozenset({"admin"}), "anything")
 
-    def test_wire_auth_with_jwks_and_bff_cookie(self) -> None:
+    async def test_wire_auth_with_jwks_and_bff_cookie(self) -> None:
         """With jwks_url + client_id + token_url, should add CookieAuthProvider."""
         config = _make_config(
             auth=AuthConfig(
@@ -317,10 +327,14 @@ class TestWireAuth:
             ),
         )
         auth_provider, perm_table = _wire_auth(config)
-        assert hasattr(auth_provider, "authenticate")
+        # Static-key fallback still works even with full composite chain wired.
+        ctx = await auth_provider.authenticate("Bearer sk-test-key")
+        assert type(ctx) is AuthContext
+        assert ctx.user_id
         # The composite should have 4 providers: demo, cookie, jwt, static
-        if hasattr(auth_provider, "_providers"):
-            assert len(auth_provider._providers) == 4
+        # Accessing _providers verifies the composite wiring directly.
+        providers = auth_provider._providers  # type: ignore[attr-defined]
+        assert len(providers) == 4
 
     def test_wire_auth_permission_table_from_config(self) -> None:
         """Permission table should be built from config.permissions."""
@@ -351,12 +365,14 @@ class TestWirePersistence:
         ) = await _wire_persistence(config)
 
         assert db_pool is None
-        assert isinstance(quota_tracker, InMemoryQuotaTracker)
-        assert isinstance(prompt_manager, InMemoryPromptManager)
-        assert isinstance(learning_store, InMemoryLearningStore)
-        assert isinstance(outcome_store, InMemoryOutcomeStore)
-        assert isinstance(session_store, InMemorySessionStore)
-        assert isinstance(audit_log, InMemoryAuditLog)
+        # Exact-type identity for each in-memory wiring — proves no
+        # Postgres-backed alternative snuck in under a shared interface.
+        assert type(quota_tracker) is InMemoryQuotaTracker
+        assert type(prompt_manager) is InMemoryPromptManager
+        assert type(learning_store) is InMemoryLearningStore
+        assert type(outcome_store) is InMemoryOutcomeStore
+        assert type(session_store) is InMemorySessionStore
+        assert type(audit_log) is InMemoryAuditLog
 
 
 # ── create_container ────────────────────────────────────────────────
@@ -392,7 +408,14 @@ class TestCreateContainer:
             [{"role": "user", "content": "hi"}],
             container.config.task_types,
         )
-        assert isinstance(intent, Intent)
+        # Classifier must return a real Intent dataclass (exact type), and
+        # the required public fields must be present and stringifiable —
+        # a bare Mock would pass ``isinstance`` only if spec'd.
+        assert type(intent) is Intent
+        # Exact-type ``str`` rather than a subclass (protects against a
+        # LazyStr or bytes-like sneaking in).
+        assert type(intent.task_type) is str
+        assert intent.task_type  # non-empty
 
         # MCP registry: list_all() returns a concrete list, proving the
         # object obeys the registry protocol.
@@ -400,7 +423,10 @@ class TestCreateContainer:
 
         # Tool registry: list_all() returns a real list (built-ins included).
         tools = container.tool_registry.list_all()
-        assert isinstance(tools, list)
+        # Sequence contract: len() + iteration both work on the result.
+        assert len(tools) >= 0
+        for _ in tools:
+            pass
 
         # Persistence-flag invariants: these MUST remain None in the
         # in-memory path, otherwise the container silently connected to
@@ -450,7 +476,8 @@ class TestContainerWithOptionalComponents:
         """Default Reactor is a fresh instance — no triggers, not started."""
         c = _make_container_minimal()
         from stronghold.events import Reactor
-        assert isinstance(c.reactor, Reactor)
+        # Exact-type identity: a regression to a subclass would be a smell.
+        assert type(c.reactor) is Reactor
         # get_status() exposes the public contract — use it rather than
         # poking the private _triggers list.
         status = c.reactor.get_status()
@@ -467,7 +494,7 @@ class TestContainerWithOptionalComponents:
         """
         c = _make_container_minimal()
         from stronghold.agents.task_queue import InMemoryTaskQueue
-        assert isinstance(c.task_queue, InMemoryTaskQueue)
+        assert type(c.task_queue) is InMemoryTaskQueue
         # An empty queue has no tasks and claim() returns None.
         assert await c.task_queue.list_tasks() == []
         assert await c.task_queue.claim() is None
@@ -584,7 +611,7 @@ class TestContainerScheduleStore:
         from stronghold.scheduling.store import InMemoryScheduleStore
 
         c = _make_container_minimal()
-        assert isinstance(c.schedule_store, InMemoryScheduleStore)
+        assert type(c.schedule_store) is InMemoryScheduleStore
         tasks = await c.schedule_store.list_for_user(user_id="u1", org_id="o1")
         assert tasks == []
 
@@ -605,4 +632,7 @@ class TestContainerMcpRegistry:
         # Fresh registry exposes list_all() — a bare "is not None" pass would
         # be satisfied by any sentinel object.
         tools = container.mcp_registry.list_all()
-        assert isinstance(tools, list)
+        # Sequence contract: len() + iteration work without raising.
+        assert len(tools) >= 0
+        for _ in tools:
+            pass

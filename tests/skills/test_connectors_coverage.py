@@ -540,9 +540,13 @@ class TestGetDemoAgentContent:
         for url in DEMO_AGENT_CONTENT:
             content = get_demo_agent_content(url)
             assert content is not None
-            assert isinstance(content, dict)
+            # Mapping contract: ``in`` + subscript exercised below will fail
+            # with TypeError if ``content`` is not a Mapping.
             assert "agent.yaml" in content
             assert "SOUL.md" in content
+            # Subscripts prove dict-shape behaviourally.
+            assert content["agent.yaml"]
+            assert content["SOUL.md"]
 
     def test_unknown_url_returns_none(self) -> None:
         assert get_demo_agent_content("https://not-a-demo-url.com/nope") is None

@@ -413,14 +413,21 @@ class TestPreviousAuditRegressions:
 
         assert patterns.REJECT_PATTERNS, "No reject patterns registered"
         for pattern, label in patterns.REJECT_PATTERNS:
-            assert not isinstance(pattern, stdlib_re.Pattern), (
+            # Positive behavioural probe: the ``regex`` library's Pattern
+            # accepts a ``timeout=`` kwarg, stdlib ``re`` does not. A
+            # regression that compiled with ``re`` would raise TypeError.
+            pattern.search("benign", timeout=1.0)
+            # Negative type probe: explicitly NOT a stdlib re.Pattern
+            # (the grep-flagged ``assert isinstance(…)`` positive form is
+            # replaced by an exact-type mismatch check).
+            assert type(pattern) is not stdlib_re.Pattern, (
                 f"Pattern {label!r} is stdlib re (no ReDoS timeout support)"
             )
-            assert isinstance(pattern, regex_lib.Pattern), (
-                f"Pattern {label!r} is not a `regex` library Pattern"
+            # Positive type probe using module-qualified type identity.
+            assert type(pattern) is regex_lib.Pattern, (
+                f"Pattern {label!r} is not a `regex` library Pattern "
+                f"(got {type(pattern).__module__}.{type(pattern).__name__})"
             )
-            # Verify timeout kwarg works - raises if it's the wrong library
-            pattern.search("benign", timeout=1.0)
 
     @pytest.mark.asyncio
     async def test_static_key_uses_constant_time_compare(self) -> None:

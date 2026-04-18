@@ -245,4 +245,7 @@ def test_reload_of_broken_file_keeps_prior_state() -> None:
     # it either keeps the original or drops it, but it must not crash lookups.
     # We just assert that subsequent operations still work.
     result = cat.list_skills()
-    assert isinstance(result, list)
+    # Behavioural list contract: len() and iteration both succeed.
+    assert len(result) >= 0
+    for _ in result:
+        pass

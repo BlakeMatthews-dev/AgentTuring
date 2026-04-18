@@ -68,9 +68,12 @@ def test_card_capabilities_structure() -> None:
         # naming a tool.
         assert tools == list(tools), f"{name}: tools must be a list"
         for tool in tools:
-            assert isinstance(tool, str) and tool, (
-                f"{name}: each tool must be a non-empty string, got {tool!r}"
+            # Exact-type str (not a str subclass that may mangle encoding)
+            # and non-empty.
+            assert type(tool) is str, (
+                f"{name}: each tool must be a str, got {type(tool).__name__}"
             )
+            assert tool, f"{name}: tool name must be non-empty, got {tool!r}"
 
 
 def test_card_id_matches_directory() -> None:

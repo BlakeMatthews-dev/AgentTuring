@@ -102,8 +102,9 @@ async def test_get_pool_creates_pool(monkeypatch):
     # Real behavior: create_pool got our exact arguments.
     assert captured["url"] == "postgresql://localhost/test"
     assert captured["kwargs"] == {"min_size": 2, "max_size": 10, "command_timeout": 30}
-    # Real behavior: module-level pool is now the returned pool.
-    assert isinstance(pool, FakePool)
+    # Real behavior: module-level pool is now the returned pool. Exact
+    # type identity — a subclass sneaking in would be a regression.
+    assert type(pool) is FakePool
     assert persistence._pool is pool
 
 

@@ -269,7 +269,13 @@ class TestCheckAuth:
             assert resp.headers["location"] == "/login"
 
     def test_valid_session_cookie_grants_access(self) -> None:
-        """A valid session cookie is accepted for auth."""
+        """A valid session cookie is accepted for auth — no login redirect.
+
+        The behavioural contract is "auth succeeded". Whether the page
+        itself renders 200 or 404 (missing template file in the test
+        environment) is independent of the security path. We assert the
+        explicit negative: no redirect to /login.
+        """
         # Use the actual API key as the cookie value so StaticKeyAuthProvider accepts it
         app = _build_authenticated_app()
         with TestClient(app) as client:
@@ -278,8 +284,13 @@ class TestCheckAuth:
                 cookies={"stronghold_session": "sk-test"},
                 follow_redirects=False,
             )
-            # Should authenticate via cookie path and serve the page
-            assert resp.status_code in (200, 404)
+            assert resp.status_code != 302, (
+                f"Valid cookie was rejected: {resp.status_code} loc={resp.headers.get('location')}"
+            )
+            assert resp.headers.get("location") != "/login"
+            # Route-level outcome: either rendered the page or template missing —
+            # both prove the auth gate did not trigger a redirect.
+            assert resp.status_code in {200, 404}
 
     def test_invalid_session_cookie_redirects(self) -> None:
         """Invalid session cookie causes redirect to login."""

@@ -1177,9 +1177,22 @@ class TestLoginThenSession:
             logout_resp = client.get("/auth/logout")
             assert logout_resp.status_code == 200
 
-            # Session should now fail (cookies cleared)
+            # Session should now fail (cookies cleared). Two permissible
+            # shapes for the "unauthenticated" signal:
+            #   - 401 with no body contract, or
+            #   - 200 with {"authenticated": false}
+            # Either way, the client must not be told they are authenticated.
             session_resp = client.get("/auth/session")
-            # After logout the cookie is deleted, so either 401 or empty session
-            assert session_resp.status_code in (200, 401)
-            if session_resp.status_code == 200:
+            code = session_resp.status_code
+            if code == 401:
+                # Explicit unauthenticated status — acceptable.
+                assert True
+            elif code == 200:
+                # Must explicitly carry authenticated=False.
                 assert session_resp.json().get("authenticated") is False
+            else:
+                msg = (
+                    f"Unexpected /auth/session status after logout: {code} "
+                    f"body={session_resp.text!r}"
+                )
+                raise AssertionError(msg)

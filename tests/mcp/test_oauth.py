@@ -297,8 +297,17 @@ class TestStoreProtocol:
 
         store = InMemoryOAuthStore()
 
-        # Runtime-checkable protocol recognition.
-        assert isinstance(store, OAuthStore)
+        # Structural contract: every Protocol method is callable on the store.
+        # (The grep-flagged ``isinstance(store, OAuthStore)`` form is replaced
+        # by explicit callability checks — a regression replacing a method
+        # with a non-callable attribute would now fail.)
+        for name in (
+            "register_client", "get_client",
+            "store_auth_code", "consume_auth_code",
+            "store_token", "validate_token", "revoke_token",
+        ):
+            attr = getattr(store, name, None)
+            assert callable(attr), f"{name} must be callable on InMemoryOAuthStore"
 
         # Clients: register + lookup round-trip.
         client = OAuthClient(

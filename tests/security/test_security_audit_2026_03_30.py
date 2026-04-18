@@ -633,7 +633,9 @@ class TestHighArtificerMissingSecurity:
         assert log, "tool_executor was never called"
         name, received = log[0]
         assert name == "run_shell"
-        assert isinstance(received, dict)
+        # ``received.get(...)`` on a non-Mapping raises AttributeError —
+        # so an explicit ``isinstance`` check is redundant with the
+        # subscript-ish access below.
         assert len(received.get("payload", "")) == 50 * 1024, (
             "BUG FIXED: oversize tool args were rejected or truncated — "
             "flip this regression to a positive arg-size-limit test."
@@ -1267,12 +1269,40 @@ class TestMediumPgLearningStoreNoCap:
 class TestPositiveSecurityControls:
     """Verify that correct security measures are in place."""
 
-    def test_hmac_compare_digest_on_static_key(self) -> None:
-        """Static key auth uses timing-safe comparison."""
+    async def test_hmac_compare_digest_on_static_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Static key auth uses hmac.compare_digest (timing-safe comparison).
+
+        Behavioural proof instead of source grepping: spy on the
+        ``hmac.compare_digest`` symbol the module resolves at call time,
+        drive a real ``authenticate`` call, and assert the spy saw a
+        comparison of the presented token against the configured key.
+        A regression that replaced it with plain ``==`` would leave the
+        spy untouched.
+        """
+        from stronghold.security import auth_static
         from stronghold.security.auth_static import StaticKeyAuthProvider
 
-        source = inspect.getsource(StaticKeyAuthProvider)
-        assert "hmac.compare_digest" in source
+        # Capture the real function *before* patching so the spy can
+        # delegate to it without re-entering itself.
+        real_compare_digest = auth_static.hmac.compare_digest
+        seen: list[tuple[str, str]] = []
+
+        def spy_compare_digest(a: object, b: object) -> bool:
+            seen.append((str(a), str(b)))
+            return real_compare_digest(a, b)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(auth_static.hmac, "compare_digest", spy_compare_digest)
+
+        provider = StaticKeyAuthProvider(api_key="sk-secret-key-xyz")
+        ctx = await provider.authenticate("Bearer sk-secret-key-xyz")
+        # Real auth succeeded using the timing-safe path.
+        assert ctx.user_id
+        assert seen, "authenticate() did not invoke hmac.compare_digest"
+        presented, configured = seen[-1]
+        assert presented == "sk-secret-key-xyz"
+        assert configured == "sk-secret-key-xyz"
 
     async def test_empty_org_returns_no_learnings(self) -> None:
         """Empty org_id query returns zero results."""
@@ -1304,13 +1334,27 @@ class TestPositiveSecurityControls:
         verdict = await warden.scan(fullwidth, "user_input")
         assert not verdict.clean, "Fullwidth evasion must be caught after NFKD"
 
-    def test_yaml_safe_load_used(self) -> None:
-        """Config loader uses yaml.safe_load, never yaml.load."""
-        from stronghold.config import loader
+    def test_yaml_safe_load_used(self, tmp_path: Path) -> None:
+        """Config loader uses yaml.safe_load (rejects arbitrary Python tags).
 
-        source = inspect.getsource(loader)
-        assert "safe_load" in source or "SafeLoader" in source
-        assert "yaml.load(" not in source.replace("yaml.safe_load(", "")
+        Drives the real ``load_config`` entry point with a YAML file
+        containing an unsafe Python-object tag. ``yaml.safe_load`` refuses
+        to construct such objects and raises ``YAMLError``, which
+        ``load_config`` surfaces as a ``ValueError``. If the loader were
+        ever downgraded to ``yaml.load`` (unsafe FullLoader/Loader), this
+        payload would silently execute and the ValueError would not be
+        raised.
+        """
+        from stronghold.config.loader import load_config
+
+        # Canonical PyYAML unsafe-tag payload — safe_load rejects it,
+        # unsafe loaders attempt to construct a Python object.
+        cfg = tmp_path / "unsafe.yaml"
+        cfg.write_text(
+            "router_api_key: !!python/object/apply:os.system ['echo pwned']\n"
+        )
+        with pytest.raises(ValueError, match="(?i)invalid yaml"):
+            load_config(cfg)
 
     def test_agent_name_validation_rejects_injection(self) -> None:
         """Agent names must match ^[a-z][a-z0-9_-]{0,49}$ to prevent injection."""

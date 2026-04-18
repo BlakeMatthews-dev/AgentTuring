@@ -921,7 +921,8 @@ def test_noop_tracing_full_lifecycle_is_safe_and_silent() -> None:
 
     # Span context manager must enter/exit cleanly and absorb set_* calls.
     span = trace.span("child-span")
-    assert isinstance(span, NoopSpan)
+    # Exact-type identity: proves the NoopSpan is returned, not a subclass.
+    assert type(span) is NoopSpan
     with span as s:
         s.set_input({"data": "test"})
         s.set_output({"result": "ok"})

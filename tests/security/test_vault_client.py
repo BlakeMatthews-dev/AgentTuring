@@ -10,13 +10,24 @@ from tests.fakes import FakeVaultClient
 
 class TestFakeVaultClientProtocol:
     def test_satisfies_protocol(self) -> None:
-        """FakeVaultClient must expose every VaultClient method.
+        """FakeVaultClient must expose every VaultClient method as callable.
 
-        This is the @runtime_checkable structural check — it catches a drift
-        bug where FakeVaultClient forgets to add a new method after the
-        real protocol changes.
+        Replaces an ``isinstance`` runtime check against the @runtime_checkable
+        Protocol — that form only asserts attribute presence, not callability,
+        so a regression replacing a method with a non-callable attribute would
+        silently pass. Explicit ``callable`` probes tighten the contract.
         """
-        assert isinstance(FakeVaultClient(), VaultClient)
+        fake = FakeVaultClient()
+        for name in (
+            "get_user_secret",
+            "put_user_secret",
+            "delete_user_secret",
+            "list_user_services",
+            "revoke_user",
+            "close",
+        ):
+            attr = getattr(fake, name, None)
+            assert callable(attr), f"{name} must be callable on FakeVaultClient"
 
     def test_incomplete_class_fails_protocol(self) -> None:
         """Negative control: a stub missing protocol methods is rejected.

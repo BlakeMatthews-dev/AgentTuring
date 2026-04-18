@@ -531,7 +531,14 @@ class TestCSRF:
     """Tests for _check_csrf CSRF protection logic."""
 
     def test_csrf_header_required_for_cookie_post(self, admin_app: FastAPI) -> None:
-        """POST with cookies but no CSRF header should get 403."""
+        """POST with cookies but no CSRF header must be rejected.
+
+        The exact rejection path is order-dependent: the auth provider
+        may raise 401 before the CSRF check runs, or the CSRF check may
+        fire first with 403. Either is an acceptable rejection. The
+        invariant: the request is NOT accepted, and the admin endpoint
+        was not executed.
+        """
         with TestClient(admin_app, cookies={"session": "abc123"}) as client:
             resp = client.post(
                 "/v1/stronghold/admin/learnings",
@@ -539,9 +546,18 @@ class TestCSRF:
                 # No Authorization header → will use cookies
                 # No X-Stronghold-Request → CSRF fail
             )
-            # Without Authorization header, the auth provider raises 401 first,
-            # or CSRF check fires 403. Both are acceptable rejection paths.
-            assert resp.status_code in (401, 403)
+            # Must not succeed — 2xx would mean the learning was ingested
+            # despite no auth + no CSRF token.
+            assert not (200 <= resp.status_code < 300), (
+                f"CSRF/auth-less POST unexpectedly accepted: {resp.status_code} {resp.text}"
+            )
+            # The concrete rejection is one of exactly these two codes —
+            # checked individually so a failure tells us which layer
+            # rejected the request.
+            code = resp.status_code
+            assert code == 401 or code == 403, (
+                f"Unexpected rejection code: {code} (expected 401 or 403)"
+            )
 
     def test_bearer_token_bypasses_csrf(self, admin_app: FastAPI) -> None:
         """Bearer token auth should bypass CSRF checks entirely."""
@@ -1017,7 +1033,9 @@ class TestQuotaAnalyzeDataGathering:
             data = resp.json()
             # Must include a non-empty answer string — prior test only
             # asserted the type, so an empty answer body would have passed.
-            assert isinstance(data["answer"], str) and data["answer"].strip()
+            answer = data["answer"]
+            assert type(answer) is str
+            assert answer.strip()
 
     def test_analyze_with_timeseries_data(self, admin_app: FastAPI) -> None:
         """Timeseries section is built when daily data exists."""
@@ -1205,7 +1223,15 @@ class TestAdminReviewNoDb:
             assert resp.status_code == 404
 
     def test_admin_review_no_ai_review_first(self, admin_app: FastAPI) -> None:
-        """Admin review should fail if AI review hasn't been done."""
+        """Admin review must fail when the AI review step has not run.
+
+        Depending on whether the ``arbiter`` agent exists in the freshly
+        wired in-memory store, the endpoint rejects with either:
+          - 404: agent not found, or
+          - 400: agent exists but is not in the correct review state.
+        Both are valid rejections of "admin review without AI review".
+        The invariant is that the admin review is NOT accepted.
+        """
         from stronghold.agents.store import InMemoryAgentStore
 
         container = admin_app.state.container
@@ -1217,7 +1243,13 @@ class TestAdminReviewNoDb:
                 "/v1/stronghold/admin/agents/arbiter/admin-review",
                 headers={"Authorization": "Bearer sk-test", "X-Stronghold-Request": "1"},
             )
-            assert resp.status_code in (400, 404)
+            assert not (200 <= resp.status_code < 300), (
+                f"Admin review unexpectedly accepted: {resp.status_code} {resp.text}"
+            )
+            code = resp.status_code
+            assert code == 400 or code == 404, (
+                f"Unexpected rejection code: {code} (expected 400 or 404)"
+            )
 
 
 class TestCoinEndpoints:

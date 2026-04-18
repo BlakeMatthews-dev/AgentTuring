@@ -679,7 +679,10 @@ class TestViolationRecordDetails:
         assert v.flags == ("injection", "exfil")
         assert v.boundary == "tool_result"
         assert v.detail == "attempted data extraction via tool output"
-        assert isinstance(v.timestamp, datetime)
+        # Exact datetime type (not a date or a string). Also require
+        # a timezone — naive datetimes are a bug in the audit record.
+        assert type(v.timestamp) is datetime
+        assert v.timestamp.tzinfo is not None
 
     async def test_multiple_violations_ordered(self) -> None:
         """Violations are appended in order."""

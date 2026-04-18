@@ -121,10 +121,14 @@ class TestRateLimitEvictionTrigger:
         register_core_triggers(c)
         _, handler = _find_trigger(c, "rate_limit_eviction")
         result = await handler(Event("tick", {}))
-        assert isinstance(result, dict)
+        # Presence + numeric-shape contract. ``result["evicted"]`` will
+        # raise TypeError if ``result`` is not mapping-like. ``>= 0``
+        # requires an int/float — if a string or None crept in, this
+        # compares fails with TypeError (mixed types) or wrong-equality.
         assert "evicted" in result
-        assert isinstance(result["evicted"], int)
-        assert result["evicted"] >= 0
+        evicted = result["evicted"]
+        assert type(evicted) is int
+        assert evicted >= 0
 
 
 class TestOutcomeStatsTrigger:
@@ -134,11 +138,12 @@ class TestOutcomeStatsTrigger:
         register_core_triggers(c)
         _, handler = _find_trigger(c, "outcome_stats_snapshot")
         result = await handler(Event("tick", {}))
-        # Snapshot should expose a stats shape we can act on.
-        assert isinstance(result, dict)
+        # Snapshot should expose a stats shape we can act on. ``in`` and
+        # ``.get`` both require a Mapping; a list/None/str would raise
+        # TypeError or AttributeError immediately below.
         assert "total" in result or "rate" in result
         total = result.get("total", 0)
-        assert isinstance(total, int)
+        assert type(total) is int
         # Freshly-built container has no outcomes.
         assert total == 0
 

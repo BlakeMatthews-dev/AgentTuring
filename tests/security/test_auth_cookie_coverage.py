@@ -60,7 +60,9 @@ class TestCookieAuthBasic:
             authorization=None,
             headers={"cookie": "stronghold_session=eyJhbGciOiJSUzI1NiJ9.fake.token"},
         )
-        assert isinstance(ctx, AuthContext)
+        # Exact type identity: a subclass that overrode a field would still
+        # pass ``isinstance`` but could silently smuggle in different data.
+        assert type(ctx) is AuthContext
         assert ctx.user_id == "user-123"
         assert ctx.username == "testuser"
         assert ctx.org_id == "org-test"

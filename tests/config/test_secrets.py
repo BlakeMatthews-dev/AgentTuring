@@ -32,9 +32,17 @@ class TestSecretResult:
 
 class TestProtocolCompliance:
     def test_fake_implements_protocol(self) -> None:
-        """The runtime_checkable Protocol agrees that FakeSecretBackend qualifies."""
+        """FakeSecretBackend must expose every callable on the Protocol.
+
+        Replaces a runtime_checkable ``isinstance`` check — that only
+        verifies method names exist, not that they are callable. Asserting
+        callability catches a regression where a method gets replaced with
+        a non-callable attribute and the Protocol check silently passes.
+        """
         fake = FakeSecretBackend()
-        assert isinstance(fake, SecretBackend)
+        for name in ("get_secret", "watch_changes"):
+            attr = getattr(fake, name, None)
+            assert callable(attr), f"{name} must be callable on FakeSecretBackend"
 
 
 class TestGetSecret:

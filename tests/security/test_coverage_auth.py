@@ -258,8 +258,9 @@ class TestJWKSCacheRefresh:
         provider._jwks_cache_at = time.monotonic() - 100  # Expired
 
         result = await provider._get_jwks_client(None, _FakeJWKClient)
-        assert result is not old_client  # New client created
-        assert isinstance(result, _FakeJWKClient)
+        # New client created — identity + exact type (not a subclass).
+        assert result is not old_client
+        assert type(result) is _FakeJWKClient
         assert provider._jwks_cache is result
 
     async def test_first_call_no_cache(self) -> None:
@@ -268,7 +269,8 @@ class TestJWKSCacheRefresh:
         assert provider._jwks_cache is None
 
         result = await provider._get_jwks_client(None, _FakeJWKClient)
-        assert isinstance(result, _FakeJWKClient)
+        # First call built a fresh client and wired it into the cache.
+        assert type(result) is _FakeJWKClient
         assert provider._jwks_cache is result
 
     async def test_refresh_failure_uses_stale_cache(self) -> None:

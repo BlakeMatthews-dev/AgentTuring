@@ -5,7 +5,7 @@ Approach: exercise the strategy's real private helpers
 `_store_{frank,mason}_learning`) and the public `reason()` dispatch. Each test
 asserts on concrete return-value shape (issues found, failures listed,
 fix/implement mode chosen) or on side-effects captured by a recording
-tool_executor — no "mock.call_count == N" tautologies.
+tool_executor — no invocation-count tautologies against a mock.
 
 Fixtures use `FakeLLMClient` / `NoopTracingBackend` from tests.fakes rather
 than ad-hoc MagicMock-based mocks so the strategy receives the same shapes

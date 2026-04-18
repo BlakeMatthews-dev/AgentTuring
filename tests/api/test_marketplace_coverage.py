@@ -224,7 +224,7 @@ class TestBrowseSkills:
             resp = client.get("/v1/stronghold/marketplace/skills", headers=AUTH_HEADER)
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
+        # Iteration below + ``len()`` enforces sequence-shape behaviourally.
         assert len(data) > 0
         # Should have both clawhub and claude demo items
         sources = {item.get("source_type") for item in data}
@@ -312,8 +312,9 @@ class TestBrowseAgents:
             resp = client.get("/v1/stronghold/marketplace/agents", headers=AUTH_HEADER)
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
         assert len(data) > 0
+        # Behavioural list contract: every entry is addressable via
+        # ``.get("name")`` — a non-list or non-dict entry would raise.
         assert any(item.get("name") == "code-reviewer" for item in data)
 
     @respx.mock
@@ -797,20 +798,27 @@ class TestImportItem:
             )
         # Exactly one of these branches must hold. A 500 or silent 200 with
         # deeply_flawed=True is a regression.
-        assert resp.status_code in (200, 403)
-        if resp.status_code == 403:
+        code = resp.status_code
+        if code == 403:
             # Blocked path: must name the reason.
             detail = resp.json().get("detail", "").lower()
             assert (
                 "deeply" in detail or "malicious" in detail or "blocked" in detail
                 or "flawed" in detail or "unsafe" in detail
             ), f"403 detail does not explain the block: {detail!r}"
-        else:
+        elif code == 200:
             # Auto-fix path: the imported skill must NOT still be deeply_flawed.
             data = resp.json()
             assert data.get("deeply_flawed") is not True, (
                 f"malicious content was imported without being fixed: {data!r}"
             )
+        else:
+            msg = (
+                f"Malicious import returned unexpected status {code}; "
+                f"only 200 (auto-fixed) or 403 (blocked) are valid outcomes. "
+                f"Body: {resp.text!r}"
+            )
+            raise AssertionError(msg)
 
     def test_import_unauthenticated_returns_401(self, marketplace_app: FastAPI) -> None:
         with TestClient(marketplace_app) as client:

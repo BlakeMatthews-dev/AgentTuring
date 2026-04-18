@@ -309,12 +309,13 @@ class TestBuildStrategy:
     def test_direct_strategy_for_direct(self) -> None:
         identity = AgentIdentity(name="test", reasoning_strategy="direct")
         strategy = _build_strategy(identity)
-        assert isinstance(strategy, DirectStrategy)
+        # Exact type identity — a subclass swap would be a regression.
+        assert type(strategy) is DirectStrategy
 
     def test_unknown_strategy_falls_back_to_direct(self) -> None:
         identity = AgentIdentity(name="test", reasoning_strategy="nonexistent")
         strategy = _build_strategy(identity)
-        assert isinstance(strategy, DirectStrategy)
+        assert type(strategy) is DirectStrategy
 
     def test_strategy_with_broken_init_falls_back(self) -> None:
         """Strategy class whose __init__ raises TypeError falls back to DirectStrategy."""
@@ -328,7 +329,7 @@ class TestBuildStrategy:
         try:
             identity = AgentIdentity(name="test", reasoning_strategy="broken")
             strategy = _build_strategy(identity)
-            assert isinstance(strategy, DirectStrategy)
+            assert type(strategy) is DirectStrategy
         finally:
             # Clean up the registry
             _STRATEGY_REGISTRY.pop("broken", None)
@@ -415,9 +416,9 @@ class TestCreateAgentsFilesystem:
         assert "beta" in result
         assert len(result) == 2
 
-        # Check that agents are real Agent instances
-        assert isinstance(result["alpha"], Agent)
-        assert isinstance(result["beta"], Agent)
+        # Check that agents are real Agent instances — exact type identity.
+        assert type(result["alpha"]) is Agent
+        assert type(result["beta"]) is Agent
 
         # Check identities
         assert result["alpha"].identity.name == "alpha"
@@ -639,7 +640,7 @@ class TestCreateAgentsFilesystem:
         assert "default" in result
         assert "ranger" in result
         for agent in result.values():
-            assert isinstance(agent, Agent)
+            assert type(agent) is Agent
 
     async def test_no_preamble_still_loads_agents(self, tmp_path: Path) -> None:
         """Agents load even when PREAMBLE.md is missing."""

@@ -52,7 +52,8 @@ def test_get_engine_creates_engine():
     """get_engine returns a real AsyncEngine whose URL was rewritten to asyncpg."""
     result = engine_mod.get_engine("postgresql://localhost/test")
 
-    assert isinstance(result, AsyncEngine)
+    # Exact-type identity. ``result.url`` below also only exists on AsyncEngine.
+    assert type(result) is AsyncEngine
     # Real behavior: the postgresql:// prefix was rewritten to asyncpg.
     assert str(result.url).startswith("postgresql+asyncpg://")
     assert result.url.host == "localhost"
@@ -62,7 +63,7 @@ def test_get_engine_creates_engine():
 def test_get_engine_converts_postgres_prefix():
     """postgres:// is also converted to postgresql+asyncpg://."""
     result = engine_mod.get_engine("postgres://localhost/test")
-    assert isinstance(result, AsyncEngine)
+    assert type(result) is AsyncEngine
     assert str(result.url).startswith("postgresql+asyncpg://")
 
 
@@ -77,7 +78,7 @@ def test_get_engine_caches_across_calls():
     e3 = engine_mod.get_engine("postgresql://localhost/test")
 
     assert e1 is e2 is e3
-    assert isinstance(e1, AsyncEngine)
+    assert type(e1) is AsyncEngine
     # Real behavior: cached URL persisted after the first call.
     assert engine_mod._engine_url == "postgresql://localhost/test"
 

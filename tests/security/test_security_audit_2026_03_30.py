@@ -324,53 +324,64 @@ class TestHighWardenL3FailOpen:
 
 
 class TestHighArtificerMissingSecurity:
-    """H5: ArtificerStrategy.reason() has no Sentinel/Warden/PII on tool results.
+    """H5 (C13): ArtificerStrategy.reason() now has full Sentinel/Warden/PII
+    pipeline on tool results — parity with ReactStrategy.
 
     ReactStrategy has: 32KB arg limit, sentinel pre_call, warden scan,
-    PII filter, 16KB result truncation. Artificer has none of these.
+    PII filter, 16KB result truncation. Artificer now has all of these.
     OWASP: LLM01 (Prompt Injection), LLM06 (Excessive Agency)
     """
 
-    def test_h5_no_sentinel_pre_call(self) -> None:
-        """ArtificerStrategy lacks sentinel.pre_call() on tool arguments."""
-        from stronghold.agents.artificer.strategy import ArtificerStrategy
+    def test_h5_sentinel_pre_call_fires(self) -> None:
+        """ArtificerStrategy invokes sentinel.pre_call() on tool arguments."""
+        from stronghold.agents.artificer import strategy as artificer_mod
 
-        source = inspect.getsource(ArtificerStrategy.reason)
-        assert "pre_call" not in source, (
-            "BUG CONFIRMED: no sentinel pre_call in Artificer. "
-            "Tool args are not permission-checked or schema-validated."
+        source = inspect.getsource(artificer_mod)
+        assert "pre_call" in source, (
+            "REGRESSION: sentinel.pre_call() missing from ArtificerStrategy. "
+            "Tool args must be permission-checked and schema-validated."
         )
 
-    def test_h5_no_sentinel_post_call(self) -> None:
-        """ArtificerStrategy lacks sentinel.post_call() on tool results."""
-        from stronghold.agents.artificer.strategy import ArtificerStrategy
+    def test_h5_sentinel_post_call_fires(self) -> None:
+        """ArtificerStrategy invokes sentinel.post_call() on tool results."""
+        from stronghold.agents.artificer import strategy as artificer_mod
 
-        source = inspect.getsource(ArtificerStrategy.reason)
-        assert "post_call" not in source, (
-            "BUG CONFIRMED: no sentinel post_call in Artificer. "
-            "Tool results bypass Warden scan + PII filter."
+        source = inspect.getsource(artificer_mod)
+        assert "post_call" in source, (
+            "REGRESSION: sentinel.post_call() missing from ArtificerStrategy. "
+            "Tool results must pass through Warden scan + PII filter."
         )
 
-    def test_h5_no_arg_size_limit(self) -> None:
-        """ArtificerStrategy lacks the 32KB tool argument size check."""
-        from stronghold.agents.artificer.strategy import ArtificerStrategy
+    def test_h5_arg_size_limit_enforced(self) -> None:
+        """ArtificerStrategy enforces the 32KB tool argument size limit."""
+        from stronghold.agents.artificer import strategy as artificer_mod
 
-        source = inspect.getsource(ArtificerStrategy.reason)
-        has_check = "32768" in source or "32_768" in source
-        assert not has_check, (
-            "BUG CONFIRMED: no 32KB arg size check in Artificer. "
-            "LLM can generate massive tool arguments (JSON bomb)."
+        source = inspect.getsource(artificer_mod)
+        has_check = (
+            "32768" in source
+            or "32_768" in source
+            or "32 * 1024" in source
+            or "_TOOL_ARGS_MAX_BYTES" in source
+        )
+        assert has_check, (
+            "REGRESSION: 32KB arg size check missing from ArtificerStrategy. "
+            "LLM could generate massive tool arguments (JSON bomb)."
         )
 
-    def test_h5_no_result_truncation(self) -> None:
-        """ArtificerStrategy lacks the 16KB tool result truncation."""
-        from stronghold.agents.artificer.strategy import ArtificerStrategy
+    def test_h5_result_truncation_enforced(self) -> None:
+        """ArtificerStrategy truncates tool results over 16KB."""
+        from stronghold.agents.artificer import strategy as artificer_mod
 
-        source = inspect.getsource(ArtificerStrategy.reason)
-        has_truncation = "16384" in source or "16_384" in source
-        assert not has_truncation, (
-            "BUG CONFIRMED: no 16KB result truncation in Artificer. "
-            "Large tool results can exhaust context window."
+        source = inspect.getsource(artificer_mod)
+        has_truncation = (
+            "16384" in source
+            or "16_384" in source
+            or "16 * 1024" in source
+            or "_TOOL_RESULT_MAX_BYTES" in source
+        )
+        assert has_truncation, (
+            "REGRESSION: 16KB result truncation missing from ArtificerStrategy. "
+            "Large tool results could exhaust the context window."
         )
 
 

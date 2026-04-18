@@ -32,9 +32,10 @@ The 7-tier memory model is treated in `main` as originating with CoinSwarm on Ja
 
 ## Reading order
 
-1. `DESIGN.md` — thesis, gap analysis against the 7-tier model, what the Conduit becomes when it has a self.
-2. *(future)* `sketches/` — runnable prototypes in isolation. None of these import from `src/stronghold/`.
-3. *(future)* `FINDINGS.md` — what worked, what didn't, what's too dangerous to land in `main`.
+1. [`DESIGN.md`](./DESIGN.md) — thesis, gap analysis against the 7-tier model, what the Conduit becomes when it has a self.
+2. [`specs/`](./specs/) — individually reviewable specs for the durable personal memory layer. Start at [`specs/README.md`](./specs/README.md).
+3. *(future)* `sketches/` — runnable prototypes in isolation. None of these import from `src/stronghold/`.
+4. *(future)* `FINDINGS.md` — what worked, what didn't, what's too dangerous to land in `main`.
 
 ## Relationship to `main`
 

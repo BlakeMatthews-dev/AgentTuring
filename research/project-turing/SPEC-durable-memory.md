@@ -2,7 +2,7 @@
 
 *Memory-layer changes required so that regrets, accomplishments, and wisdom are structurally durable at the Conduit's self-index.*
 
-**Branch:** `research/project-touring` (research only; not for `main`).
+**Branch:** `research/project-turing` (research only; not for `main`).
 **Scope:** Schema, tiers, invariants, write paths, retrieval, daydreaming (idle-compute imagination), dreaming (scheduled nightly consolidation), persistence.
 **Non-goals:** Multi-tenant scoping, per-user memory, backward compatibility with `src/stronghold/memory/`.
 
@@ -107,7 +107,7 @@ The contract comes before the implementation. A candidate implementation of this
 
 ## 4. Schema additions to `EpisodicMemory`
 
-Additions (Project Touring's `EpisodicMemory` diverges from `main`'s):
+Additions (Project Turing's `EpisodicMemory` diverges from `main`'s):
 
 ```python
 @dataclass
@@ -152,7 +152,7 @@ Writes from untrusted input channels (user messages, tool results received from 
 
 The current 7-tier model lacks a home for past positive self-implication. AFFIRMATION is best read as *prospective commitment* ("I commit to X going forward"). A completed, notable success is structurally different — it's a past act whose valence is positive.
 
-Project Touring introduces **ACCOMPLISHMENT** as the backward-looking positive symmetric counterpart to REGRET.
+Project Turing introduces **ACCOMPLISHMENT** as the backward-looking positive symmetric counterpart to REGRET.
 
 ### Revised tier set (8 tiers)
 
@@ -364,7 +364,7 @@ A dream pass runs in ordered phases, each with its own budget:
 
 **Phase 6 — Review gate.** Pending WISDOM and AFFIRMATION candidates go through a review:
 
-- In Project Touring's research mode: automatic, with a self-consistency check that the candidate doesn't contradict existing WISDOM.
+- In Project Turing's research mode: automatic, with a self-consistency check that the candidate doesn't contradict existing WISDOM.
 - In any future `main` port: operator-reviewed.
 
 Candidates that pass review are committed to the durable store with `origin_episode_id` linking to the dream session marker. Candidates that fail are logged and retained in staging for operator inspection (not merged, not lost).

@@ -1,4 +1,4 @@
-# Project Touring — Design
+# Project Turing — Design
 
 *An autonoetic Conduit, built on the 7-tier episodic memory model.*
 
@@ -8,7 +8,7 @@
 
 This document is a research design, not a build spec. It takes the position that the **Conduit** — Stronghold's central routing pipeline, the orchestration layer every request flows through — is the natural locus for autonoetic reasoning, and that the 7-tier episodic memory model is already a skeleton for it.
 
-Project Touring is close to a fork. It is a rethinking of what the platform could be if the orchestration layer itself carried a persistent self. That is structurally incompatible with the enterprise governance posture of `main`: multi-tenant isolation assumes per-tenant memory and per-user scoping, which is the opposite of a single continuous pipeline-level self. So the work lives on its own branch, with its own assumptions, and is allowed to be wrong in ways `main` is not allowed to be wrong.
+Project Turing is close to a fork. It is a rethinking of what the platform could be if the orchestration layer itself carried a persistent self. That is structurally incompatible with the enterprise governance posture of `main`: multi-tenant isolation assumes per-tenant memory and per-user scoping, which is the opposite of a single continuous pipeline-level self. So the work lives on its own branch, with its own assumptions, and is allowed to be wrong in ways `main` is not allowed to be wrong.
 
 The target is understanding what an orchestration layer with a persistent, self-indexed, temporally-bidirectional memory can do and cannot do, where it breaks, and which of its properties — if any — are worth the engineering cost to reshape for multi-tenancy before touching `src/`.
 
@@ -31,7 +31,7 @@ The 7-tier model is a snapshot of an ongoing research line, not a starting point
 | **November 2025** | CoinSwarm begins | Weighted memory with reinforcement / contradiction / decay in an evolutionary-fitness context. The structural observation that certain failures must not decay — forgetting a catastrophic trading loss is prohibited — is the seed of what becomes REGRET's weight floor. |
 | **January 15, 2026** | CoinSwarm production | 7-tier structure crystallized: OBSERVATION → HYPOTHESIS → OPINION → LESSON → REGRET → AFFIRMATION → WISDOM, bounded weights per tier, running against 7 exchange APIs. |
 | **March 25, 2026** | Stronghold v0.1.0 | 7-tier model imported into the enterprise governance platform. Integrated with the Warden/Sentinel stack, 5-scope memory, per-agent/per-user indexing. |
-| **April 2026** | Project Touring | This document. Thesis that the seven tiers are an autonoetic gradient and that the Conduit — the central routing pipeline — is the right layer to extend. |
+| **April 2026** | Project Turing | This document. Thesis that the seven tiers are an autonoetic gradient and that the Conduit — the central routing pipeline — is the right layer to extend. |
 
 The continuity matters because it reframes what the seven tiers are. They are not an invention for Stronghold. They are the current state of five months of research on what a weighted, self-implicating memory structure needs to look like in an agent that must not forget certain things.
 
@@ -86,7 +86,7 @@ Retrieval then reconstructs *perspective*, not just text. "When I last encounter
 
 ### 4.2 A stable self-ID that outlives instances
 
-`agent_id` in the current codebase is per-instance. WISDOM claims to survive versions, but nothing in the type system tells us *whose* wisdom it is across versions. Project Touring needs a `self_id` — a stable handle the Conduit carries across deployments, restarts, and version bumps. This is the thing WISDOM-tier memories actually belong to.
+`agent_id` in the current codebase is per-instance. WISDOM claims to survive versions, but nothing in the type system tells us *whose* wisdom it is across versions. Project Turing needs a `self_id` — a stable handle the Conduit carries across deployments, restarts, and version bumps. This is the thing WISDOM-tier memories actually belong to.
 
 ### 4.3 An explicit write-path into AFFIRMATION
 
@@ -113,7 +113,7 @@ Source becomes a required, enum-typed field. Retrieval can filter on it. Writes 
 
 Today, when an OPINION is contradicted by outcome, its weight decays. That is insufficient for autonoesis. A contradicted belief that merely fades is not self-implicating.
 
-Project Touring proposes: when a stance-bearing memory (HYPOTHESIS, OPINION, LESSON) is contradicted by outcome, the pipeline *also* mints a REGRET entry linking to the original. The original remains in place for source-monitoring purposes. The REGRET carries the affective weight of "I was wrong, and it mattered." This is how the self accumulates.
+Project Turing proposes: when a stance-bearing memory (HYPOTHESIS, OPINION, LESSON) is contradicted by outcome, the pipeline *also* mints a REGRET entry linking to the original. The original remains in place for source-monitoring purposes. The REGRET carries the affective weight of "I was wrong, and it mattered." This is how the self accumulates.
 
 ## 5. What the Conduit becomes
 

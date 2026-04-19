@@ -34,8 +34,20 @@ The 7-tier memory model is treated in `main` as originating with CoinSwarm on Ja
 
 1. [`DESIGN.md`](./DESIGN.md) — thesis, gap analysis against the 7-tier model, what the Conduit becomes when it has a self.
 2. [`specs/`](./specs/) — individually reviewable specs for the durable personal memory layer. Start at [`specs/README.md`](./specs/README.md).
-3. *(future)* `sketches/` — runnable prototypes in isolation. None of these import from `src/stronghold/`.
-4. *(future)* `FINDINGS.md` — what worked, what didn't, what's too dangerous to land in `main`.
+3. [`sketches/`](./sketches/) — runnable scaffold. Library code + runtime layer + tests. 142 tests pass.
+4. [`RUNNING.md`](./RUNNING.md) — ops doc: how to run, inspect, and back up a research-box deployment.
+5. *(future)* `FINDINGS.md` — what worked, what didn't, what's too dangerous to land in `main`.
+
+## Running it
+
+```bash
+cd research/project-turing
+cp .env.example .env
+docker compose up -d
+curl http://localhost:9100/metrics
+```
+
+Full ops guide: [`RUNNING.md`](./RUNNING.md).
 
 ## Relationship to `main`
 

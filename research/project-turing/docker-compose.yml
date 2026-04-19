@@ -1,0 +1,26 @@
+services:
+  turing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: project-turing:latest
+    container_name: turing
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "9100:9100"
+    volumes:
+      - turing-data:/data
+      - ./scenarios:/app/scenarios:ro
+    # Override at compose up time with: `docker compose run --rm turing <flags>`
+    command:
+      - "--providers"
+      - "fake"
+      - "--scenario"
+      - "baseline"
+      - "--metrics-port"
+      - "9100"
+
+volumes:
+  turing-data:

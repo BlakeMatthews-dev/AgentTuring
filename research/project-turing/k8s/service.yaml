@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: turing
+  namespace: turing
+  labels:
+    app: turing
+spec:
+  type: ClusterIP
+  selector:
+    app: turing
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+    - name: chat
+      port: 9101
+      targetPort: chat

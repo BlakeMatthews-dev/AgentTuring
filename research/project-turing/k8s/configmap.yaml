@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: turing-config
+  namespace: turing
+data:
+  TURING_TICK_RATE_HZ: "100"
+  TURING_EXECUTOR_WORKERS: "8"
+  TURING_DB_PATH: "/data/turing.db"
+  TURING_JOURNAL_DIR: "/data/journal"
+  TURING_LOG_LEVEL: "INFO"
+  TURING_LOG_FORMAT: "json"
+  TURING_METRICS_PORT: "9100"
+  TURING_METRICS_BIND: "0.0.0.0"
+  TURING_CHAT_PORT: "9101"
+  TURING_CHAT_BIND: "0.0.0.0"
+  TURING_USE_FAKE_PROVIDER: "false"
+  LITELLM_BASE_URL: "http://litellm.litellm.svc.cluster.local:4000"
+  TURING_POOLS_CONFIG: "/app/config/pools.yaml"
+  TURING_SCENARIO: "baseline"
+  TURING_OBSIDIAN_VAULT: "/data/obsidian"
+  TURING_RSS_FEEDS: ""              # comma-separated; empty = no RSS
+  TURING_SELF_LABEL: "default"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: turing-pools
+  namespace: turing
+data:
+  pools.yaml: |
+    # Edit to match the LiteLLM models your operator wants Project Turing
+    # to consume. See research/project-turing/config/pools.example.yaml
+    # for a fuller example.
+    pools:
+      - pool_name: gemini-flash
+        model: gemini/gemini-2.0-flash-exp
+        window_kind: rpm
+        window_duration_seconds: 60
+        tokens_allowed: 1000000
+        quality_weight: 0.7
+      - pool_name: glm-4-flash
+        model: openai/glm-4-flash
+        window_kind: rolling_hours
+        window_duration_seconds: 18000
+        tokens_allowed: 5000000
+        quality_weight: 0.9

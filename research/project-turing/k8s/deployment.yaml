@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turing
+  namespace: turing
+  labels:
+    app: turing
+spec:
+  # Single instance — Project Turing assumes one self per deployment.
+  replicas: 1
+  strategy:
+    type: Recreate                # never two pods writing the same SQLite
+  selector:
+    matchLabels:
+      app: turing
+  template:
+    metadata:
+      labels:
+        app: turing
+    spec:
+      containers:
+        - name: turing
+          image: project-turing:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: turing-config
+            - secretRef:
+                name: turing-secrets
+          ports:
+            - name: metrics
+              containerPort: 9100
+            - name: chat
+              containerPort: 9101
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: pools
+              mountPath: /app/config
+              readOnly: true
+            - name: scenarios
+              mountPath: /app/scenarios
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: turing-data
+        - name: pools
+          configMap:
+            name: turing-pools
+        - name: scenarios
+          configMap:
+            name: turing-scenarios
+            optional: true

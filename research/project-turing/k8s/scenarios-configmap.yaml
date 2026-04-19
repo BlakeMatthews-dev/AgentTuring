@@ -1,0 +1,30 @@
+# Optional ConfigMap that ships scenarios alongside the image. Only needed
+# if you want to ship scenario YAMLs separately from the container image.
+# By default, the Dockerfile copies scenarios/ into /app/scenarios/, so
+# this is a convenience for editing scenarios without rebuilding.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: turing-scenarios
+  namespace: turing
+data:
+  baseline.yaml: |
+    streams:
+      - kind: p1_chat
+        class_: 1
+        every_seconds: 60
+        jitter_seconds: 15
+        fit: {gemini-flash: 1.0, glm-4-flash: 0.8}
+        intent: chat-turn
+      - kind: p4_asap
+        class_: 4
+        every_seconds: 600
+        jitter_seconds: 120
+        fit: {gemini-flash: 0.7, glm-4-flash: 1.0}
+        intent: async-task
+      - kind: p7_backlog
+        class_: 7
+        every_seconds: 1800
+        jitter_seconds: 300
+        fit: {glm-4-flash: 0.9}
+        intent: backlog-item

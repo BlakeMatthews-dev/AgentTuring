@@ -7,7 +7,13 @@ from stronghold.tools.decorator import get_decorated_tools, tool
 from stronghold.types.tool import ToolDefinition
 
 
-def _entry(name: str, scope: str = "builtin", tenant_id: str = "", user_id: str = "", version: str = "1.0.0") -> CatalogEntry:
+def _entry(
+    name: str,
+    scope: str = "builtin",
+    tenant_id: str = "",
+    user_id: str = "",
+    version: str = "1.0.0",
+) -> CatalogEntry:
     return CatalogEntry(
         definition=ToolDefinition(name=name),
         version=version,
@@ -131,3 +137,136 @@ def test_list_tools_no_args_returns_builtins_only() -> None:
     tools = cat.list_tools()
     assert len(tools) == 1
     assert tools[0].definition.name == "builtin_tool"
+
+
+# ---------------------------------------------------------------------------
+# Coverage tests for ToolCatalog — lines 64, 97-110
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_skips_non_matching_tool_names() -> None:
+    """Line 64: entry.definition.name != tool_name -> continue."""
+    cat = ToolCatalog()
+    cat.register(_entry("alpha"))
+    cat.register(_entry("beta"))
+    result = cat.resolve("alpha")
+    assert result is not None
+    assert result.definition.name == "alpha"
+    # beta should not interfere
+    result_beta = cat.resolve("beta")
+    assert result_beta is not None
+    assert result_beta.definition.name == "beta"
+
+
+def test_resolve_returns_none_when_only_invisible_matches() -> None:
+    """Line 64 + visibility: all matching entries invisible -> None."""
+    cat = ToolCatalog()
+    cat.register(_entry("secret", scope="user", user_id="alice"))
+    # Resolve as a different user
+    result = cat.resolve("secret", user_id="bob")
+    assert result is None
+
+
+def test_list_tools_skips_invisible_user_entry() -> None:
+    """Line 97-98: _is_visible returns False for wrong user -> skip."""
+    cat = ToolCatalog()
+    cat.register(_entry("my_tool", scope="user", user_id="alice"))
+    cat.register(_entry("shared", scope="builtin"))
+    tools = cat.list_tools(user_id="bob")
+    names = [t.definition.name for t in tools]
+    assert "my_tool" not in names
+    assert "shared" in names
+
+
+def test_load_plugins_no_entry_point(monkeypatch: object) -> None:
+    """Lines 97-102: load_plugins with no stronghold.tools entry-points."""
+    from unittest.mock import patch
+
+    cat = ToolCatalog()
+    # Mock entry_points to return empty for our group
+    with patch("stronghold.tools.catalog.entry_points", return_value={}):
+        cat.load_plugins()  # should not raise
+    assert len(cat._entries) == 0
+
+
+def test_load_plugins_with_catalog_entry(monkeypatch: object) -> None:
+    """Lines 103-108: plugin with _catalog_entry attribute gets registered."""
+    from unittest.mock import MagicMock, patch
+
+    cat = ToolCatalog()
+    mock_ep = MagicMock()
+    mock_ep.name = "my_plugin_tool"
+
+    # Create a callable with _catalog_entry
+    mock_tool_fn = MagicMock()
+    mock_tool_fn._catalog_entry = _entry("plugin_tool", version="3.0.0")
+    mock_ep.load.return_value = mock_tool_fn
+
+    with patch(
+        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
+    ):
+        cat.load_plugins()
+
+    assert len(cat._entries) == 1
+    assert cat._entries[0].definition.name == "plugin_tool"
+    assert cat._entries[0].version == "3.0.0"
+
+
+def test_load_plugins_without_catalog_entry_attr() -> None:
+    """Lines 106-107: plugin loaded but no _catalog_entry -> skip."""
+    from unittest.mock import MagicMock, patch
+
+    cat = ToolCatalog()
+    mock_ep = MagicMock()
+    mock_ep.name = "bare_plugin"
+    mock_ep.load.return_value = lambda: None  # no _catalog_entry
+
+    with patch(
+        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
+    ):
+        cat.load_plugins()
+
+    assert len(cat._entries) == 0
+
+
+def test_load_plugins_handles_exception() -> None:
+    """Lines 109-110: exception during ep.load -> warning, continue."""
+    from unittest.mock import MagicMock, patch
+
+    cat = ToolCatalog()
+    mock_ep = MagicMock()
+    mock_ep.name = "broken_plugin"
+    mock_ep.load.side_effect = ImportError("module not found")
+
+    with patch(
+        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
+    ):
+        cat.load_plugins()  # should not raise
+
+    assert len(cat._entries) == 0
+
+
+def test_load_plugins_select_api() -> None:
+    """Lines 98-101: non-dict entry_points (SelectableGroups API)."""
+    from unittest.mock import MagicMock, patch
+
+    cat = ToolCatalog()
+    mock_tool_fn = MagicMock()
+    mock_tool_fn._catalog_entry = _entry("select_tool")
+
+    mock_ep = MagicMock()
+    mock_ep.name = "select_plugin"
+    mock_ep.load.return_value = mock_tool_fn
+
+    # Simulate SelectableGroups (not a dict, has .select method)
+    mock_eps = MagicMock()
+    mock_eps.__class__ = type("SelectableGroups", (), {})  # not dict
+    mock_eps.select.return_value = [mock_ep]
+    # Make isinstance(eps, dict) return False
+    del mock_eps.__getitem__
+
+    with patch("stronghold.tools.catalog.entry_points", return_value=mock_eps):
+        cat.load_plugins()
+
+    assert len(cat._entries) == 1
+    assert cat._entries[0].definition.name == "select_tool"

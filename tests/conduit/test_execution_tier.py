@@ -19,7 +19,6 @@ from stronghold.conduit import (
 )
 from stronghold.types.intent import Intent
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -155,7 +154,7 @@ class TestClusterPressure:
 
     def test_critical_tiers_constant(self) -> None:
         """Sanity: critical tiers are P0 and P1."""
-        assert _CRITICAL_TIERS == frozenset({"P0", "P1"})
+        assert frozenset({"P0", "P1"}) == _CRITICAL_TIERS
 
     def test_agent_override_then_pressure(self) -> None:
         """Agent upgrades to P2, then pressure downgrades to P3."""
@@ -203,3 +202,208 @@ class TestTraceOutput:
         assert result.tier == "P3"
         # Original intent unchanged (frozen dataclass)
         assert intent.tier == "P2"
+
+
+# ── Coverage expansion: Conduit class, token estimation, fallback, consent ──
+
+
+from stronghold.conduit import _CONSENT_AFFIRMATIVE, Conduit  # noqa: E402
+from tests.fakes import FakeLLMClient, make_test_container  # noqa: E402
+
+
+class TestConduitTokenEstimation:
+    """Tests for Conduit._estimate_tokens static method."""
+
+    def test_empty_messages(self) -> None:
+        result = Conduit._estimate_tokens([])
+        assert result == 1  # max(0 // 4, 1)
+
+    def test_string_content(self) -> None:
+        msgs = [{"role": "user", "content": "Hello world"}]
+        result = Conduit._estimate_tokens(msgs)
+        assert result == max(len("Hello world") // 4, 1)
+
+    def test_list_content_with_text_parts(self) -> None:
+        msgs = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this"},
+                    {"type": "image_url", "image_url": "data:..."},
+                ],
+            }
+        ]
+        result = Conduit._estimate_tokens(msgs)
+        assert result >= 1
+
+    def test_multiple_messages(self) -> None:
+        msgs = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Hello world, this is a test."},
+        ]
+        result = Conduit._estimate_tokens(msgs)
+        total_chars = len("You are helpful.") + len("Hello world, this is a test.")
+        assert result == max(total_chars // 4, 1)
+
+    def test_missing_content_key(self) -> None:
+        msgs = [{"role": "user"}]
+        result = Conduit._estimate_tokens(msgs)
+        assert result == 1
+
+
+class TestConduitFallbackAgent:
+    """Tests for Conduit._fallback_agent_name and _fallback_agent."""
+
+    def test_preferred_agent_found(self) -> None:
+        from stronghold.agents.base import Agent
+        from stronghold.agents.context_builder import ContextBuilder
+        from stronghold.agents.strategies.direct import DirectStrategy
+        from stronghold.memory.learnings.store import InMemoryLearningStore
+        from stronghold.prompts.store import InMemoryPromptManager
+        from stronghold.security.warden.detector import Warden
+        from stronghold.types.agent import AgentIdentity
+
+        llm = FakeLLMClient()
+        llm.set_simple_response("ok")
+        prompts = InMemoryPromptManager()
+        agent = Agent(
+            identity=AgentIdentity(
+                name="coder",
+                soul_prompt_name="agent.coder.soul",
+                model="test/model",
+            ),
+            strategy=DirectStrategy(),
+            llm=llm,
+            context_builder=ContextBuilder(),
+            prompt_manager=prompts,
+            warden=Warden(),
+            learning_store=InMemoryLearningStore(),
+        )
+        container = make_test_container(fake_llm=llm, agents={"coder": agent})
+        conduit = Conduit(container)
+        assert conduit._fallback_agent_name("coder") == "coder"
+
+    def test_fallback_to_arbiter(self) -> None:
+        from stronghold.agents.base import Agent
+        from stronghold.agents.context_builder import ContextBuilder
+        from stronghold.agents.strategies.direct import DirectStrategy
+        from stronghold.memory.learnings.store import InMemoryLearningStore
+        from stronghold.prompts.store import InMemoryPromptManager
+        from stronghold.security.warden.detector import Warden
+        from stronghold.types.agent import AgentIdentity
+
+        llm = FakeLLMClient()
+        llm.set_simple_response("ok")
+        prompts = InMemoryPromptManager()
+        arbiter = Agent(
+            identity=AgentIdentity(
+                name="arbiter",
+                soul_prompt_name="agent.arbiter.soul",
+                model="test/model",
+            ),
+            strategy=DirectStrategy(),
+            llm=llm,
+            context_builder=ContextBuilder(),
+            prompt_manager=prompts,
+            warden=Warden(),
+            learning_store=InMemoryLearningStore(),
+        )
+        container = make_test_container(fake_llm=llm, agents={"arbiter": arbiter})
+        conduit = Conduit(container)
+        # Preferred agent "missing" falls back to arbiter
+        assert conduit._fallback_agent_name("missing_agent") == "arbiter"
+
+    def test_fallback_to_first_available(self) -> None:
+        from stronghold.agents.base import Agent
+        from stronghold.agents.context_builder import ContextBuilder
+        from stronghold.agents.strategies.direct import DirectStrategy
+        from stronghold.memory.learnings.store import InMemoryLearningStore
+        from stronghold.prompts.store import InMemoryPromptManager
+        from stronghold.security.warden.detector import Warden
+        from stronghold.types.agent import AgentIdentity
+
+        llm = FakeLLMClient()
+        llm.set_simple_response("ok")
+        prompts = InMemoryPromptManager()
+        custom = Agent(
+            identity=AgentIdentity(
+                name="custom",
+                soul_prompt_name="agent.custom.soul",
+                model="test/model",
+            ),
+            strategy=DirectStrategy(),
+            llm=llm,
+            context_builder=ContextBuilder(),
+            prompt_manager=prompts,
+            warden=Warden(),
+            learning_store=InMemoryLearningStore(),
+        )
+        container = make_test_container(fake_llm=llm, agents={"custom": custom})
+        conduit = Conduit(container)
+        # No arbiter, no default, falls back to first available
+        assert conduit._fallback_agent_name("missing") == "custom"
+
+    def test_no_agents_raises(self) -> None:
+        import pytest
+
+        container = make_test_container(agents={})
+        conduit = Conduit(container)
+        with pytest.raises(RuntimeError, match="No agents"):
+            conduit._fallback_agent_name("anything")
+
+
+class TestConsentAffirmative:
+    """Test the consent affirmative word set."""
+
+    def test_yes_variants(self) -> None:
+        for word in ("yes", "yeah", "sure", "ok", "okay", "yep", "y"):
+            assert word in _CONSENT_AFFIRMATIVE
+
+    def test_no_is_not_consent(self) -> None:
+        assert "no" not in _CONSENT_AFFIRMATIVE
+        assert "never" not in _CONSENT_AFFIRMATIVE
+
+
+class TestBuildResponse:
+    """Tests for Conduit._build_response static method."""
+
+    def test_basic_response_structure(self) -> None:
+        result = Conduit._build_response(
+            response_id="test-id",
+            model="gpt-4",
+            content="Hello",
+            routing={"agent": "arbiter"},
+        )
+        assert result["id"] == "test-id"
+        assert result["model"] == "gpt-4"
+        assert result["object"] == "chat.completion"
+        assert result["choices"][0]["message"]["content"] == "Hello"
+        assert result["_routing"]["agent"] == "arbiter"
+        assert result["usage"] == {}  # no include_usage
+
+    def test_response_with_usage(self) -> None:
+        result = Conduit._build_response(
+            response_id="test-id",
+            model="gpt-4",
+            content="Hello",
+            routing={},
+            include_usage=True,
+        )
+        assert result["usage"]["prompt_tokens"] == 0
+        assert result["usage"]["total_tokens"] == 0
+
+    def test_response_finish_reason(self) -> None:
+        result = Conduit._build_response(
+            response_id="x",
+            model="m",
+            content="c",
+            routing={},
+        )
+        assert result["choices"][0]["finish_reason"] == "stop"
+
+
+class TestConduitSessionEviction:
+    """Test the session map eviction logic via MAX_STICKY_SESSIONS."""
+
+    def test_max_sticky_sessions_constant(self) -> None:
+        assert Conduit._MAX_STICKY_SESSIONS == 10_000

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -194,7 +193,7 @@ class TestForgeSkill:
             "  properties:\n"
             "    input:\n"
             "      type: string\n"
-            "      description: \"The input\"\n"
+            '      description: "The input"\n'
             "  required: [input]\n"
             'trust_tier: "t3"\n'
             "---\n\n"
@@ -230,7 +229,6 @@ class TestForgeSkill:
         so we test with a custom auth provider that returns a non-admin user.
         """
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(
@@ -273,7 +271,6 @@ class TestDeleteSkill:
 
     def test_non_admin_returns_403(self, skills_app: FastAPI) -> None:
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(
@@ -316,7 +313,6 @@ class TestUpdateSkill:
 
     def test_non_admin_returns_403(self, skills_app: FastAPI) -> None:
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(
@@ -408,3 +404,126 @@ class TestTestSkill:
                 headers={"Authorization": "Bearer sk-test"},
             )
             assert resp.status_code == 400
+
+
+class TestForgeSkillEmpty:
+    """Edge cases for forge_skill endpoint."""
+
+    def test_forge_empty_llm_response_returns_502(self, skills_app: FastAPI) -> None:
+        """Empty LLM response triggers 502."""
+        skills_app.state.container.llm.set_simple_response("")
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/forge",
+                json={"description": "A skill"},
+                headers={"Authorization": "Bearer sk-test"},
+            )
+            assert resp.status_code == 502
+            assert "empty" in resp.json()["detail"].lower()
+
+    def test_unauthenticated_forge_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/forge",
+                json={"description": "A skill"},
+            )
+            assert resp.status_code == 401
+
+
+class TestDeleteSkillUnauthenticated:
+    def test_unauthenticated_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.delete("/v1/stronghold/skills/web_search")
+            assert resp.status_code == 401
+
+
+class TestUpdateSkillUnauthenticated:
+    def test_unauthenticated_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.put(
+                "/v1/stronghold/skills/web_search",
+                json={"description": "new"},
+            )
+            assert resp.status_code == 401
+
+
+class TestGetSkillUnauthenticated:
+    def test_unauthenticated_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.get("/v1/stronghold/skills/web_search")
+            assert resp.status_code == 401
+
+
+class TestValidateSkillUnauthenticated:
+    def test_unauthenticated_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/validate",
+                json={"content": "---\nname: x\n---\n"},
+            )
+            assert resp.status_code == 401
+
+
+class TestTestSkillNonAdmin:
+    def test_non_admin_returns_403(self, skills_app: FastAPI) -> None:
+        from stronghold.types.auth import AuthContext
+        from tests.fakes import FakeAuthProvider
+
+        skills_app.state.container.auth_provider = FakeAuthProvider(
+            auth_context=AuthContext(
+                user_id="viewer",
+                username="viewer",
+                roles=frozenset({"viewer"}),
+                auth_method="api_key",
+            )
+        )
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/test",
+                json={"skill_name": "web_search", "test_input": {}},
+                headers={"Authorization": "Bearer sk-test"},
+            )
+            assert resp.status_code == 403
+
+    def test_unauthenticated_returns_401(self, skills_app: FastAPI) -> None:
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/test",
+                json={"skill_name": "web_search"},
+            )
+            assert resp.status_code == 401
+
+
+class TestForgeSkillSanitization:
+    """Test that forge sanitizes LLM output (markdown fences, frontmatter position)."""
+
+    def test_forge_strips_markdown_fences(self, skills_app: FastAPI) -> None:
+        fenced_skill = (
+            "```markdown\n"
+            "---\n"
+            "name: fenced_skill\n"
+            'description: "A fenced skill"\n'
+            "groups: [general]\n"
+            "parameters:\n"
+            "  type: object\n"
+            "  properties:\n"
+            "    query:\n"
+            "      type: string\n"
+            '      description: "Query"\n'
+            "  required: [query]\n"
+            'trust_tier: "t3"\n'
+            "---\n\n"
+            "Use this skill to search.\n"
+            "```"
+        )
+        skills_app.state.container.llm.set_simple_response(fenced_skill)
+        with TestClient(skills_app) as client:
+            resp = client.post(
+                "/v1/stronghold/skills/forge",
+                json={"description": "A search skill"},
+                headers={"Authorization": "Bearer sk-test"},
+            )
+            assert resp.status_code == 201
+            data = resp.json()
+            assert data["name"] == "fenced_skill"
+            assert data["trust_tier"] == "t3"  # Forced by forge

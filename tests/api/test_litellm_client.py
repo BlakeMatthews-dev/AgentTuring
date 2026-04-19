@@ -5,10 +5,11 @@ Uses httpx mock to simulate LiteLLM proxy responses and failures.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
 import pytest
 import respx
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from stronghold.api.litellm_client import LiteLLMClient
 
@@ -371,4 +372,202 @@ class TestDynamicFallbackModels:
                 "primary",
             )
         assert result["choices"][0]["message"]["content"] == "dynamic ok"
+        assert call_count == 2
+
+
+class TestPhase2FallbackFromModelList:
+    """Phase 2: fetch available models from /v1/models and try each."""
+
+    @respx.mock
+    async def test_phase2_fallback_uses_available_models(self) -> None:
+        """When explicit fallbacks fail, fetches /v1/models and tries those."""
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+        call_count = 0
+
+        # Mock completions: first 2 calls fail (primary + explicit fallback),
+        # third succeeds (from /v1/models list)
+        route = respx.post("http://fake:4000/v1/chat/completions")
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return httpx.Response(429, json={"error": "rate limited"})
+            return httpx.Response(200, json=_success_response("phase2 ok"))
+
+        route.mock(side_effect=side_effect)
+
+        # Mock /v1/models to return one model not in the explicit list
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "primary"},
+                        {"id": "fallback-1"},
+                        {"id": "rescue-model"},
+                    ]
+                },
+            )
+        )
+
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "primary",
+            fallback_models=["fallback-1"],
+        )
+        assert result["choices"][0]["message"]["content"] == "phase2 ok"
+        # Should have tried primary, fallback-1, then rescue-model from /v1/models
+        assert call_count == 3
+
+    @respx.mock
+    async def test_phase2_skips_already_tried_models(self) -> None:
+        """Models already tried in phase 1 are not retried in phase 2."""
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+        call_count = 0
+
+        route = respx.post("http://fake:4000/v1/chat/completions")
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            return httpx.Response(429, json={"error": "rate limited"})
+
+        route.mock(side_effect=side_effect)
+
+        # /v1/models returns only the same model that was already tried
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": [{"id": "primary"}]})
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "primary",
+            )
+        # Only tried primary once, not twice
+        assert call_count == 1
+
+    @respx.mock
+    async def test_fetch_models_failure_returns_empty(self) -> None:
+        """If /v1/models fails, phase 2 has no extra models to try."""
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(429, json={"error": "rate limited"})
+        )
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(500, json={"error": "internal"})
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "primary",
+            )
+
+
+class TestStreamMethod:
+    """LiteLLMClient.stream() yields SSE chunks."""
+
+    @respx.mock
+    async def test_stream_yields_chunks(self) -> None:
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+
+        sse_data = 'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text=sse_data)
+        )
+
+        chunks: list[str] = []
+        async for chunk in client.stream(
+            [{"role": "user", "content": "hi"}],
+            "test-model",
+        ):
+            chunks.append(chunk)
+
+        combined = "".join(chunks)
+        assert "Hello" in combined
+        assert "[DONE]" in combined
+
+
+class TestCompleteOptionalParams:
+    """Verify optional params are passed through to the request body."""
+
+    @respx.mock
+    async def test_max_tokens_and_temperature(self) -> None:
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+
+        route = respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=_success_response("ok"))
+        )
+
+        await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "test-model",
+            max_tokens=500,
+            temperature=0.7,
+            metadata={"user": "test"},
+            tool_choice="auto",
+        )
+
+        body = route.calls[0].request.content
+        import json
+
+        parsed = json.loads(body)
+        assert parsed["max_tokens"] == 500
+        assert parsed["temperature"] == 0.7
+        assert parsed["metadata"] == {"user": "test"}
+        assert parsed["tool_choice"] == "auto"
+
+
+class TestNoModelsAvailable:
+    """When no models exist at all, raise RuntimeError."""
+
+    @respx.mock
+    async def test_no_models_raises_runtime_error(self) -> None:
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+
+        # All models fail with connection error
+        respx.post("http://fake:4000/v1/chat/completions").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+
+        with pytest.raises(httpx.ConnectError):
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "only-model",
+            )
+
+
+class TestStatus422Retryable:
+    """422 (model doesn't support tools) should be retryable."""
+
+    @respx.mock
+    async def test_422_triggers_fallback(self) -> None:
+        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+        call_count = 0
+
+        route = respx.post("http://fake:4000/v1/chat/completions")
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(422, json={"error": "tools not supported"})
+            return httpx.Response(200, json=_success_response("fallback ok"))
+
+        route.mock(side_effect=side_effect)
+
+        # No /v1/models needed since explicit fallback is provided
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "primary",
+            fallback_models=["fallback"],
+        )
+        assert result["choices"][0]["message"]["content"] == "fallback ok"
         assert call_count == 2

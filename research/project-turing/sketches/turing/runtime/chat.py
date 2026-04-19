@@ -62,6 +62,9 @@ class ChatBridge:
             return self._replies.pop(message_id, None)
 
 
+TURING_MODEL_ID: str = "turing-conduit"
+
+
 def make_chat_handler(
     *,
     motivation: Motivation,
@@ -73,20 +76,27 @@ def make_chat_handler(
 ) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:                                       # noqa: N802
-            if self.path != "/chat":
-                self._respond(404, {"error": "not found"})
-                return
+            # OpenAI-compatible: POST /v1/chat/completions
+            # so OpenWebUI (or anything else speaking the OpenAI API) can
+            # add Project Turing as a model and chat through it normally.
+            if self.path.rstrip("/") == "/v1/chat/completions":
+                return self._handle_openai_chat_completions()
+            # Backwards-compat simple endpoint for the built-in HTML UI.
+            if self.path == "/chat":
+                return self._handle_simple_chat()
+            self._respond(404, {"error": "not found"})
+
+        def _read_json(self) -> dict[str, Any] | None:
             length = int(self.headers.get("Content-Length") or 0)
             try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+                return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
             except json.JSONDecodeError:
                 self._respond(400, {"error": "invalid json"})
-                return
-            message = (payload.get("message") or "").strip()
-            if not message:
-                self._respond(400, {"error": "missing 'message'"})
-                return
+                return None
 
+        def _dispatch_and_wait(self, message: str) -> tuple[str, str] | None:
+            """Submit a chat P1 item and wait for the reply. Returns
+            (message_id, reply) or None if the request timed out."""
             message_id, event = bridge.submit()
             item = BacklogItem(
                 item_id=message_id,
@@ -98,14 +108,75 @@ def make_chat_handler(
                 cost_estimate_tokens=512,
             )
             motivation.insert(item)
+            if not event.wait(timeout=response_timeout_s):
+                return None
+            return message_id, (bridge.take_reply(message_id) or "")
 
-            if event.wait(timeout=response_timeout_s):
-                reply = bridge.take_reply(message_id) or ""
-                self._respond(200, {"reply": reply, "message_id": message_id})
-            else:
-                self._respond(504, {"error": "timeout", "message_id": message_id})
+        def _handle_simple_chat(self) -> None:
+            payload = self._read_json()
+            if payload is None:
+                return
+            message = (payload.get("message") or "").strip()
+            if not message:
+                self._respond(400, {"error": "missing 'message'"})
+                return
+            result = self._dispatch_and_wait(message)
+            if result is None:
+                self._respond(504, {"error": "timeout"})
+                return
+            message_id, reply = result
+            self._respond(200, {"reply": reply, "message_id": message_id})
+
+        def _handle_openai_chat_completions(self) -> None:
+            payload = self._read_json()
+            if payload is None:
+                return
+            messages = payload.get("messages") or []
+            if not isinstance(messages, list) or not messages:
+                self._respond(400, {"error": "missing 'messages'"})
+                return
+            # Flatten the messages for the dispatcher. Project Turing's
+            # chat dispatcher gets a single user-message string; any
+            # system / prior turns are concatenated so the autonoetic
+            # loop can still see the full user context.
+            flattened = "\n\n".join(
+                f"{m.get('role', 'user')}: {m.get('content', '')}"
+                for m in messages
+                if isinstance(m, dict)
+            ).strip()
+            if not flattened:
+                self._respond(400, {"error": "empty messages"})
+                return
+
+            result = self._dispatch_and_wait(flattened)
+            if result is None:
+                self._respond(504, {"error": "timeout"})
+                return
+            message_id, reply = result
+            self._respond(
+                200,
+                _openai_chat_completion_response(
+                    request_id=message_id, reply=reply
+                ),
+            )
 
         def do_GET(self) -> None:                                        # noqa: N802
+            if self.path.rstrip("/") == "/v1/models":
+                self._respond(
+                    200,
+                    {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": TURING_MODEL_ID,
+                                "object": "model",
+                                "created": int(time.time()),
+                                "owned_by": "project-turing",
+                            }
+                        ],
+                    },
+                )
+                return
             if self.path.startswith("/thoughts"):
                 limit = _parse_limit(self.path, default=20)
                 lines = _read_recent_narrative(journal_dir, limit)
@@ -211,6 +282,33 @@ def _parse_limit(path: str, *, default: int) -> int:
             except ValueError:
                 return default
     return default
+
+
+def _openai_chat_completion_response(*, request_id: str, reply: str) -> dict[str, Any]:
+    """OpenAI chat-completion response envelope.
+
+    Enough for OpenWebUI and anything speaking the OpenAI API to accept
+    it as a real completion. Does not report usage; upstream consumers
+    shouldn't trust it for billing, only for plumbing.
+    """
+    return {
+        "id": f"chatcmpl-{request_id}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": TURING_MODEL_ID,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": reply},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+    }
 
 
 def _read_recent_narrative(journal_dir: str | None, limit: int) -> list[str]:

@@ -132,3 +132,53 @@ def test_root_serves_html(chat_setup) -> None:
     assert response.status == 200
     body = response.read().decode("utf-8")
     assert "<title>Project Turing — chat</title>" in body
+
+
+def test_v1_models_lists_turing_conduit(chat_setup) -> None:
+    port, _ = chat_setup
+    response = urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/v1/models", timeout=2.0
+    )
+    body = json.loads(response.read().decode("utf-8"))
+    assert body["object"] == "list"
+    ids = [m["id"] for m in body["data"]]
+    assert "turing-conduit" in ids
+
+
+def test_v1_chat_completions_openai_shape(chat_setup) -> None:
+    port, drive = chat_setup
+
+    result_holder: list[str] = []
+
+    def _send() -> None:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/chat/completions",
+            method="POST",
+            data=json.dumps(
+                {
+                    "model": "turing-conduit",
+                    "messages": [
+                        {"role": "system", "content": "you are terse"},
+                        {"role": "user", "content": "hello"},
+                    ],
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        result_holder.append(
+            urllib.request.urlopen(req, timeout=5.0).read().decode("utf-8")
+        )
+
+    sender = threading.Thread(target=_send)
+    sender.start()
+    time.sleep(0.05)
+    drive()
+    sender.join(timeout=5.0)
+
+    assert not sender.is_alive()
+    body = json.loads(result_holder[0])
+    assert body["object"] == "chat.completion"
+    assert body["model"] == "turing-conduit"
+    assert len(body["choices"]) == 1
+    assert body["choices"][0]["message"]["role"] == "assistant"
+    assert "echo:" in body["choices"][0]["message"]["content"]

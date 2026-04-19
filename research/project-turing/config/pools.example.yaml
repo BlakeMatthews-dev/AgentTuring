@@ -38,3 +38,25 @@ pools:
     window_duration_seconds: 2592000
     tokens_allowed: 100000
     quality_weight: 1.0
+
+  # --- Ollama (local inference through LiteLLM) -------------------------
+  # Local Ollama tokens never expire. Set tokens_allowed and
+  # window_duration_seconds large so the pressure scalar stays
+  # low-amplitude — the motivation layer treats Ollama as "always
+  # affordable, never panic-use-it-or-lose-it." quality_weight tunes
+  # how much the dispatcher prefers it over paid pools.
+
+  - pool_name: ollama-llama3
+    model: ollama/llama3.1
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 100000000         # ~unlimited for a local model
+    quality_weight: 0.6
+
+  - pool_name: ollama-qwen-coder
+    # Good fit for code-heavy daydreaming / reasoning.
+    model: ollama/qwen2.5-coder
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 100000000
+    quality_weight: 0.8

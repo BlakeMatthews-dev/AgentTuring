@@ -153,17 +153,29 @@ unknown name. You can read the source of the bridge that uses tools
 
 ## Talking to it
 
-Two surfaces:
+Three surfaces, pick whichever fits your stack:
 
-1. **Chat UI** at `http://localhost:9101/`. Type, hit send. Your message
-   becomes a P1 chat item; the dispatcher's reply comes back. Quick way
-   to verify the loop end-to-end.
-2. **HTTP API**:
-   - `POST /chat` body `{"message": "..."}` → `{"reply": "...", "message_id": "..."}`
+1. **OpenWebUI (or anything OpenAI-compatible)** — Project Turing exposes
+   `POST /v1/chat/completions` and `GET /v1/models`, so it shows up as
+   a model named `turing-conduit` in any OpenAI-compatible client.
+   Add a new "Model Connection" in OpenWebUI pointing at
+   `http://<turing-host>:9101/v1`, no API key required. Chat from
+   there; every message becomes a P1 chat item in the motivation
+   backlog, the dispatcher's reply comes back.
+2. **Built-in HTML UI** at `http://localhost:9101/` — minimal chat
+   surface for quick smokes without any other software. Uses the
+   legacy `POST /chat` endpoint.
+3. **Raw HTTP**:
+   - `POST /v1/chat/completions` — OpenAI-compatible shape.
+   - `POST /chat` `{"message": "..."}` → `{"reply": "...", "message_id": "..."}`
+     (legacy; the HTML UI uses this).
    - `GET /thoughts?limit=20` → `{"thoughts": ["...", "..."]}`
    - `GET /identity` → `{"self_id": "...", "wisdom": [...]}`
+   - `GET /v1/models` → `{"object": "list", "data": [{"id": "turing-conduit", ...}]}`
 
 Voice will layer on later (POST audio, GET TTS) — out of scope for now.
+The voice client can speak `POST /v1/chat/completions` like any other
+OpenAI client.
 
 ---
 

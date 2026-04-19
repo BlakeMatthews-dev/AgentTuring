@@ -23,6 +23,8 @@ from ..self_identity import bootstrap_self_id
 from ..tuning import CoefficientTuner
 from .config import RuntimeConfig, load_config_from_env
 from .instrumentation import setup_logging
+from .actor import Actor
+from .chat import ChatBridge, start_chat_server
 from .journal import Journal
 from .metrics import MetricsCollector, start_metrics_server
 from .pools import PoolConfig, load_pools
@@ -31,6 +33,9 @@ from .providers.fake import FakeProvider
 from .providers.litellm import LiteLLMProvider
 from .quota import FreeTierQuotaTracker
 from .reactor import RealReactor
+from .tools.base import ToolRegistry
+from .tools.obsidian import ObsidianWriter
+from .tools.rss import RSSReader
 from .workload import WorkloadDriver, load_scenario
 
 
@@ -53,6 +58,17 @@ def _resolve_scenario_path(scenario: str) -> str:
     if candidate.is_file():
         return str(candidate)
     raise FileNotFoundError(f"scenario not found: {scenario}")
+
+
+def _select_chat_provider(
+    providers: dict[str, Provider],
+    weights: dict[str, float],
+) -> Provider:
+    """Highest-quality registered pool. Falls back to the first if weights tie."""
+    if not providers:
+        raise RuntimeError("no providers registered; cannot service chat")
+    best_name = max(providers, key=lambda name: weights.get(name, 1.0))
+    return providers[best_name]
 
 
 def _build_providers(
@@ -127,6 +143,13 @@ def build_and_run(argv: list[str] | None = None) -> int:
     parser.add_argument("--metrics-port", type=int, help="enable Prometheus endpoint on this port")
     parser.add_argument("--metrics-bind", type=str, default=None,
                         help="bind interface for the metrics endpoint (default 127.0.0.1)")
+    parser.add_argument("--chat-port", type=int, help="enable chat HTTP server on this port")
+    parser.add_argument("--chat-bind", type=str, default=None,
+                        help="bind interface for the chat server (default 127.0.0.1)")
+    parser.add_argument("--obsidian-vault", type=str,
+                        help="enable Obsidian vault writes at this directory")
+    parser.add_argument("--rss-feeds", type=str,
+                        help="comma-separated RSS/Atom feed URLs to subscribe to")
     args = parser.parse_args(argv)
 
     overrides: dict[str, Any] = {}
@@ -155,6 +178,16 @@ def build_and_run(argv: list[str] | None = None) -> int:
         overrides["metrics_port"] = args.metrics_port
     if args.metrics_bind is not None:
         overrides["metrics_bind"] = args.metrics_bind
+    if args.chat_port is not None:
+        overrides["chat_port"] = args.chat_port
+    if args.chat_bind is not None:
+        overrides["chat_bind"] = args.chat_bind
+    if args.obsidian_vault is not None:
+        overrides["obsidian_vault_dir"] = args.obsidian_vault
+    if args.rss_feeds is not None:
+        overrides["rss_feeds"] = tuple(
+            f.strip() for f in args.rss_feeds.split(",") if f.strip()
+        )
 
     cfg = load_config_from_env(overrides=overrides)
     setup_logging(level=cfg.log_level, fmt=cfg.log_format)
@@ -226,6 +259,51 @@ def build_and_run(argv: list[str] | None = None) -> int:
         reactor.register(journal.on_tick)
         logger.info("journal writing to %s", cfg.journal_dir)
 
+    # Tool layer + Actor.
+    tool_registry = ToolRegistry()
+    if cfg.obsidian_vault_dir:
+        tool_registry.register(ObsidianWriter(vault_dir=cfg.obsidian_vault_dir))
+        logger.info("obsidian writes enabled at %s", cfg.obsidian_vault_dir)
+    if cfg.rss_feeds:
+        tool_registry.register(RSSReader(feeds=cfg.rss_feeds))
+        logger.info("rss reader registered with %d feed(s)", len(cfg.rss_feeds))
+    if tool_registry.names():
+        actor = Actor(repo=repo, self_id=self_id, registry=tool_registry)
+        reactor.register(actor.on_tick)
+
+    # Chat HTTP server + dispatch handler that uses an LLM provider to reply.
+    stop_chat: Any = None
+    if cfg.chat_port is not None:
+        bridge = ChatBridge()
+
+        # Pick the highest-quality registered pool for chat replies.
+        chat_provider = _select_chat_provider(providers, quality_weights)
+
+        def _on_chat_dispatch(item: BacklogItem, chosen_pool: str) -> None:
+            payload = item.payload or {}
+            message = str(payload.get("message", ""))
+            try:
+                reply = chat_provider.complete(
+                    f"You are an autonoetic Conduit. Reply concisely.\nUser: {message}\nReply:",
+                    max_tokens=400,
+                )
+            except Exception:
+                logger.exception("chat dispatch failed")
+                reply = "(I encountered an error generating a reply.)"
+            bridge.resolve(item.item_id, reply)
+
+        motivation.register_dispatch("chat_message", _on_chat_dispatch)
+
+        stop_chat = start_chat_server(
+            motivation=motivation,
+            repo=repo,
+            self_id=self_id,
+            bridge=bridge,
+            port=cfg.chat_port,
+            host=cfg.chat_bind,
+            journal_dir=cfg.journal_dir,
+        )
+
     if cfg.scenario:
         scenario_path = _resolve_scenario_path(cfg.scenario)
         logger.info("loading scenario %s", scenario_path)
@@ -294,6 +372,8 @@ def build_and_run(argv: list[str] | None = None) -> int:
     )
     if stop_metrics is not None:
         stop_metrics()
+    if stop_chat is not None:
+        stop_chat()
     repo.close()
     return 0
 

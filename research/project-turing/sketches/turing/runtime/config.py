@@ -36,6 +36,14 @@ class RuntimeConfig:
     # Workload (chunk 3)
     scenario: str | None = None
 
+    # Tools (outward-facing)
+    obsidian_vault_dir: str | None = None
+    rss_feeds: tuple[str, ...] = ()
+
+    # Chat HTTP
+    chat_port: int | None = None
+    chat_bind: str = "127.0.0.1"
+
     # Self identity
     self_label: str = "default"
 
@@ -103,6 +111,16 @@ def load_config_from_env(
         cfg_kwargs["pools_config_path"] = env["TURING_POOLS_CONFIG"]
     if "TURING_SCENARIO" in env:
         cfg_kwargs["scenario"] = env["TURING_SCENARIO"]
+    if "TURING_OBSIDIAN_VAULT" in env:
+        cfg_kwargs["obsidian_vault_dir"] = env["TURING_OBSIDIAN_VAULT"]
+    if "TURING_RSS_FEEDS" in env:
+        cfg_kwargs["rss_feeds"] = tuple(
+            f.strip() for f in env["TURING_RSS_FEEDS"].split(",") if f.strip()
+        )
+    if "TURING_CHAT_PORT" in env:
+        cfg_kwargs["chat_port"] = _parse_int(env["TURING_CHAT_PORT"], 0) or None
+    if "TURING_CHAT_BIND" in env:
+        cfg_kwargs["chat_bind"] = env["TURING_CHAT_BIND"]
     if "TURING_SELF_LABEL" in env:
         cfg_kwargs["self_label"] = env["TURING_SELF_LABEL"]
 

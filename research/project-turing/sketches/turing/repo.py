@@ -51,7 +51,14 @@ class Repo:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._path = ":memory:" if db_path is None else str(db_path)
-        self._conn = sqlite3.connect(self._path)
+        # check_same_thread=False so the chat HTTP server (in a side thread)
+        # can read from the same connection. The GIL serializes Python-level
+        # accesses; SQLite itself is internally locked. Concurrent writes
+        # from multiple threads should still go through a higher-level lock
+        # in any future production port — for the research sketch with one
+        # writer (the reactor's main thread) and side-thread readers, this
+        # is fine.
+        self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._apply_schema()
 

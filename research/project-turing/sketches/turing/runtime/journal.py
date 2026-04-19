@@ -27,7 +27,7 @@ logger = logging.getLogger("turing.runtime.journal")
 
 
 # How often to poll, in ticks. At 100Hz: 100 ticks = 1s; 6000 = 1 min.
-DEFAULT_JOURNAL_POLL_TICKS: int = 1_000
+DEFAULT_JOURNAL_POLL_TICKS: int = 200
 
 
 class Journal:

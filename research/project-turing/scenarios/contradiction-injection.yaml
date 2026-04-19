@@ -1,0 +1,23 @@
+# Exercises the contradiction detector by planting triples of durable memories
+# whose resolution is available.
+
+streams:
+  - kind: p1_chat
+    class_: 1
+    every_seconds: 10
+    jitter_seconds: 3
+    fit: {gemini: 1.0}
+    intent: chat-turn
+
+contradictions:
+  - intent: route-writing-request
+    a_content: artificer fits here is true
+    b_content: artificer fits here is false
+    c_content: artificer fits here is false
+    after_seconds: 3
+
+  - intent: route-analysis-request
+    a_content: ranger is sufficient is true
+    b_content: ranger is sufficient is false
+    c_content: ranger is sufficient is true
+    after_seconds: 8

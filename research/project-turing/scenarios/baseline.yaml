@@ -1,0 +1,47 @@
+# Baseline synthetic workload. Produces a steady trickle across all user-facing
+# priority classes so REGRETs/ACCOMPLISHMENTs accumulate and the system has
+# something to daydream about.
+#
+# Rates deliberately short so smoke tests see action in <60s. For week-long
+# research runs, increase every_seconds by ~100x.
+
+streams:
+  - kind: p1_chat
+    class_: 1
+    every_seconds: 6
+    jitter_seconds: 2
+    fit: {gemini: 1.0, zai: 0.8}
+    intent: chat-turn
+    outcome_success_rate: 0.9
+    outcome_affect_range: [0.0, 0.6]
+    outcome_surprise_range: [0.0, 0.5]
+
+  - kind: p3_wait
+    class_: 3
+    every_seconds: 30
+    jitter_seconds: 10
+    fit: {gemini: 1.0, zai: 0.9}
+    intent: blocking-task
+    outcome_success_rate: 0.8
+    outcome_affect_range: [-0.3, 0.7]
+    outcome_surprise_range: [0.0, 0.6]
+
+  - kind: p4_asap
+    class_: 4
+    every_seconds: 12
+    jitter_seconds: 4
+    fit: {gemini: 0.7, zai: 1.0}
+    intent: async-task
+    outcome_success_rate: 0.75
+    outcome_affect_range: [-0.5, 0.6]
+    outcome_surprise_range: [0.0, 0.7]
+
+  - kind: p7_backlog
+    class_: 7
+    every_seconds: 20
+    jitter_seconds: 6
+    fit: {gemini: 0.5, zai: 0.9}
+    intent: backlog-item
+    outcome_success_rate: 0.7
+    outcome_affect_range: [-0.4, 0.5]
+    outcome_surprise_range: [0.0, 0.5]

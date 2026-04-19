@@ -25,8 +25,10 @@ from .instrumentation import setup_logging
 from .providers.base import Provider
 from .providers.fake import FakeProvider
 from .providers.gemini import GeminiProvider
+from .providers.zai import ZaiProvider
 from .quota import FreeTierQuotaTracker
 from .reactor import RealReactor
+from .workload import WorkloadDriver, load_scenario
 
 
 logger = logging.getLogger("turing.runtime.main")
@@ -41,6 +43,24 @@ DEFAULT_QUALITY_WEIGHTS: dict[str, float] = {
 }
 
 
+def _resolve_scenario_path(scenario: str) -> str:
+    """Locate a scenario YAML relative to the project-turing repo root."""
+    from pathlib import Path
+
+    direct = Path(scenario)
+    if direct.is_file():
+        return str(direct)
+
+    # Try resolving relative to research/project-turing/scenarios/.
+    anchor = Path(__file__).resolve()
+    # __file__ = .../research/project-turing/sketches/turing/runtime/main.py
+    project_root = anchor.parents[3]
+    candidate = project_root / "scenarios" / f"{scenario}.yaml"
+    if candidate.is_file():
+        return str(candidate)
+    raise FileNotFoundError(f"scenario not found: {scenario}")
+
+
 def _build_providers(cfg: RuntimeConfig) -> dict[str, Provider]:
     providers: dict[str, Provider] = {}
     for name in cfg.provider_choice:
@@ -51,10 +71,14 @@ def _build_providers(cfg: RuntimeConfig) -> dict[str, Provider]:
                 raise ValueError("gemini selected but gemini_api_key unset")
             providers[name] = GeminiProvider(api_key=cfg.gemini_api_key)
         elif name == "openrouter":
-            # chunk 3 wires the real client.
+            # chunk 3 left as FakeProvider (spec calls for zai as the
+            # second real provider); operators can extend openrouter.py
+            # following gemini.py / zai.py patterns.
             providers[name] = FakeProvider(name="openrouter")
         elif name == "zai":
-            providers[name] = FakeProvider(name="zai")
+            if not cfg.zai_api_key:
+                raise ValueError("zai selected but zai_api_key unset")
+            providers[name] = ZaiProvider(api_key=cfg.zai_api_key)
         else:
             raise ValueError(f"unknown provider: {name}")
     return providers
@@ -176,6 +200,19 @@ def build_and_run(argv: list[str] | None = None) -> int:
         repo=repo,
         self_id=self_id,
     )
+
+    if cfg.scenario:
+        scenario_path = _resolve_scenario_path(cfg.scenario)
+        logger.info("loading scenario %s", scenario_path)
+        scenario = load_scenario(scenario_path)
+        WorkloadDriver(
+            scenario=scenario,
+            motivation=motivation,
+            reactor=reactor,
+            scheduler=scheduler,
+            repo=repo,
+            self_id=self_id,
+        )
 
     def _handle_signal(signum: int, _frame: Any) -> None:
         logger.info("signal %d received; stopping reactor", signum)

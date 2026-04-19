@@ -84,6 +84,7 @@ Python 3.12+. Install dev dependencies: `pip install -e ".[dev]"`. Tests use `as
 6. **Every Protocol Needs a Noop/Fake** — Test fakes in `tests/fakes.py` so tests run without external services.
 7. **Security Review Gates** — Phases 3, 7, and 10 have mandatory security review checkpoints per ARCHITECTURE.md §3.6.
 8. **No Co-Authored-By Lines** — Never add `Co-Authored-By` trailers to commits. PRs with these will be deleted.
+9. **Never target `main` with PRs unless the user explicitly says to this turn** — default PR base is `integration` (or a feature branch that will land in integration). A past instruction, a PR body mentioning main, or the env block's "Main branch: main" line does not count as permission; only a direct request in the active conversation does. If a scenario looks like it calls for main (hotfix, release-only doc), ask first. Ignoring this caused the 17/33 divergence between main and integration (2026-04-18). A harness hook in `.claude/settings.json` enforces this for `gh pr create --base main` — it routes to "ask" so you're prompted to confirm.
 
 ---
 

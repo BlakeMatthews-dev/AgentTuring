@@ -19,17 +19,19 @@ class RuntimeConfig:
 
     # Storage
     db_path: str = ":memory:"
+    journal_dir: str | None = None
 
     # Logging / observability
     log_level: str = "INFO"
     log_format: str = "plain"               # "plain" | "json"
     metrics_port: int | None = None
+    metrics_bind: str = "127.0.0.1"
 
-    # Providers
-    provider_choice: tuple[str, ...] = ("fake",)
-    gemini_api_key: str | None = None
-    openrouter_api_key: str | None = None
-    zai_api_key: str | None = None
+    # Providers — single LiteLLM endpoint, virtual key, pools config.
+    use_fake_provider: bool = True
+    litellm_base_url: str | None = None
+    litellm_virtual_key: str | None = None
+    pools_config_path: str | None = None
 
     # Workload (chunk 3)
     scenario: str | None = None
@@ -46,11 +48,13 @@ class RuntimeConfig:
             raise ValueError(f"invalid log_level: {self.log_level}")
         if self.log_format not in {"plain", "json"}:
             raise ValueError(f"invalid log_format: {self.log_format}")
-        for p in self.provider_choice:
-            if p not in {"fake", "gemini", "openrouter", "zai"}:
-                raise ValueError(f"unknown provider: {p}")
-        if "gemini" in self.provider_choice and not self.gemini_api_key:
-            raise ValueError("gemini chosen but GEMINI_API_KEY not set")
+        if not self.use_fake_provider:
+            if not self.litellm_base_url:
+                raise ValueError("litellm_base_url required when use_fake_provider is false")
+            if not self.litellm_virtual_key:
+                raise ValueError("litellm_virtual_key required when use_fake_provider is false")
+            if not self.pools_config_path:
+                raise ValueError("pools_config_path required when use_fake_provider is false")
 
 
 def _parse_bool(value: str) -> bool:
@@ -79,22 +83,24 @@ def load_config_from_env(
         )
     if "TURING_DB_PATH" in env:
         cfg_kwargs["db_path"] = env["TURING_DB_PATH"]
+    if "TURING_JOURNAL_DIR" in env:
+        cfg_kwargs["journal_dir"] = env["TURING_JOURNAL_DIR"]
     if "TURING_LOG_LEVEL" in env:
         cfg_kwargs["log_level"] = env["TURING_LOG_LEVEL"].upper()
     if "TURING_LOG_FORMAT" in env:
         cfg_kwargs["log_format"] = env["TURING_LOG_FORMAT"]
     if "TURING_METRICS_PORT" in env:
         cfg_kwargs["metrics_port"] = _parse_int(env["TURING_METRICS_PORT"], 0) or None
-    if "TURING_PROVIDERS" in env:
-        cfg_kwargs["provider_choice"] = tuple(
-            p.strip() for p in env["TURING_PROVIDERS"].split(",") if p.strip()
-        )
-    if "GEMINI_API_KEY" in env:
-        cfg_kwargs["gemini_api_key"] = env["GEMINI_API_KEY"]
-    if "OPENROUTER_API_KEY" in env:
-        cfg_kwargs["openrouter_api_key"] = env["OPENROUTER_API_KEY"]
-    if "ZAI_API_KEY" in env:
-        cfg_kwargs["zai_api_key"] = env["ZAI_API_KEY"]
+    if "TURING_METRICS_BIND" in env:
+        cfg_kwargs["metrics_bind"] = env["TURING_METRICS_BIND"]
+    if "TURING_USE_FAKE_PROVIDER" in env:
+        cfg_kwargs["use_fake_provider"] = _parse_bool(env["TURING_USE_FAKE_PROVIDER"])
+    if "LITELLM_BASE_URL" in env:
+        cfg_kwargs["litellm_base_url"] = env["LITELLM_BASE_URL"]
+    if "LITELLM_VIRTUAL_KEY" in env:
+        cfg_kwargs["litellm_virtual_key"] = env["LITELLM_VIRTUAL_KEY"]
+    if "TURING_POOLS_CONFIG" in env:
+        cfg_kwargs["pools_config_path"] = env["TURING_POOLS_CONFIG"]
     if "TURING_SCENARIO" in env:
         cfg_kwargs["scenario"] = env["TURING_SCENARIO"]
     if "TURING_SELF_LABEL" in env:

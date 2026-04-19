@@ -1,12 +1,13 @@
-"""z.ai provider client (OpenAI-compatible API surface).
+"""LiteLLM-backed Provider — single client, many pools.
 
-z.ai exposes an OpenAI-compatible chat-completions endpoint. Free tier
-operates on a rolling 5-hour usage window — different window shape from
-Gemini's RPM, which stresses the FreeTierQuotaTracker's pressure math in
-a different way.
+The operator runs LiteLLM with their providers (Google, z.ai, OpenRouter, …)
+already configured. Project Turing connects with a single virtual key and
+routes by model name. One LiteLLMProvider per pool: the pool's `model`
+field tells LiteLLM which backend to invoke.
 
-If z.ai's actual request/response shape differs from what's assumed here,
-the two places to update are the POST body and `_extract_text`.
+LiteLLM exposes an OpenAI-compatible `/chat/completions` endpoint, so the
+request shape is the same regardless of which underlying provider serves
+the model.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 
 import httpx
 
+from ..pools import PoolConfig
 from .base import (
     FreeTierWindow,
     ProviderUnavailable,
@@ -24,43 +26,42 @@ from .base import (
 )
 
 
-logger = logging.getLogger("turing.providers.zai")
+logger = logging.getLogger("turing.providers.litellm")
 
 
-DEFAULT_BASE_URL: str = "https://api.z.ai/api/paas/v4"
-DEFAULT_MODEL: str = "glm-4-flash"
-DEFAULT_WINDOW_DURATION: timedelta = timedelta(hours=5)
-DEFAULT_TOKENS_ALLOWED_PER_WINDOW: int = 5_000_000
-
-
-class ZaiProvider:
-    name: str = "zai"
+class LiteLLMProvider:
+    """One pool's worth of LiteLLM access."""
 
     def __init__(
         self,
         *,
-        api_key: str,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
-        window_duration: timedelta = DEFAULT_WINDOW_DURATION,
-        tokens_allowed_per_window: int = DEFAULT_TOKENS_ALLOWED_PER_WINDOW,
+        pool_config: PoolConfig,
+        base_url: str,
+        virtual_key: str,
         client: httpx.Client | None = None,
     ) -> None:
-        if not api_key:
-            raise ValueError("ZaiProvider requires a non-empty api_key")
-        self._api_key = api_key
-        self._model = model
+        if not virtual_key:
+            raise ValueError("LiteLLMProvider requires a non-empty virtual_key")
+        if not base_url:
+            raise ValueError("LiteLLMProvider requires a non-empty base_url")
+        self._pool_config = pool_config
+        self.name = pool_config.pool_name
+        self._model = pool_config.model
         self._base_url = base_url.rstrip("/")
-        self._window_duration = window_duration
-        self._tokens_allowed = tokens_allowed_per_window
+        self._virtual_key = virtual_key
         self._client = client or httpx.Client(timeout=30.0)
+
         self._window_started_at: datetime = datetime.now(UTC)
+        self._window_duration: timedelta = timedelta(
+            seconds=pool_config.window_duration_seconds
+        )
+        self._tokens_allowed: int = pool_config.tokens_allowed
         self._tokens_used: int = 0
 
     def complete(self, prompt: str, *, max_tokens: int = 512) -> str:
         url = f"{self._base_url}/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {self._virtual_key}",
             "Content-Type": "application/json",
         }
         body: dict[str, Any] = {
@@ -72,28 +73,37 @@ class ZaiProvider:
         try:
             response = self._client.post(url, headers=headers, json=body)
         except httpx.RequestError as exc:
-            raise ProviderUnavailable(f"zai request error: {exc}") from exc
+            raise ProviderUnavailable(
+                f"litellm[{self._model}] request error: {exc}"
+            ) from exc
 
         if response.status_code == 429:
-            raise RateLimited("zai returned 429")
+            raise RateLimited(f"litellm[{self._model}] returned 429")
         if 500 <= response.status_code < 600:
             try:
                 retry = self._client.post(url, headers=headers, json=body)
             except httpx.RequestError as exc:
-                raise ProviderUnavailable(f"zai retry error: {exc}") from exc
+                raise ProviderUnavailable(
+                    f"litellm[{self._model}] retry error: {exc}"
+                ) from exc
             if not retry.is_success:
                 raise ProviderUnavailable(
-                    f"zai {retry.status_code}: {retry.text[:200]}"
+                    f"litellm[{self._model}] {retry.status_code}: {retry.text[:200]}"
                 )
             response = retry
         if not response.is_success:
             raise ProviderUnavailable(
-                f"zai {response.status_code}: {response.text[:200]}"
+                f"litellm[{self._model}] {response.status_code}: {response.text[:200]}"
             )
 
         data = response.json()
         text = _extract_text(data)
-        self._record_usage(prompt, text, max_tokens)
+        usage = data.get("usage") or {}
+        tokens_used = (
+            int(usage.get("total_tokens", 0))
+            or (len(prompt) + len(text)) // 4        # fallback estimate
+        )
+        self._tokens_used += tokens_used
         return text
 
     def quota_window(self) -> FreeTierWindow | None:
@@ -103,15 +113,12 @@ class ZaiProvider:
             self._tokens_used = 0
         return FreeTierWindow(
             provider=self.name,
-            window_kind="rolling_hours",
+            window_kind=self._pool_config.window_kind,
             window_started_at=self._window_started_at,
             window_duration=self._window_duration,
             tokens_allowed=self._tokens_allowed,
             tokens_used=self._tokens_used,
         )
-
-    def _record_usage(self, prompt: str, reply: str, max_tokens: int) -> None:
-        self._tokens_used += (len(prompt) + len(reply)) // 4
 
     def close(self) -> None:
         self._client.close()

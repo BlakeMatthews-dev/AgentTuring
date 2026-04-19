@@ -23,8 +23,7 @@ def test_runtime_short_run_accumulates_session_markers(tmp_path: Path) -> None:
             "100",
             "--duration",
             "2",
-            "--providers",
-            "fake",
+            "--use-fake-provider",
             "--db",
             str(db_path),
             "--log-level",
@@ -50,7 +49,7 @@ def test_runtime_self_id_persists_across_runs(tmp_path: Path) -> None:
 
     build_and_run(
         ["--tick-rate", "100", "--duration", "1", "--db", str(db_path),
-         "--providers", "fake", "--log-level", "ERROR"]
+         "--use-fake-provider", "--log-level", "ERROR"]
     )
     repo = Repo(str(db_path))
     first_id = repo.conn.execute(
@@ -60,7 +59,7 @@ def test_runtime_self_id_persists_across_runs(tmp_path: Path) -> None:
 
     build_and_run(
         ["--tick-rate", "100", "--duration", "1", "--db", str(db_path),
-         "--providers", "fake", "--log-level", "ERROR"]
+         "--use-fake-provider", "--log-level", "ERROR"]
     )
     repo = Repo(str(db_path))
     second_id = repo.conn.execute(

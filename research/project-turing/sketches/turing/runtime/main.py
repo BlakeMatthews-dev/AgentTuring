@@ -23,26 +23,18 @@ from ..self_identity import bootstrap_self_id
 from ..tuning import CoefficientTuner
 from .config import RuntimeConfig, load_config_from_env
 from .instrumentation import setup_logging
+from .journal import Journal
 from .metrics import MetricsCollector, start_metrics_server
+from .pools import PoolConfig, load_pools
 from .providers.base import Provider
 from .providers.fake import FakeProvider
-from .providers.gemini import GeminiProvider
-from .providers.zai import ZaiProvider
+from .providers.litellm import LiteLLMProvider
 from .quota import FreeTierQuotaTracker
 from .reactor import RealReactor
 from .workload import WorkloadDriver, load_scenario
 
 
 logger = logging.getLogger("turing.runtime.main")
-
-
-# Per-provider quality weights. Tuner may propose updates at runtime.
-DEFAULT_QUALITY_WEIGHTS: dict[str, float] = {
-    "fake": 0.1,
-    "gemini": 1.0,
-    "openrouter": 0.7,
-    "zai": 0.8,
-}
 
 
 def _resolve_scenario_path(scenario: str) -> str:
@@ -63,27 +55,27 @@ def _resolve_scenario_path(scenario: str) -> str:
     raise FileNotFoundError(f"scenario not found: {scenario}")
 
 
-def _build_providers(cfg: RuntimeConfig) -> dict[str, Provider]:
+def _build_providers(
+    cfg: RuntimeConfig,
+) -> tuple[dict[str, Provider], dict[str, float]]:
+    """Returns (providers_by_pool_name, quality_weights_by_pool_name)."""
+    if cfg.use_fake_provider:
+        return {"fake": FakeProvider(name="fake")}, {"fake": 0.1}
+
+    assert cfg.litellm_base_url and cfg.litellm_virtual_key and cfg.pools_config_path
+    pools: list[PoolConfig] = load_pools(cfg.pools_config_path)
+    if not pools:
+        raise ValueError(f"pools config has no pools: {cfg.pools_config_path}")
     providers: dict[str, Provider] = {}
-    for name in cfg.provider_choice:
-        if name == "fake":
-            providers[name] = FakeProvider(name="fake")
-        elif name == "gemini":
-            if not cfg.gemini_api_key:
-                raise ValueError("gemini selected but gemini_api_key unset")
-            providers[name] = GeminiProvider(api_key=cfg.gemini_api_key)
-        elif name == "openrouter":
-            # chunk 3 left as FakeProvider (spec calls for zai as the
-            # second real provider); operators can extend openrouter.py
-            # following gemini.py / zai.py patterns.
-            providers[name] = FakeProvider(name="openrouter")
-        elif name == "zai":
-            if not cfg.zai_api_key:
-                raise ValueError("zai selected but zai_api_key unset")
-            providers[name] = ZaiProvider(api_key=cfg.zai_api_key)
-        else:
-            raise ValueError(f"unknown provider: {name}")
-    return providers
+    weights: dict[str, float] = {}
+    for pool in pools:
+        providers[pool.pool_name] = LiteLLMProvider(
+            pool_config=pool,
+            base_url=cfg.litellm_base_url,
+            virtual_key=cfg.litellm_virtual_key,
+        )
+        weights[pool.pool_name] = pool.quality_weight
+    return providers, weights
 
 
 def _make_imagine_for_provider(provider: Provider) -> Any:
@@ -122,12 +114,19 @@ def build_and_run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="turing-runtime")
     parser.add_argument("--tick-rate", type=int)
     parser.add_argument("--db", type=str)
+    parser.add_argument("--journal-dir", type=str, help="enable journal output at this directory")
     parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--log-format", type=str, choices=["plain", "json"])
-    parser.add_argument("--providers", type=str, help="comma-separated: fake,gemini,openrouter,zai")
+    parser.add_argument("--use-fake-provider", action="store_true",
+                        help="run with the FakeProvider (no LiteLLM needed)")
+    parser.add_argument("--litellm-base-url", type=str)
+    parser.add_argument("--litellm-virtual-key", type=str)
+    parser.add_argument("--pools-config", type=str, help="path to pools YAML")
     parser.add_argument("--scenario", type=str)
     parser.add_argument("--duration", type=int, help="seconds to run before auto-stop (default: forever)")
     parser.add_argument("--metrics-port", type=int, help="enable Prometheus endpoint on this port")
+    parser.add_argument("--metrics-bind", type=str, default=None,
+                        help="bind interface for the metrics endpoint (default 127.0.0.1)")
     args = parser.parse_args(argv)
 
     overrides: dict[str, Any] = {}
@@ -135,27 +134,37 @@ def build_and_run(argv: list[str] | None = None) -> int:
         overrides["tick_rate_hz"] = args.tick_rate
     if args.db is not None:
         overrides["db_path"] = args.db
+    if args.journal_dir is not None:
+        overrides["journal_dir"] = args.journal_dir
     if args.log_level is not None:
         overrides["log_level"] = args.log_level
     if args.log_format is not None:
         overrides["log_format"] = args.log_format
-    if args.providers is not None:
-        overrides["provider_choice"] = tuple(
-            p.strip() for p in args.providers.split(",") if p.strip()
-        )
+    if args.use_fake_provider:
+        overrides["use_fake_provider"] = True
+    if args.litellm_base_url is not None:
+        overrides["litellm_base_url"] = args.litellm_base_url
+        overrides["use_fake_provider"] = False
+    if args.litellm_virtual_key is not None:
+        overrides["litellm_virtual_key"] = args.litellm_virtual_key
+    if args.pools_config is not None:
+        overrides["pools_config_path"] = args.pools_config
     if args.scenario is not None:
         overrides["scenario"] = args.scenario
     if args.metrics_port is not None:
         overrides["metrics_port"] = args.metrics_port
+    if args.metrics_bind is not None:
+        overrides["metrics_bind"] = args.metrics_bind
 
     cfg = load_config_from_env(overrides=overrides)
     setup_logging(level=cfg.log_level, fmt=cfg.log_format)
 
+    pool_label = "fake" if cfg.use_fake_provider else f"litellm({cfg.pools_config_path})"
     logger.info(
-        "starting runtime tick_rate=%d db=%s providers=%s",
+        "starting runtime tick_rate=%d db=%s pools=%s",
         cfg.tick_rate_hz,
         cfg.db_path,
-        ",".join(cfg.provider_choice),
+        pool_label,
     )
 
     repo = Repo(cfg.db_path if cfg.db_path != ":memory:" else None)
@@ -169,12 +178,12 @@ def build_and_run(argv: list[str] | None = None) -> int:
     motivation = Motivation(reactor)
     scheduler = Scheduler(reactor, motivation)
 
-    providers = _build_providers(cfg)
+    providers, quality_weights = _build_providers(cfg)
     quota_tracker = FreeTierQuotaTracker()
     for pool_name, provider in providers.items():
         quota_tracker.register(
             provider,
-            quality_weight=DEFAULT_QUALITY_WEIGHTS.get(pool_name, 1.0),
+            quality_weight=quality_weights.get(pool_name, 1.0),
         )
         DaydreamProducer(
             pool_name=pool_name,
@@ -211,6 +220,11 @@ def build_and_run(argv: list[str] | None = None) -> int:
         repo=repo,
         self_id=self_id,
     )
+
+    if cfg.journal_dir:
+        journal = Journal(repo=repo, self_id=self_id, journal_dir=cfg.journal_dir)
+        reactor.register(journal.on_tick)
+        logger.info("journal writing to %s", cfg.journal_dir)
 
     if cfg.scenario:
         scenario_path = _resolve_scenario_path(cfg.scenario)
@@ -255,7 +269,9 @@ def build_and_run(argv: list[str] | None = None) -> int:
                     )
 
         reactor.register(_refresh_metrics)
-        stop_metrics = start_metrics_server(collector, port=cfg.metrics_port)
+        stop_metrics = start_metrics_server(
+            collector, port=cfg.metrics_port, host=cfg.metrics_bind
+        )
 
     def _handle_signal(signum: int, _frame: Any) -> None:
         logger.info("signal %d received; stopping reactor", signum)

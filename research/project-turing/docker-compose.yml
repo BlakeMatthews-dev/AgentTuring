@@ -13,14 +13,16 @@ services:
     volumes:
       - turing-data:/data
       - ./scenarios:/app/scenarios:ro
+      - ./config:/app/config:ro
     # Override at compose up time with: `docker compose run --rm turing <flags>`
     command:
-      - "--providers"
-      - "fake"
+      - "--use-fake-provider"
       - "--scenario"
       - "baseline"
       - "--metrics-port"
       - "9100"
+      - "--journal-dir"
+      - "/data/journal"
 
 volumes:
   turing-data:

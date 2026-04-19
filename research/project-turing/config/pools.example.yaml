@@ -1,0 +1,40 @@
+# Project Turing — pools config consumed via LiteLLM.
+#
+# Each pool is a (LiteLLM model identifier, free-tier window) pair. The
+# operator's LiteLLM proxy already routes the model identifier to the
+# right backend; Project Turing tracks per-pool consumption and computes
+# the per-pool pressure scalar that drives the motivation system.
+#
+# `window_kind` is one of: rpm | daily | monthly | rolling_hours.
+# `window_duration_seconds` defines that kind in seconds.
+# `tokens_allowed` is the operator's understanding of the free-tier ceiling
+# for that model in one window.
+# `quality_weight` (default 1.0) scales the pressure scalar — bigger means
+# the pool is "worth more per token" in the dispatcher's eyes.
+#
+# Edit this file to match your LiteLLM model list. Restart the runtime
+# after edits.
+
+pools:
+  - pool_name: gemini-flash
+    model: gemini/gemini-2.0-flash-exp
+    window_kind: rpm
+    window_duration_seconds: 60
+    tokens_allowed: 1000000
+    quality_weight: 0.7
+
+  - pool_name: glm-4-flash
+    # GLM via z.ai often surfaces in LiteLLM as openai/<model>; adjust to
+    # whatever your proxy advertises.
+    model: openai/glm-4-flash
+    window_kind: rolling_hours
+    window_duration_seconds: 18000      # 5 hours
+    tokens_allowed: 5000000
+    quality_weight: 0.9
+
+  - pool_name: openrouter-haiku
+    model: openrouter/anthropic/claude-3-haiku
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 100000
+    quality_weight: 1.0

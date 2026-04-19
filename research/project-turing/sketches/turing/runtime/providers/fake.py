@@ -71,6 +71,30 @@ class FakeProvider:
         self._quota_used += tokens_used
         return next(self._responses)
 
+    def embed(self, text: str) -> list[float]:
+        """Deterministic pseudo-random 64-dim vector from the input hash.
+
+        Same text → same vector, different text → different vector.
+        Cosine similarity between unrelated strings ≈ 0; between
+        similar strings — well, it's a fake, it's random. Good enough
+        for plumbing tests; don't expect meaningful semantic similarity.
+        """
+        import hashlib
+        import struct
+
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        # Expand to 64 floats in [-1, 1] deterministically from the digest.
+        out: list[float] = []
+        salt = b"turing-fake-embed"
+        seed = digest
+        for _ in range(8):
+            seed = hashlib.sha256(salt + seed).digest()
+            for i in range(0, 32, 4):
+                v = struct.unpack(">i", seed[i : i + 4])[0]
+                out.append(max(-1.0, min(1.0, v / 2**30)))
+        self._quota_used += max(1, len(text) // 4)
+        return out[:64]
+
     def quota_window(self) -> FreeTierWindow | None:
         # Roll the window forward if it has expired.
         now = datetime.now(UTC)

@@ -94,7 +94,12 @@ def make_chat_handler(
                 self._respond(400, {"error": "invalid json"})
                 return None
 
-        def _dispatch_and_wait(self, message: str) -> tuple[str, str] | None:
+        def _dispatch_and_wait(
+            self,
+            *,
+            latest_user_message: str,
+            history: list[dict[str, Any]] | None = None,
+        ) -> tuple[str, str] | None:
             """Submit a chat P1 item and wait for the reply. Returns
             (message_id, reply) or None if the request timed out."""
             message_id, event = bridge.submit()
@@ -102,7 +107,11 @@ def make_chat_handler(
                 item_id=message_id,
                 class_=1,
                 kind="chat_message",
-                payload={"message": message, "self_id": self_id},
+                payload={
+                    "message": latest_user_message,
+                    "history": history or [],
+                    "self_id": self_id,
+                },
                 fit={},
                 readiness=lambda s: True,
                 cost_estimate_tokens=512,
@@ -120,7 +129,9 @@ def make_chat_handler(
             if not message:
                 self._respond(400, {"error": "missing 'message'"})
                 return
-            result = self._dispatch_and_wait(message)
+            result = self._dispatch_and_wait(
+                latest_user_message=message, history=[]
+            )
             if result is None:
                 self._respond(504, {"error": "timeout"})
                 return
@@ -135,20 +146,31 @@ def make_chat_handler(
             if not isinstance(messages, list) or not messages:
                 self._respond(400, {"error": "missing 'messages'"})
                 return
-            # Flatten the messages for the dispatcher. Project Turing's
-            # chat dispatcher gets a single user-message string; any
-            # system / prior turns are concatenated so the autonoetic
-            # loop can still see the full user context.
-            flattened = "\n\n".join(
-                f"{m.get('role', 'user')}: {m.get('content', '')}"
-                for m in messages
-                if isinstance(m, dict)
-            ).strip()
-            if not flattened:
-                self._respond(400, {"error": "empty messages"})
+            # Preserve the full multi-turn history; last user message is
+            # the retrieval query, everything else is conversational context.
+            latest = ""
+            history: list[dict[str, Any]] = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if not isinstance(content, str):
+                    continue
+                history.append({"role": role, "content": content})
+                if role == "user":
+                    latest = content
+            if not latest:
+                self._respond(400, {"error": "no user message"})
                 return
+            # Drop the final user message from history so the dispatcher
+            # sees it separately (cleaner for prompt construction).
+            if history and history[-1]["role"] == "user":
+                history = history[:-1]
 
-            result = self._dispatch_and_wait(flattened)
+            result = self._dispatch_and_wait(
+                latest_user_message=latest, history=history
+            )
             if result is None:
                 self._respond(504, {"error": "timeout"})
                 return

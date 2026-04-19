@@ -50,3 +50,16 @@ class Provider(Protocol):
     def quota_window(self) -> FreeTierWindow | None:
         """Current free-tier window; None if this provider has no free tier."""
         ...
+
+
+class EmbeddingProvider(Protocol):
+    """A provider that can also produce embeddings."""
+
+    name: str
+
+    def embed(self, text: str) -> list[float]:
+        """Return a vector embedding for `text`."""
+        ...
+
+    def quota_window(self) -> FreeTierWindow | None:
+        ...

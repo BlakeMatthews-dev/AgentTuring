@@ -11,6 +11,7 @@ import argparse
 import logging
 import signal
 import sys
+import uuid
 from typing import Any
 
 from ..daydream import DaydreamProducer
@@ -23,8 +24,14 @@ from ..self_identity import bootstrap_self_id
 from ..tuning import CoefficientTuner
 from .config import RuntimeConfig, load_config_from_env
 from .instrumentation import setup_logging
+from ..retrieval import semantic_retrieve
+from ..tiers import WEIGHT_BOUNDS
+from ..types import EpisodicMemory, MemoryTier, SourceKind
+from ..write_paths import handle_affirmation
 from .actor import Actor
 from .chat import ChatBridge, start_chat_server
+from .embedding_index import EmbeddingIndex
+from .indexing_repo import IndexingRepo
 from .journal import Journal
 from .metrics import MetricsCollector, start_metrics_server
 from .pools import PoolConfig, load_pools
@@ -33,6 +40,7 @@ from .providers.fake import FakeProvider
 from .providers.litellm import LiteLLMProvider
 from .quota import FreeTierQuotaTracker
 from .reactor import RealReactor
+from .rss_fetcher import RSSFetcher
 from .tools.base import ToolRegistry
 from .tools.obsidian import ObsidianWriter
 from .tools.rss import RSSReader
@@ -63,12 +71,233 @@ def _resolve_scenario_path(scenario: str) -> str:
 def _select_chat_provider(
     providers: dict[str, Provider],
     weights: dict[str, float],
+    roles: dict[str, str],
 ) -> Provider:
-    """Highest-quality registered pool. Falls back to the first if weights tie."""
-    if not providers:
+    """Highest-quality chat-role pool. Falls back to any pool if none are
+    explicitly chat-role."""
+    chat_pools = [n for n in providers if roles.get(n, "chat") == "chat"]
+    pool_set = chat_pools or list(providers)
+    if not pool_set:
         raise RuntimeError("no providers registered; cannot service chat")
-    best_name = max(providers, key=lambda name: weights.get(name, 1.0))
+    best_name = max(pool_set, key=lambda name: weights.get(name, 1.0))
     return providers[best_name]
+
+
+def _select_embedding_provider(
+    providers: dict[str, Provider],
+    roles: dict[str, str],
+) -> Provider | None:
+    """Pick the embedding-role pool if one exists; otherwise None.
+
+    None means "no semantic retrieval available" and the chat path falls
+    back to keyword-based retrieval or bare LLM reply.
+    """
+    for name, role in roles.items():
+        if role == "embedding":
+            return providers[name]
+    return None
+
+
+def _think_about_rss_item(
+    *,
+    feed_item: Any,
+    provider: Provider,
+    repo: Any,
+    self_id: str,
+    index: EmbeddingIndex | None,
+) -> None:
+    """Reason about a newly-seen RSS item. Always write a weak summary;
+    promote to OPINION if the LLM judged it interesting; mint an
+    AFFIRMATION if also actionable.
+
+    The summary stays in weak memory no matter what — pruning leaves
+    regrettably-unjudged items alive enough to reconsider later.
+    """
+    title = getattr(feed_item, "title", "(untitled)")
+    feed_url = getattr(feed_item, "feed_url", "")
+    summary = getattr(feed_item, "summary", "") or ""
+    link = getattr(feed_item, "link", "")
+
+    # Pull in related memory as context for the reflection.
+    related_text = ""
+    if index is not None and index.size() > 0:
+        hits = semantic_retrieve(
+            repo,
+            index,
+            self_id,
+            query=f"{title}\n{summary}",
+            top_k=3,
+            min_similarity=0.05,
+        )
+        if hits:
+            related_text = "\n".join(
+                f"- [{m.tier.value}] {m.content}" for m, _ in hits
+            )
+
+    prompt = (
+        "You are Project Turing, reading an item from a subscribed feed.\n"
+        "Respond with ONLY a JSON object on one line matching this schema:\n"
+        '  {"opinion": "<what you think>", '
+        '"proposed_action": "<what you would want to do, or empty>", '
+        '"interest_score": <0..1>, '
+        '"actionable": <true|false>, '
+        '"summary": "<one-sentence record>"}\n'
+        f"\nTitle: {title}\n"
+        f"Feed: {feed_url}\n"
+        f"Summary: {summary}\n"
+        f"Link: {link}\n"
+    )
+    if related_text:
+        prompt += f"\nYour related memory:\n{related_text}\n"
+
+    try:
+        reply = provider.complete(prompt, max_tokens=400)
+    except Exception:
+        logger.exception("rss thinking call failed; writing minimal summary")
+        reply = ""
+
+    parsed = _parse_rss_reflection(reply, fallback_summary=title)
+
+    # 1. ALWAYS write a weak OBSERVATION summary.
+    obs = EpisodicMemory(
+        memory_id=str(uuid.uuid4()),
+        self_id=self_id,
+        tier=MemoryTier.OBSERVATION,
+        source=SourceKind.I_DID,
+        content=parsed["summary"][:500],
+        weight=WEIGHT_BOUNDS[MemoryTier.OBSERVATION][0],     # floor
+        intent_at_time=f"process-rss-{feed_url}",
+        context={"feed_url": feed_url, "link": link, "title": title},
+    )
+    repo.insert(obs)
+
+    # 2. Promote to OPINION if interesting enough.
+    interest = float(parsed.get("interest_score", 0.0) or 0.0)
+    if interest >= 0.6 and parsed.get("opinion"):
+        op = EpisodicMemory(
+            memory_id=str(uuid.uuid4()),
+            self_id=self_id,
+            tier=MemoryTier.OPINION,
+            source=SourceKind.I_DID,
+            content=f"about '{title}': {parsed['opinion'][:300]}",
+            weight=WEIGHT_BOUNDS[MemoryTier.OPINION][0] + 0.1,
+            intent_at_time=f"rss-opinion-{feed_url}",
+            context={"feed_url": feed_url, "link": link},
+        )
+        repo.insert(op)
+
+    # 3. Mint AFFIRMATION if actionable AND very interesting.
+    if (
+        interest >= 0.8
+        and bool(parsed.get("actionable"))
+        and parsed.get("proposed_action")
+    ):
+        handle_affirmation(
+            repo,
+            self_id,
+            content=(
+                f"commit (from {feed_url}): {parsed['proposed_action'][:300]}"
+            ),
+        )
+
+
+def _parse_rss_reflection(reply: str, *, fallback_summary: str) -> dict[str, Any]:
+    import json
+
+    text = (reply or "").strip()
+    # Pull the first {...} block if the model surrounded it with prose.
+    if "{" in text and "}" in text:
+        first = text.index("{")
+        last = text.rindex("}")
+        text = text[first : last + 1]
+    try:
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError
+    except Exception:
+        parsed = {}
+    return {
+        "opinion": str(parsed.get("opinion", "") or ""),
+        "proposed_action": str(parsed.get("proposed_action", "") or ""),
+        "interest_score": parsed.get("interest_score", 0.0),
+        "actionable": bool(parsed.get("actionable", False)),
+        "summary": str(parsed.get("summary", fallback_summary) or fallback_summary),
+    }
+
+
+def _build_chat_prompt(
+    *,
+    message: str,
+    history: list[dict[str, Any]],
+    repo: Any,
+    self_id: str,
+    index: EmbeddingIndex | None,
+) -> str:
+    """Compose a chat prompt that includes:
+    - current WISDOM (identity)
+    - semantically relevant durable memories
+    - conversation history
+    - the latest user message
+
+    Keeps prompts bounded; if index is None, skips the semantic layer.
+    """
+    lines: list[str] = [
+        "You are Project Turing — an autonoetic agent with a persistent self.",
+        "You remember: your regrets, accomplishments, commitments, wisdom.",
+        "Speak in first person from that self. Be concise and honest.",
+        "",
+    ]
+
+    # Current WISDOM.
+    wisdom = list(
+        repo.find(
+            self_id=self_id,
+            tier=MemoryTier.WISDOM,
+            source=SourceKind.I_DID,
+            include_superseded=False,
+        )
+    )
+    if wisdom:
+        lines.append("## What you know about yourself (WISDOM)")
+        for w in wisdom[:5]:
+            lines.append(f"- {w.content}")
+        lines.append("")
+
+    # Semantic retrieval across durable tiers.
+    if index is not None and index.size() > 0:
+        hits = semantic_retrieve(
+            repo,
+            index,
+            self_id,
+            query=message,
+            top_k=5,
+            tiers=[
+                MemoryTier.REGRET,
+                MemoryTier.ACCOMPLISHMENT,
+                MemoryTier.AFFIRMATION,
+                MemoryTier.LESSON,
+                MemoryTier.OPINION,
+            ],
+            min_similarity=0.05,
+        )
+        if hits:
+            lines.append("## Relevant memories")
+            for memory, score in hits:
+                tag = memory.tier.value
+                lines.append(f"- [{tag}] {memory.content} _(relevance {score:.2f})_")
+            lines.append("")
+
+    if history:
+        lines.append("## Conversation so far")
+        for turn in history[-6:]:                 # last 6 turns
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            lines.append(f"{role}: {content}")
+        lines.append("")
+
+    lines.append(f"user: {message}")
+    lines.append("assistant:")
+    return "\n".join(lines)
 
 
 def _build_providers(
@@ -92,6 +321,15 @@ def _build_providers(
         )
         weights[pool.pool_name] = pool.quality_weight
     return providers, weights
+
+
+def _pool_roles(cfg: RuntimeConfig) -> dict[str, str]:
+    """Returns {pool_name: role}. Empty or all-chat for FakeProvider mode."""
+    if cfg.use_fake_provider:
+        return {"fake": "chat"}
+    assert cfg.pools_config_path
+    pools = load_pools(cfg.pools_config_path)
+    return {p.pool_name: p.role for p in pools}
 
 
 def _make_imagine_for_provider(provider: Provider) -> Any:
@@ -207,8 +445,8 @@ def build_and_run(argv: list[str] | None = None) -> int:
         pool_label,
     )
 
-    repo = Repo(cfg.db_path if cfg.db_path != ":memory:" else None)
-    self_id = bootstrap_self_id(repo.conn)
+    raw_repo = Repo(cfg.db_path if cfg.db_path != ":memory:" else None)
+    self_id = bootstrap_self_id(raw_repo.conn)
     logger.info("self_id=%s", self_id)
 
     reactor = RealReactor(
@@ -216,23 +454,40 @@ def build_and_run(argv: list[str] | None = None) -> int:
         executor_workers=cfg.executor_workers,
     )
     motivation = Motivation(reactor)
-    scheduler = Scheduler(reactor, motivation)
 
     providers, quality_weights = _build_providers(cfg)
+    pool_roles = _pool_roles(cfg)
+    embedding_provider = _select_embedding_provider(providers, pool_roles)
+
+    # Wrap the repo with an IndexingRepo if we have an embedding provider.
+    embedding_index: EmbeddingIndex | None
+    if embedding_provider is not None:
+        embedding_index = EmbeddingIndex(embed_fn=embedding_provider.embed)
+        repo = IndexingRepo(inner=raw_repo, index=embedding_index)
+        rebuilt = repo.rebuild_index_from_repo(self_id)
+        logger.info("embedding index rebuilt with %d memories", rebuilt)
+    else:
+        embedding_index = None
+        repo = raw_repo
+
+    scheduler = Scheduler(reactor, motivation)
     quota_tracker = FreeTierQuotaTracker()
     for pool_name, provider in providers.items():
         quota_tracker.register(
             provider,
             quality_weight=quality_weights.get(pool_name, 1.0),
         )
-        DaydreamProducer(
-            pool_name=pool_name,
-            self_id=self_id,
-            motivation=motivation,
-            reactor=reactor,
-            repo=repo,
-            imagine=_make_imagine_for_provider(provider),
-        )
+        # Only chat-role pools feed the daydream producers; embedding
+        # pools shouldn't be daydreamed against.
+        if pool_roles.get(pool_name, "chat") == "chat":
+            DaydreamProducer(
+                pool_name=pool_name,
+                self_id=self_id,
+                motivation=motivation,
+                reactor=reactor,
+                repo=repo,
+                imagine=_make_imagine_for_provider(provider),
+            )
 
     # Per-tick: refresh pressure_vec from the quota tracker. O(len(providers))
     # and cheap.
@@ -272,8 +527,40 @@ def build_and_run(argv: list[str] | None = None) -> int:
         tool_registry.register(ObsidianWriter(vault_dir=cfg.obsidian_vault_dir))
         logger.info("obsidian writes enabled at %s", cfg.obsidian_vault_dir)
     if cfg.rss_feeds:
-        tool_registry.register(RSSReader(feeds=cfg.rss_feeds))
+        rss_reader = RSSReader(feeds=cfg.rss_feeds)
+        tool_registry.register(rss_reader)
         logger.info("rss reader registered with %d feed(s)", len(cfg.rss_feeds))
+
+        # Schedule periodic polling; each new item lands as P7 rss_item.
+        RSSFetcher(reader=rss_reader, motivation=motivation, reactor=reactor)
+
+        # Dispatch handler for rss_item: thinks about the item, writes a
+        # weak summary always, promotes to OPINION if interesting, mints
+        # AFFIRMATION if actionable + very interesting.
+        rss_chat_provider = _select_chat_provider(
+            providers, quality_weights, pool_roles
+        )
+
+        def _on_dispatch_rss_item(item: BacklogItem, chosen_pool: str) -> None:
+            payload = item.payload or {}
+            feed_item = payload.get("feed_item")
+            if feed_item is None:
+                return
+            try:
+                _think_about_rss_item(
+                    feed_item=feed_item,
+                    provider=rss_chat_provider,
+                    repo=repo,
+                    self_id=self_id,
+                    index=embedding_index,
+                )
+            except Exception:
+                logger.exception(
+                    "rss_item dispatch failed for %s", getattr(feed_item, "item_id", "?")
+                )
+
+        motivation.register_dispatch("rss_item", _on_dispatch_rss_item)
+
     if tool_registry.names():
         actor = Actor(repo=repo, self_id=self_id, registry=tool_registry)
         reactor.register(actor.on_tick)
@@ -284,16 +571,21 @@ def build_and_run(argv: list[str] | None = None) -> int:
         bridge = ChatBridge()
 
         # Pick the highest-quality registered pool for chat replies.
-        chat_provider = _select_chat_provider(providers, quality_weights)
+        chat_provider = _select_chat_provider(providers, quality_weights, pool_roles)
 
         def _on_chat_dispatch(item: BacklogItem, chosen_pool: str) -> None:
             payload = item.payload or {}
             message = str(payload.get("message", ""))
+            history = payload.get("history") or []
             try:
-                reply = chat_provider.complete(
-                    f"You are an autonoetic Conduit. Reply concisely.\nUser: {message}\nReply:",
-                    max_tokens=400,
+                prompt = _build_chat_prompt(
+                    message=message,
+                    history=history,
+                    repo=repo,
+                    self_id=self_id,
+                    index=embedding_index,
                 )
+                reply = chat_provider.complete(prompt, max_tokens=400)
             except Exception:
                 logger.exception("chat dispatch failed")
                 reply = "(I encountered an error generating a reply.)"

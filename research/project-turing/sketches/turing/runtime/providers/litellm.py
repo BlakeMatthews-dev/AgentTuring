@@ -106,6 +106,49 @@ class LiteLLMProvider:
         self._tokens_used += tokens_used
         return text
 
+    def embed(self, text: str) -> list[float]:
+        """Call LiteLLM /v1/embeddings. Uses this pool's model.
+
+        For embedding pools (role='embedding'), the operator configures
+        an embedding model (e.g., `ollama/nomic-embed-text`). For chat
+        pools, this will probably fail — catch the ProviderUnavailable
+        and route embeddings through a dedicated embedding pool instead.
+        """
+        url = f"{self._base_url}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self._virtual_key}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, Any] = {
+            "model": self._model,
+            "input": text,
+        }
+        try:
+            response = self._client.post(url, headers=headers, json=body)
+        except httpx.RequestError as exc:
+            raise ProviderUnavailable(
+                f"litellm[{self._model}] embed error: {exc}"
+            ) from exc
+        if response.status_code == 429:
+            raise RateLimited(f"litellm[{self._model}] embed 429")
+        if not response.is_success:
+            raise ProviderUnavailable(
+                f"litellm[{self._model}] embed {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+        data = response.json()
+        # OpenAI-compat shape: {"data": [{"embedding": [...], ...}], "usage": ...}
+        items = data.get("data") or []
+        if not items or "embedding" not in items[0]:
+            raise ProviderUnavailable(
+                f"litellm[{self._model}] embed returned no embedding"
+            )
+        embedding = items[0]["embedding"]
+        usage = data.get("usage") or {}
+        tokens_used = int(usage.get("total_tokens", 0)) or (len(text) // 4)
+        self._tokens_used += tokens_used
+        return list(embedding)
+
     def quota_window(self) -> FreeTierWindow | None:
         now = datetime.now(UTC)
         if now - self._window_started_at >= self._window_duration:

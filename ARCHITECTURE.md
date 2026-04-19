@@ -845,3 +845,235 @@ stronghold/
 ## 14. Threat Model Baseline
 
 See `/root/conductor_security.md` for the full 50-concern threat model of the current Conductor stack. Every concern has a corresponding mitigation in this architecture. The Stronghold security model (Warden + Sentinel + Gate + trust tiers + config-driven RBAC + per-agent memory scoping + K8s secrets) is designed to close every identified gap.
+
+---
+
+## 15. Conductor Feature Migration (CFM-1..CFM-5)
+
+**Added:** 2026-04-18. **Targets:** v1.4 through v1.7 (see `ROADMAP.md`). **Backlog:** `BACKLOG.md` § "Conductor Feature Migration (2026-04-18)".
+
+Five subsystems that port capabilities from the still-running conductor-router with a Stronghold-native shape. They compose: CFM-1 is the foundation (review queue), CFM-2 defines the signal that drives the queue's priorities and gates dispatch (trust floor), CFM-3 provides the declarative-spec artifact whose mutations go through CFM-1, CFM-4 is another artifact kind that flows through CFM-1, and CFM-5 makes all of this observable. Build in order.
+
+### 15.1 CFM-1: Review Queue Engine
+
+**Core insight:** Every forged skill, promoted variant, tier crossing, APM edit, and session-trust descent is the same shape — a decision waiting on a reviewer. One queue with typed items beats N parallel queues because reviewers move through a single inbox, priority policy lives in one place, and the trust signal that drives priority is the same signal everywhere.
+
+The review engine lives **beside** the `OrchestratorEngine`, not inside it. Reviews are human-in-the-loop-often; their latency model (hours/days), failure modes (reviewer unavailability, not exceptions), and scaling needs (independent of request volume) differ fundamentally from execution `WorkItem`s. Mixing them makes priority semantics confusing and starvation math awful.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                           Reactor (1000Hz)                        │
+│  forge.skill_created · variant.hit_threshold · apm.change_submitted │
+│  session.stf_descent_pending · learning.ready_for_promote          │
+└──────────────────────────────────────────────────────────────────┘
+             │ emits                              │ gates
+             ▼                                    ▼
+┌───────────────────────────┐      ┌───────────────────────────┐
+│   Review Queue Engine     │      │   Orchestrator Engine      │
+│   (src/stronghold/review) │◀────▶│   (priority WorkItems)     │
+│                           │ share│                           │
+│   ReviewItem + priority   │types/│   WorkItem + priority     │
+│   reducer + classes       │prio  │   reducer                 │
+└─────────┬─────────────────┘      └───────────────────────────┘
+          │ consumes                           ▲
+          ▼                                    │
+┌───────────────┬───────────────┐              │
+│ Auditor agent │ Human inbox   │              │
+│ (ai_allowed,  │ (human_only + │──────────────┘
+│ ai_only)      │ override any) │   approvals execute
+└───────────────┴───────────────┘
+```
+
+**Types.** `ReviewItem { id, kind, subject_ref, origin_stf, origin_user_tier, stakes_tier, submitted_at, reviewer_class, state }`. Kinds: `forge_skill`, `forge_node_kind`, `recipe_variant_promote`, `apm_change`, `user_tier_promote`, `stf_ratchet_decision`, `learning_promote`, `agent_import`.
+
+**Priority calculator.** `f(stakes_impact, −origin_stf, plan_tier_sla, age_bonus, blast_radius, backlog_pressure)` — the queue self-sorts toward "aged + dangerous + high-stakes." Low-trust origins float to the top; high-plan users get SLA priority; domain backlog pressure prevents any single kind from starving.
+
+**Reviewer classes.**
+| Class | Who can close | Examples |
+|---|---|---|
+| `human_only` | Admin with appropriate tier | First T0→T0+ promotion; APM change declaring new tool access; skill forged in Skull session |
+| `ai_allowed` | Auditor agent OR human | Recipe variant promotion after N wins; learning promotion after N reinforcements |
+| `ai_only` | Auditor only, no human needed | Metrics-driven promotions with hard thresholds — every AI decision still audited and overridable |
+
+The Auditor is the AI reviewer in the existing Herald→QM→Archie→Mason→**Auditor**→Gatekeeper→Master-at-Arms pipeline plan.
+
+**In-session HITL.** STF-ratchet decisions reuse the engine primitives but render inline in the chat UI (synchronous — blocks the turn), because the user is actively present and the session is blocking. Three decision surfaces: (a) pending input would lower STF, (b) action blocked by current STF, (c) passive trust indicator always visible.
+
+**Cross-subsystem boundary.** Review and orchestration share only `types/priority.py` (`PrioritySignal`) and `types/review.py` (`ReviewRequest`). No imports across subsystems.
+
+### 15.2 CFM-2: Session Trust Floor (STF) + Trust Ledger
+
+**Core insight:** Trust is not a fixed property of a user, agent, or tool — it's a *session-scoped minimum* that every contributor can only lower. Once a session is compromised, no amount of subsequent clean activity restores it within that session. This closes the most common prompt-injection path: user pastes innocuous content → tool fetches untrusted doc → doc contains injection → subsequent high-privilege action executes. A monotonically non-increasing STF makes the descent visible and gates the privilege.
+
+**Reducer.**
+```
+STF(t) = min(
+    STF(t-1),                      # never rises
+    agent.tier,
+    recipe.tier,
+    flow_node.kind.tier,
+    tool.tier,
+    input_source.tier,             # user paste / tool output / retrieved doc / web
+    user.trust_score_tier,         # from ledger
+    warden.safety_confidence_tier, # from verdict confidence
+    ... future contributors
+)
+```
+
+Every contributor emits `TrustSignal { source, tier, confidence, rationale, trace_ref }` on entry. Unknown sources default to `☠️ Skull`. The session reducer takes `min()`. That's the full arithmetic.
+
+**Monotonicity is a hard invariant.**
+- Redaction is cosmetic — removing the poisoned message does not restore STF
+- Compaction does not heal — summaries inherit the source's floor (otherwise compaction becomes a laundering vector, a well-known prompt-injection exploit)
+- Forks and sub-flows inherit the parent STF
+- Only a new session (new trace root) resets — and even then `user.trust_score` persists cross-session
+
+**Read-down, not write-down.** A lowered STF blocks *new* privileged actions, not *reading* already-in-context data. Stricter read-blocking surprises users and adds little real safety (the data's already in the context window; the cognitive model can't un-see it).
+
+**Ledger arithmetic.** User trust points accrue via:
+```
+Δ trust_points = plan_multiplier × copper_value(action) × session_T_score
+```
+| Plan | Multiplier |
+|---|---:|
+| Free | 0 |
+| Paid | 1 |
+| Team plan | 2 |
+| Team admin | 5 |
+| Org admin | 10 |
+| Super admin | 100 |
+
+| STF at action time | `session_T_score` | Admin override |
+|---|---:|---|
+| T1 | +2 | — |
+| T2 | +1 | — |
+| T3 | 0 | — |
+| ☠️ Skull | −10 | clamps to 0 for team_admin and above |
+
+Copper is the canonical economic unit — `tokens_used × token_value` — with exchange rates from other currencies via `trust/exchange.py`. Free users have multiplier 0 by design (can't earn, can't sabotage, can't farm). Admins clamp to 0 at Skull to preserve legitimate security testing.
+
+**Tier thresholds.** Exponential, origin-centered slightly positive into T2:
+- T2 narrow band (fast honeymoon exit for new paid users)
+- T1 and T3 wide (single actions don't cascade; sustained behavior moves tiers)
+- T0 and Skull unbounded (gated by badge tiers and soft-barriers respectively)
+
+Thresholds hot-reloadable via `trust/thresholds.yaml`.
+
+**Dispatch gating.** When `STF < recipe.required_tier`, dispatch emits an `stf_insufficient` event (not an exception) and the review engine renders a HITL decision. The user can accept-and-ratchet (explicit consent, logged), reject the blocking input (preserves floor), or quarantine the session.
+
+**Package shape.**
+```
+src/stronghold/trust/
+├── reducer.py         # STF min-reduction over contributors
+├── signals.py         # TrustSignal type + source contracts
+├── ledger.py          # trust_points accrual, ties into copper ledger
+├── thresholds.py      # points → tier contribution; YAML-backed
+├── policy.py          # plan_multiplier, admin predicate, skull clamp
+└── exchange.py        # copper ↔ other currencies
+```
+
+### 15.3 CFM-3: Recipe + Variant Evolution
+
+**Core insight:** Stronghold's tournament-evolution feature (`COMPARISON.md §2`) needs a mechanism that decides *which agent variant wins a route*. The mechanism is Thompson sampling over a Beta posterior per `(recipe_id, variant_id, intent)`. But the artifact being sampled over should be a **pure declarative spec** — executor-agnostic, YAML-serializable, lintable before instantiation. This forces spec/engine separation and makes a single envelope work for both simple strategy agents and graph/workflow agents.
+
+**Single envelope, one pattern.**
+
+```python
+class RecipeSpec:                    # pure data, no Python callables
+    id: str
+    agent_ref: str
+    model_class: str                 # symbolic — router resolves at dispatch
+    tools: list[ToolRef]             # names only, no handlers
+    memory: MemoryPolicy
+    apm_ref: str | None
+    required_tier: TrustTier
+    flow: FlowSpec                   # always a graph
+
+class FlowSpec:
+    entry: NodeRef
+    state: StateSchema
+    nodes: list[NodeSpec]
+    edges: list[EdgeSpec]
+
+class NodeSpec:
+    id: str
+    kind: str                        # "reason" | "tool" | "branch" | "recipe" | "collect" | third-party
+    params: dict                     # schema-validated per-kind
+    # no executor, no import paths
+```
+
+A simple strategy agent is a degenerate graph: one `reason` node, no edges. A graph/workflow agent uses multiple nodes and conditional edges. Same envelope, same validator, same variants, same promotion logic. Nesting falls out naturally — a `recipe` node references another RecipeSpec by id, which is how Archie→Mason-style pipelines compose.
+
+**Spec vs engine.**
+- `src/stronghold/evaluation/` owns specs: `recipes.py` (CRUD), `thompson.py` (sampling), `outcomes.py`, `promotion.py`, `validator.py` (reachability, schema check, no-orphan edges, no-undeclared-state-refs)
+- `src/stronghold/execution/` owns interpretation: `graph_runner.py`, `node_handlers.py`, `state.py`
+- They share only `types/recipe.py`. Multiple executors can interpret the same spec — today's tool-loop, tomorrow's streaming executor, a replay engine for RCA.
+
+**Open node-kind registry with Skull default.** `NodeSpec.kind` is open, not a closed enum. Built-in kinds (`reason`, `tool`, `branch`, `recipe`, `collect`) are reserved and ship at T0. Third-party or Forge-created kinds register at runtime with a required `param_schema` and `declared_side_effects: list[str]`. **Unknown or unregistered kinds default to `☠️ Skull`** — declarative specs referencing them are harmless (a spec is just data), only execution is gated. This reuses the existing trust-tier machinery instead of inventing a parallel governance mechanism.
+
+Tier resolution: `effective_tier = min(recipe.tier, min(node.kind.tier for node in flow.nodes))`. `declared_side_effects` are enforced by Sentinel at run time — a kind declaring `["network"]` that tries to open a filesystem handle gets killed mid-span. Prevents tier-promotion by misdirection.
+
+**Thompson sampling.** For each dispatch, sample from `Beta(successes, failures)` per `(recipe_id, variant_id, intent)`. Higher posterior = more likely to be chosen. Outcomes update the posterior after each `WorkItem` completion. Variants accumulate evidence; Thompson's regret bounds keep exploration sensible.
+
+**Promotion via review queue.** `promote_variant` does not execute inline. A reactor trigger enqueues a `recipe_variant_promote` review when a variant hits policy thresholds (e.g., 20 wins + 5× advantage over incumbent). Review engine (CFM-1) handles the decision — often `ai_allowed` with human override.
+
+**GitAgent round-trip.** `RecipeSpec` serializes cleanly to YAML; `variants` live alongside the parent spec. Export and re-import round-trip — no Python objects, no import paths, no fragile pickle. This is what makes recipes shareable and makes the "GitAgent marketplace" in COMPARISON a real story.
+
+### 15.4 CFM-4: APM (Agent Personality Manifest)
+
+**Core insight:** Today `AgentIdentity` is config scaffolding — there's no human-readable, editable, round-trippable personality artifact. APM gives each agent a structured 7-section personality document that any reasoning strategy can render into a system-prompt fragment. This is what makes GitAgent export-import complete.
+
+**Schema.**
+```python
+class APM:
+    identity: str            # who the agent is
+    core_values: list[str]
+    communication_style: str
+    expertise: list[str]
+    boundaries: list[str]    # what it refuses or escalates
+    tools_and_methods: str
+    memory_anchors: list[str]  # canonical memories the agent always carries
+```
+
+Every agent resolves exactly one APM at load. If the agent declares none, a trust-tier baseline is merged in (T0 agents get the "canonical built-in" APM; T3 agents get the "community-provided default" APM, etc.).
+
+**Warden-gated writes.** `PUT /v1/stronghold/agents/{id}/apm` goes through Warden scan before persistence — an APM is an agent prompt, which is one of the highest-trust surfaces in the system. APM changes enqueue a `apm_change` review (human_only by default; policy may downgrade to ai_allowed after operational maturity).
+
+**Rendering is strategy-agnostic.** `prompts/apm_renderer.py` turns an APM into a system-prompt fragment. Every reasoning strategy (direct, react, plan_execute, delegate, custom) calls the renderer. No strategy-specific wiring means graph-based agents (CFM-3) and strategy-based agents share the same APM plumbing.
+
+**Audit.** Every change writes an audit entry: `actor`, `old_hash`, `new_hash`, `trace_id`. The hash-on-save is how Intel's evolution timeline (CFM-5) renders APM diffs.
+
+### 15.5 CFM-5: Intel Dashboard
+
+**Core insight:** The memory, learning, and mutation subsystems accumulate enormous amounts of signal, but today that signal is opaque — there's no place to see what's been happening. Intel exposes Langfuse traces, RCA post-mortems, an evolution timeline across all mutation sources, and the review queue inbox as a single four-tab dashboard. It turns Stronghold's existing stores from write-only into reviewable.
+
+**Four tabs.**
+
+| Tab | Source | What it shows |
+|---|---|---|
+| **Traces** | Langfuse | Paginated browse, filter by agent/intent/verdict, click into full span tree, inline scoring (1–5 + tags + free-text note) |
+| **RCA** | `rca.py` (auto-generated post-mortems from failed `WorkItem`s) | Root cause, failing tool, suggested learning, retrigger button |
+| **Evolution** | Aggregator across memory, recipes, skills, learnings, node kinds | Chronological `EvolutionEvent` stream with structural diffs (RecipeSpec, FlowSpec, node graph changes — not just prompt text) |
+| **Reviews** | Review Queue Engine (CFM-1) | Same inbox as `/dashboard/reviews.html`, reproduced here for workflow continuity |
+
+**Trace scoring is a trust event.** `POST /v1/stronghold/traces/{id}/score` dual-writes to Langfuse and to the outcomes store. The scorer earns trust points via the ledger (CFM-2) — thoughtful reviewing is positive behavior in the trust economy. Rubber-stamping flagged by pattern detection over the ledger.
+
+**RCA pipeline.** A `WorkItem` failure emits a reactor event → bounded-concurrency `rca.generate_rca` runs → structured post-mortem lands in the RCA store → at low weight, fed to `memory/learnings/extractor.py` as a candidate learning. Promotion requires reinforcement from other signals (recurring failure, operator confirmation, matching fail→succeed pattern). This turns failure into memory without turning every failure into a false positive.
+
+**Structural diff rendering.** Because RecipeSpec and FlowSpec are declarative YAML (CFM-3), the evolution tab can render *structural* diffs — "variant v2 added a `branch` node at position 3 and retargeted edge e4 to the new branch" — not just "the prompt changed." This is dramatically more useful for reviewing what the system is actually learning about itself.
+
+### 15.6 Reactor Enhancements (land with CFM-1)
+
+Two small additions to the existing reactor that complement the review queue:
+
+**Density-aware jitter.** Per-firing-bin trigger count drives jitter budget: `max_jitter_secs = min(ceiling, base + k × log2(density))`. A single trigger at 06:00 fires exactly on time (density=1 → log=0 → base jitter). A thousand triggers at 06:00 spread into a minutes-wide window. Prevents thundering-herd on shared firing times.
+
+**Coalescence / timer-slack.** A trigger can declare a tolerance window: `leeway: "±Nmin"`. The reactor looks for other triggers within overlapping leeway and snaps them to a shared firing time — batch DB writes, reuse warm caches, single Langfuse flush. Opposite direction from density jitter: spread when dense, gather when sparse.
+
+Combined: the reactor becomes a *load-aware scheduler*. Trigger authors declare how much they care (leeway); the reactor decides where inside that window to fire based on what else is happening. Extend `TriggerSpec` to accept `jitter` for `TIME` mode (currently only `INTERVAL`) and add the `leeway` field. Log bucketing decisions in the trigger audit so "why did this fire at 06:07?" is answerable.
+
+### 15.7 Build Order
+
+CFM-1 is the foundation — every promotion and review in CFM-2..CFM-5 consumes it. CFM-2 gates dispatch for the rest. CFM-3 and CFM-4 are independent and can land in parallel after CFM-2. CFM-5 lands last because its evolution timeline wants to include recipe and APM changes.
+
+Recommended sequence: **CFM-1 → CFM-2 → (CFM-3 || CFM-4) → CFM-5**. Reactor enhancements (§15.6) ride alongside CFM-1. Gamification, skull soft-barrier engine, and currency exchange UX (v1.7) follow CFM-2 once the trust economy has data to surface.

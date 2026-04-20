@@ -6,6 +6,31 @@
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
+---
+
+## Project Turing — Research Track
+
+> **An autonoetic Conduit.** The central routing pipeline carries a persistent, self-indexed memory and routes from first-person experience — personality, mood, passions, skills, and todos — rather than stateless classification. One global self, no tenant scoping. Structurally incompatible with `main`'s multi-tenant posture; lives as a pseudo-fork on its own branch.
+
+**Branches:** `project_Turing` (integration / "main" of the pseudo-fork) · `research/project-turing` (active research) · `claude/autonoetic-self-tranche-6` (example feature branch) — feature work flows `feature → research/project-turing → project_Turing → main`.
+
+**What it is:**
+- A near-fork experiment that promotes the Conduit from noetic router (classify → route → forget) into an autonoetic reasoning layer (remembers its own prior routings as first-person experience, projects itself into future routings, can regret, can commit).
+- A 7-tier episodic memory (OBSERVATION → HYPOTHESIS → OPINION → LESSON → REGRET → AFFIRMATION → WISDOM) extended with a self-model: HEXACO-24 personality with weekly re-test, passions / hobbies / interests / skills (with decay) / preferences, mood vector, self-authored todos with required provenance, and an activation graph whose edges the self itself authors.
+- 30 specs covering invariants, acceptance criteria, and edge cases; a runnable SQLite sketch with 370 green tests (209 memory/runtime + 161 self-model).
+
+**What it is not:** a roadmap item, a competitor to the enterprise codebase, or a claim that any of this is production-ready. Findings may or may not feed back to `main`; if anything works, it gets redesigned for multi-tenancy before landing in `src/`.
+
+**Reading order:**
+1. [`research/project-turing/DESIGN.md`](research/project-turing/DESIGN.md) — thesis, Tulving-taxonomy mapping, what the Conduit becomes when it has a self.
+2. [`research/project-turing/autonoetic-self.md`](research/project-turing/autonoetic-self.md) — the content of the self the Conduit carries.
+3. [`research/project-turing/specs/`](research/project-turing/specs/) — 30 individually reviewable specs, read in order.
+4. [`research/project-turing/sketches/`](research/project-turing/sketches/) — runnable scaffold + tests.
+
+**Lineage:** CoinSwarm (Nov 2025) → 7-tier crystallization (Jan 15, 2026) → Stronghold import (Mar 25, 2026) → Project Turing (Apr 2026).
+
+---
+
 ## Origin
 
 **Project Maistro** (a.k.a. Conductor, Feb 19, 2026 – present) is a parallel project — a more secure implementation of the autonomous agent harness popularized by OpenClaw. Maistro proved the core concepts: routing, memory, multi-agent orchestration, and functional security. It remains an active project.

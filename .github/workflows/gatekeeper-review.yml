@@ -18,7 +18,7 @@ concurrency:
 jobs:
   review:
     name: Gatekeeper auto-review
-    runs-on: k3s-runners
+    runs-on: [self-hosted, stronghold]
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&

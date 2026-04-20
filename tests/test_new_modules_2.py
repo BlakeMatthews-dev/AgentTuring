@@ -1,6 +1,6 @@
 """Tests for coverage gaps across triggers, skill registry versions, admin
 approval endpoints, learning promoter gate path, skills test route, and
-worker_main helpers.
+AgentWorker helpers.
 
 All tests use real classes and fakes from tests/fakes.py — no unittest.mock.
 asyncio_mode = "auto" (no @pytest.mark.asyncio needed).
@@ -962,7 +962,7 @@ class TestSkillsTestRoute:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 6. worker_main — AgentWorker process_one + run_loop with no tasks
+# 6. AgentWorker — process_one + run_loop with no tasks
 # ═══════════════════════════════════════════════════════════════════
 
 

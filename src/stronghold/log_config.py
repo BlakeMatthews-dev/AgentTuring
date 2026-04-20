@@ -1,9 +1,7 @@
 """Centralized logging configuration for the Stronghold API process.
 
-The legacy ``logging.basicConfig`` in ``worker_main.py`` is never invoked by
-the API process (uvicorn doesn't run worker_main). The FastAPI ``lifespan``
-hook calls :func:`configure_logging` to set up structured loggers with
-``run_id`` propagation via :class:`RunIdFilter`.
+The FastAPI ``lifespan`` hook calls :func:`configure_logging` to set up
+structured loggers with ``run_id`` propagation via :class:`RunIdFilter`.
 
 See ARCHITECTURE.md §7.4 for the full design.
 """

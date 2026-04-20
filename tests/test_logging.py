@@ -1,8 +1,7 @@
 """Tests for stronghold.log_config and stronghold.log_context.
 
-Logging foundation for the API process. The legacy basicConfig in worker_main.py
-is never invoked by the API process (uvicorn doesn't run it). configure_logging()
-sets up a dictConfig with named loggers, a RunIdFilter, and a format string that
+Logging foundation for the API process. configure_logging() sets up a
+dictConfig with named loggers, a RunIdFilter, and a format string that
 includes [run_id=...] so concurrent builder runs are debuggable.
 """
 

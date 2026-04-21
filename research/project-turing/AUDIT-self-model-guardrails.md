@@ -427,9 +427,9 @@ The `SELF_TOOL_REGISTRY` is exposed only via a `SelfRuntime` object instantiated
 | C. Unbounded growth | — | — | F13, F15, F16, F17 | F14 |
 | D. Authority surface | F18 | F20, F23 | F19, F21, F22 | — |
 | E. Cross-self / identity | — | — | F24, F28 | F25, F26, F27 |
-| F. Implementation gaps | — | F30 | F29, F31, F33 | F32, F34 |
+| F. Implementation gaps | F38, F39 | F30, F35, F36, F37 | F29, F31, F33 | F32, F34 |
 
-**Totals:** 3 critical, 10 high, 13 medium, 8 low.
+**Totals:** 5 critical, 14 high, 13 medium, 8 low.
 
 ### Recommended ordering
 

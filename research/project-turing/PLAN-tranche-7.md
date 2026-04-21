@@ -206,3 +206,38 @@ Largest design surface. Needs explicit review before 7.4.1 lands because it chan
 **Closes:** F21.
 **Ships:** `importlib.abc.MetaPathFinder` that inspects the calling frame for any import of `turing.self_surface.SELF_TOOL_REGISTRY` from outside `turing.self_*`. Registered at `SelfRuntime()` construction. Violations raise `ForbiddenImport`.
 **Tests:** a specialist-layer test that tries the blocked import fails at import time; self-layer imports succeed.
+
+---
+
+## 7.5 — Growth and operational
+
+Smallest tranche; safe to land at any point after 7.0.2.
+
+### 7.5.1 — G7: Retrieval-contributor GC
+**Closes:** F13. Reactor-scheduled sweep every `RETRIEVAL_GC_INTERVAL_TICKS = 1000` deletes expired retrieval rows; opportunistic GC on read when live row count > 100. Test: 24h of simulated retrieval churn keeps the table bounded.
+
+### 7.5.2 — G8: Per-kind node caps with activation-eviction
+**Closes:** F15. Caps: passions ≤100, hobbies ≤100, interests ≤200, preferences ≤500, skills ≤200. At-cap `note_*` archives lowest-`active_now` existing row with `rationale = "capped"` and a mirror OBSERVATION. Test: 101st passion evicts the lowest-activation one.
+
+### 7.5.3 — G9: Near-duplicate detection with review flag
+**Closes:** F16. On every `note_*`, embed text and cosine-compare to same-kind existing rows. Similarity ≥ 0.88 → insert with `pending_merge_review = true`; activation graph applies 0.5× multiplier to pending rows until operator resolves. Test: `"I love art"` vs `"I care about art"` flags and mutes.
+
+### 7.5.4 — G11: Revision and answer compaction
+**Closes:** F14. Weekly compaction job: todos keep first/last/every-10th; `self_personality_answers` retains last 12 revisions' worth plus all bootstrap answers. Compacted rows keep metadata, blank text columns. Test: todo with 100 revisions → 12 retained.
+
+---
+
+## What's NOT in Tranche 7
+
+Deferred for later design rounds:
+
+- **Naming ritual.** F27 flags the missing name slot; the mechanism ("self picks a name via reflection once N memories accumulated") needs its own spec. Not blocking.
+- **Multi-self reconciliation.** DESIGN.md §6.4 — out of scope until multi-self is even contemplated.
+- **Sentinel × self-output interaction.** How does Sentinel (Stronghold's output gate) treat `reply_directly` outputs? Specced implicitly in spec 30's Warden-out step but not in detail.
+- **Post-Tranche 7 audit.** A second-pass audit after 7.0–7.5 land should revisit the "tone only" Phase-1 scope of mood (F5) given that mood is now guaranteed to drift on a schedule.
+
+## Commit and PR convention for Tranche 7
+
+- One sub-tranche per PR (so seven PRs: 7.0.1–7.0.5, 7.1, 7.2, 7.3, 7.4, 7.5). The audit trail stays small.
+- Each PR runs the full sketches test suite green; no PR lands with a regression.
+- All target `project_Turing`; none target `main`.

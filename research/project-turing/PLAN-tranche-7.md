@@ -169,3 +169,40 @@ Runs once 7.0.3 is live; scheduled jobs need to fire for the drift-window math t
 ### F40 — Concurrency model for perception is undefined under failure
 
 The spec serializes perception per `SELF_ID` via an advisory lock (§30.6) but does not specify the lock's failure mode. If the perception LLM hangs past `PERCEPTION_TIMEOUT_SEC = 30` and the advisory lock is held by that task, does a second request block indefinitely on the lock? Or does the lock release on timeout while the first request's retry is still running? Needs one sentence in spec 30 before 7.3 lands. Severity `medium`.
+
+---
+
+## 7.4 — Operator oversight
+
+Largest design surface. Needs explicit review before 7.4.1 lands because it changes the self's authority.
+
+### 7.4.1 — G12: Operator review gate on facet/passion contributors
+
+**Closes:** F18, F22.
+**Ships:**
+- New table `self_contributor_pending(node_id, self_id, target_*, source_*, weight, origin, rationale, proposed_at, reviewed_at, review_decision)`.
+- `write_contributor(origin=self)` with `target_kind in {personality_facet, passion}` routes to `pending` instead of `self_activation_contributors`.
+- `ask_clarifying` / `decline` decisions also write rows to a sibling `self_routing_review` table for the weekly digest.
+- CLI: `stronghold self digest --since <date>` emits the pending queue + decline patterns; `stronghold self ack <node_id> [--approve|--reject]` migrates to live or archives.
+- Unacked pending edges do not affect `active_now`.
+**Invariants:** live `self_activation_contributors` never contains `origin=self` edges into facets/passions that haven't passed operator ACK. Tested via integration: self writes a facet contributor → `active_now` on the facet is unchanged until ACK.
+
+### 7.4.2 — G13, G14: Repo-layer self-id enforcement + FK
+
+**Closes:** F24 (full), F25.
+**Ships:** migration adding `FOREIGN KEY (self_id) REFERENCES self_identity(self_id)` on every self-model table; `acting_self_id` parameter on every write method (builds on 7.0.5's partial work); `CrossSelfAccess` raised on mismatch at the repo layer.
+**Tests:** insert with unknown self_id → IntegrityError; `update_*` with wrong `acting_self_id` → `CrossSelfAccess`.
+
+### 7.4.3 — G15, G16: Bootstrap seed registry + signed audit
+
+**Closes:** F26.
+**Ships:**
+- `self_bootstrap_seeds(seed, used_by_self_id, used_at)`. Bootstrap refuses reuse unless `--allow-seed-reuse`; the flag mints a LESSON memory acknowledging twin-self origin.
+- Finalize LESSON signed with operator key; verification at next perception; tamper puts the self in `read-only` with an OPINION explaining.
+**Tests:** seed reuse without flag → `SeedReused`; tampered finalize memory → `read-only` state entered; good signature → normal operation.
+
+### 7.4.4 — G18: Self-tool runtime firewall
+
+**Closes:** F21.
+**Ships:** `importlib.abc.MetaPathFinder` that inspects the calling frame for any import of `turing.self_surface.SELF_TOOL_REGISTRY` from outside `turing.self_*`. Registered at `SelfRuntime()` construction. Violations raise `ForbiddenImport`.
+**Tests:** a specialist-layer test that tries the blocked import fails at import time; self-layer imports succeed.

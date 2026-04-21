@@ -101,12 +101,13 @@ async def _require_auth(request: Request) -> Any:
     container = request.app.state.container
     auth_header = request.headers.get("authorization")
     try:
-        return await container.auth_provider.authenticate(
+        auth = await container.auth_provider.authenticate(
             auth_header, headers=dict(request.headers)
         )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
     _check_csrf(request)
+    return auth
 
 
 async def _require_admin(request: Request) -> Any:

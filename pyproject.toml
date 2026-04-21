@@ -60,6 +60,9 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# Vulture whitelist lists bare names that aren't real Python statements —
+# exclude it from ruff's parser.
+extend-exclude = [".vulture_whitelist.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]

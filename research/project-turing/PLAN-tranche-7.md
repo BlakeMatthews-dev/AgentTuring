@@ -111,3 +111,33 @@ Four guardrails on top of the live tool surface from 7.0.1/7.0.2.
 **Closes:** F1 partial, F18 partial.
 **Ships:** every self-tool accepts `request_hash` and `perception_tool_call_id` (defaulted for out-of-pipeline callers to `"out_of_band"`). The memory-mirroring bridge (7.0.2) writes both into `context`. Schema migration adds an index on `context ->> 'request_hash'` for audit queries.
 **Invariant:** every self-written row's provenance is reconstructible from its memory mirror.
+
+---
+
+## 7.2 — Drift bounds
+
+Runs once 7.0.3 is live; scheduled jobs need to fire for the drift-window math to have a cadence.
+
+### 7.2.1 — G3: Per-week facet drift budget
+
+**Closes:** F9, F10.
+**Ships:** `FacetDriftLedger` stores per-facet rolling 7-day Δ. `apply_retest` consults the ledger and clips any proposed move that would push cumulative |Δ| past `FACET_WEEKLY_DRIFT_MAX = 0.5`; the clip event mirrors as an OPINION memory. `FACET_QUARTERLY_DRIFT_MAX = 1.5` enforced symmetrically over 90 days.
+**Tests:** fabricated 10-week retest stream with retest-mean pinned at 5.0 → facet stops moving at `current + 0.5/week × k` only after k weeks, with k clip memories.
+
+### 7.2.2 — G4: Narrative-claim rate limit per facet per week
+
+**Closes:** F12.
+**Ships:** `record_personality_claim` checks `count(claims where facet_id=F and created_at > now-7d) < NARRATIVE_CLAIMS_PER_FACET_PER_WEEK = 3`. Over-limit raises `NarrativeClaimRateLimit`.
+**Tests:** four consecutive claims same facet in one week → three succeed, fourth raises.
+
+### 7.2.3 — G6: Rolling-sum mood guard
+
+**Closes:** F8.
+**Ships:** `MoodRollingLedger` per dimension over 7d; `nudge_mood` clips the cumulative absolute nudge at `MOOD_ROLLING_SUM_CAP = 2.0` per dim. Over-cap nudges write the OBSERVATION memory (per 7.0.2) but do not mutate `self_mood`.
+**Tests:** 100 regret nudges in an hour cap valence at `-2.0` cumulative rather than `-20.0`.
+
+### 7.2.4 — G10: Skill-level honesty invariant
+
+**Closes:** F17.
+**Ships:** `practice_skill(new_level > stored_level, ...)` requires a same-request OBSERVATION / ACCOMPLISHMENT memory with `context.skill_id = skill_id`. Enforced via a `skill_raise_supported_in_request()` predicate reading the request-scoped memory buffer (available once 7.3 lands; until then gated behind a test fixture). Monthly skill-inflation check runs in the tuner (spec 11); flags >10 raises with zero downgrades over 90d.
+**Tests:** `practice_skill(new_level=0.9)` without a supporting memory raises; with one succeeds.

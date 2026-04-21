@@ -236,8 +236,12 @@ async def _handle_code_exchange(form: Any) -> JSONResponse:
     await _store.store_token(access_token)
     await _store.store_token(refresh_token)
 
+    # Logs only client/user identifiers — the actual token values are never
+    # logged. Semgrep keyword-matches on "tokens" here but the positional
+    # arguments are non-sensitive IDs.
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure  # noqa: E501
     logger.info(
-        "Issued tokens for client=%s user=%s",
+        "OAuth grant issued for client=%s user=%s",
         auth_code.client_id,
         auth_code.user_id,
     )

@@ -110,8 +110,11 @@ class InMemoryTaskAcceptancePolicy:
         limits = self._budget_limits[priority_tier]
 
         if token_budget is not None and token_budget > limits.get("max_tokens", float("inf")):
+            # "tokens" here refers to LLM token *counts* (int quota units),
+            # not credentials. Semgrep keyword-matches on the word.
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure  # noqa: E501
             logger.warning(
-                "Budget DENIED: user=%s org=%s tier=%s tokens=%s > max=%s",
+                "Budget DENIED: user=%s org=%s tier=%s token_count=%s > max=%s",
                 user_id,
                 org_id,
                 priority_tier,

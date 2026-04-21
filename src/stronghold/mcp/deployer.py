@@ -89,7 +89,14 @@ class K8sDeployer:
                         )
                     )
                 except Exception:
-                    logger.warning("Secret %s not found, skipping env %s", parts[0], k)
+                    # Logs the k8s Secret *name* and env-var key, never the value. The
+                    # semgrep keyword match on "Secret" is a false positive here.
+                    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure  # noqa: E501
+                    logger.warning(
+                        "k8s Secret resource %s not found, skipping env var %s",
+                        parts[0],
+                        k,
+                    )
 
         # Resource limits
         resources = client.V1ResourceRequirements(

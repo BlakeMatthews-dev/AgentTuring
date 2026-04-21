@@ -106,6 +106,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Try OpenWebUI user header
         owui_id = request.headers.get("x-openwebui-user-id")
         if owui_id:
+            # This is a FastAPI middleware returning an internal rate-limit
+            # bucket key, not a Flask view response. The semgrep Flask rule
+            # is a false positive — the string never reaches an HTTP response.
+            # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string  # noqa: E501
             return f"user:{owui_id}"
 
         # Try auth header (hash to avoid storing full token)

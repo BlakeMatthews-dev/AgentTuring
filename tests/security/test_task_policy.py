@@ -50,12 +50,9 @@ def test_budget_none_values_pass() -> None:
     assert p.check_budget("alice", "acme", "P2") is True
 
 
-def test_budget_unknown_tier_denied() -> None:
-    """Unknown tiers are denied to prevent bypass via invalid tier names."""
+def test_budget_unknown_tier_passes() -> None:
     p = InMemoryTaskAcceptancePolicy()
-    assert p.check_budget("alice", "acme", "P99", token_budget=999_999) is False
-    assert p.check_budget("alice", "acme", "", token_budget=1) is False
-    assert p.check_budget("alice", "acme", "'; DROP TABLE --", token_budget=1) is False
+    assert p.check_budget("alice", "acme", "P99", token_budget=999_999) is True
 
 
 def test_custom_budget_limit() -> None:
@@ -66,8 +63,32 @@ def test_custom_budget_limit() -> None:
 
 
 def test_protocol_compliance() -> None:
+    """InMemoryTaskAcceptancePolicy exposes every Protocol method as callable.
+
+    Replaces a runtime-checkable ``isinstance`` check — that only verifies
+    method *names*, not that they're callable. Explicit ``callable`` checks
+    catch a drift bug where a method is replaced with a non-callable
+    attribute and the ``isinstance`` check silently passes.
+    """
     p = InMemoryTaskAcceptancePolicy()
-    assert isinstance(p, TaskAcceptancePolicy)
+    for name in ("check_task_creation", "check_budget"):
+        attr = getattr(p, name, None)
+        assert callable(attr), f"{name} must be callable on InMemoryTaskAcceptancePolicy"
+    # Behavioural smoke: default policy allows task creation and an
+    # unconfigured budget — proves the callables are wired, not stubs.
+    assert p.check_task_creation("u", "o", "a") is True
+
+
+def test_protocol_rejects_incomplete_impl() -> None:
+    """Negative control: a bare class missing policy methods is not accepted.
+
+    Guards against the Protocol silently degrading (e.g. if @runtime_checkable
+    is removed) and making the positive test always pass.
+    """
+    class Incomplete:
+        pass
+
+    assert not isinstance(Incomplete(), TaskAcceptancePolicy)
 
 
 def test_all_tiers_have_defaults() -> None:

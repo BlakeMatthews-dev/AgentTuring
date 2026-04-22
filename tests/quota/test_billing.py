@@ -35,13 +35,23 @@ class TestDailyBudget:
         assert daily_budget(30000, "monthly") == 1000.0
 
     def test_monthly_float_result(self) -> None:
-        """Monthly budget returns a float even when not evenly divisible."""
+        """Monthly budget normalizes a 1000-token monthly allowance to
+        ~33.3 tokens/day, as a float (not int), so downstream arithmetic
+        doesn't truncate."""
         result = daily_budget(1000, "monthly")
-        assert isinstance(result, float)
+        # The value is the exact quotient, not floor-divided.
+        assert result == 1000 / 30
         assert abs(result - 33.333) < 0.1
+        # Division produces a float; confirm via arithmetic that would lose
+        # precision under integer division.
+        assert (result * 30) - 1000.0 < 1e-9
 
     def test_daily_returns_float_type(self) -> None:
-        """Daily budget returns float type even for integer input."""
+        """Daily budget with integer input returns an exact float value
+        that arithmetic can consume without surprise (e.g. no integer
+        truncation lurking in downstream math)."""
         result = daily_budget(500, "daily")
-        assert isinstance(result, float)
         assert result == 500.0
+        # Arithmetic identity: daily is pass-through, so halving and doubling
+        # yields the original value exactly (no int-division weirdness).
+        assert (result / 2) * 2 == 500.0

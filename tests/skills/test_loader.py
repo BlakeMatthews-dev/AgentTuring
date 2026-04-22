@@ -62,13 +62,21 @@ class TestLoadAll:
 
 class TestMergeIntoTools:
     def test_merges_skills_as_tools(self, tmp_path: Path) -> None:
+        """Skills loaded from disk become ToolDefinition objects carrying the
+        name, description, and parameter schema from their YAML front-matter."""
         (tmp_path / "test_tool.md").write_text(_SKILL_CONTENT)
         loader = FilesystemSkillLoader(tmp_path)
         skills = loader.load_all()
         tools = loader.merge_into_tools(skills, [])
         assert len(tools) == 1
-        assert tools[0].name == "test_tool"
-        assert isinstance(tools[0], ToolDefinition)
+        tool = tools[0]
+        # Behavioral: the skill -> tool translation preserves the skill's
+        # identity fields end-to-end.
+        assert tool.name == "test_tool"
+        assert tool.description == "A test tool."
+        # Parameters schema round-tripped from YAML.
+        assert tool.parameters.get("type") == "object"
+        assert "query" in tool.parameters.get("properties", {})
 
     def test_existing_tools_not_overridden(self, tmp_path: Path) -> None:
         (tmp_path / "test_tool.md").write_text(_SKILL_CONTENT)

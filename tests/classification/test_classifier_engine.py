@@ -312,16 +312,26 @@ class TestPriorityInference:
 class TestMultiIntentDetection:
     """detect_multi_intent identifies compound requests."""
 
-    def test_no_multi_intent_simple(self) -> None:
+    def test_single_intent_returns_empty_list(self) -> None:
+        """A simple single-topic request has no compound intents; the
+        contract is to return an empty list (not None, not a single-element
+        list) so callers can use truthiness to branch."""
         engine = ClassifierEngine()
         result = engine.detect_multi_intent("turn on the fan", _task_types())
-        # Should return list (possibly empty or single)
-        assert isinstance(result, list)
+        assert result == []
 
-    def test_multi_intent_with_and(self) -> None:
+    def test_compound_request_returns_distinct_intents(self) -> None:
+        """A request with two clear task types separated by 'and' produces
+        a list containing BOTH task_type strings, in the order they appear,
+        without duplicates."""
         engine = ClassifierEngine()
         result = engine.detect_multi_intent(
             "search for recipes and write code to parse them",
             _task_types(),
         )
-        assert isinstance(result, list)
+        # At least two distinct task types must have been detected.
+        assert len(result) >= 2
+        assert "search" in result
+        assert "code" in result
+        # No duplicates.
+        assert len(result) == len(set(result))

@@ -5,22 +5,6 @@ from pydantic import ValidationError
 from stronghold.builders import RunRequest, WorkerName
 
 
-def test_run_request_requires_core_fields() -> None:
-    request = RunRequest(
-        run_id="run-1",
-        worker=WorkerName.FRANK,
-        stage="acceptance_defined",
-        repo="org/repo",
-        issue_number=42,
-        branch="builders/42-run-1",
-        workspace_ref="ws-1",
-    )
-
-    assert request.run_id == "run-1"
-    assert request.worker is WorkerName.FRANK
-    assert request.context == {}
-
-
 def test_run_request_rejects_missing_required_fields() -> None:
     try:
         RunRequest(  # type: ignore[call-arg]

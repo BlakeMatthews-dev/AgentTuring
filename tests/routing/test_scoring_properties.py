@@ -11,6 +11,8 @@ Properties:
 - Candidates sorted descending by score
 """
 
+import math
+
 from stronghold.router.scorer import score_candidate
 from tests.factories import (
     build_intent,
@@ -97,15 +99,29 @@ class TestScoreEdgeCases:
 
 
 class TestCandidateFields:
-    def test_candidate_has_all_fields(self) -> None:
+    def test_candidate_has_all_fields_with_sensible_values(self) -> None:
+        """ScoreResult carries the inputs back out (model_id, provider,
+        usage_pct) and computes numeric fields with realistic bounds —
+        not just *some* float, but a positive score, a quality in (0, 1],
+        a non-negative cost, and the same usage_pct that was passed in."""
         intent = build_intent()
         config = build_routing_config()
         model = build_model_config(quality=0.5, provider="test_provider")
         provider = build_provider_config()
         result = score_candidate("test-id", model, provider, intent, config, 0.3)
+
+        # Inputs echoed back unchanged.
         assert result.model_id == "test-id"
         assert result.provider == "test_provider"
-        assert isinstance(result.score, float)
-        assert isinstance(result.quality, float)
-        assert isinstance(result.effective_cost, float)
-        assert isinstance(result.usage_pct, float)
+        assert result.usage_pct == 0.3
+
+        # Score is a strictly positive real number (not NaN, not 0).
+        assert result.score > 0.0
+        assert not math.isnan(result.score)
+
+        # Adjusted quality lives in (0, 1] per the cap rule.
+        assert 0.0 < result.quality <= 1.0
+
+        # Effective cost is non-negative; a zero-usage candidate hasn't been
+        # discounted below the base cost.
+        assert result.effective_cost >= 0.0

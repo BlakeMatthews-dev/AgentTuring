@@ -1,7 +1,7 @@
 {
   "id": "herald",
   "name": "herald",
-  "description": "Receives raw ideas and feature requests, clarifies them, researches the codebase for existing work, and drafts structured epics for the Quartermaster to decompose into actionable issues.",
+  "description": "Receives raw ideas, clarifies them, researches the codebase, and drafts structured epics for Quartermaster.",
   "version": "1.0.0",
   "protocolVersion": "2024-11-05",
   "capabilities": {
@@ -13,10 +13,6 @@
   "trust_tier": "t1",
   "priority_tier": "P4",
   "model": "auto",
-  "model_fallbacks": [
-    "google-gemini-3.1-pro",
-    "mistral-large",
-    "deepseek-deepseek"
-  ],
+  "model_fallbacks": ["google-gemini-3.1-pro", "mistral-large", "deepseek-deepseek"],
   "active": true
 }

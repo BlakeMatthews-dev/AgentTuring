@@ -65,7 +65,9 @@ class TestAuthEnvOverrides:
 
     def test_auth_issuer_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """STRONGHOLD_AUTH_ISSUER env var sets auth.issuer."""
-        monkeypatch.setenv("STRONGHOLD_AUTH_ISSUER", "https://sso.example.com/realms/stronghold")
+        monkeypatch.setenv(
+            "STRONGHOLD_AUTH_ISSUER", "https://sso.example.com/realms/stronghold"
+        )
         config = load_config("/nonexistent/path.yaml")
         assert config.auth.issuer == "https://sso.example.com/realms/stronghold"
 
@@ -81,7 +83,9 @@ class TestAuthEnvOverrides:
         config = load_config("/nonexistent/path.yaml")
         assert config.auth.client_id == "my-client-id"
 
-    def test_auth_authorization_url_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_auth_authorization_url_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """STRONGHOLD_AUTH_AUTHORIZATION_URL env var sets auth.authorization_url."""
         monkeypatch.setenv(
             "STRONGHOLD_AUTH_AUTHORIZATION_URL",
@@ -105,7 +109,9 @@ class TestAuthEnvOverrides:
             == "https://sso.example.com/realms/stronghold/protocol/openid-connect/token"
         )
 
-    def test_auth_client_secret_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_auth_client_secret_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """STRONGHOLD_AUTH_CLIENT_SECRET env var sets auth.client_secret."""
         monkeypatch.setenv("STRONGHOLD_AUTH_CLIENT_SECRET", "s3cret-value-here")
         config = load_config("/nonexistent/path.yaml")
@@ -135,13 +141,17 @@ class TestAuthEnvOverrides:
         config = load_config("/nonexistent/path.yaml")
         assert config.router_api_key == "sk-router-abcdefghijklmnopqrstuvwx1234"
 
-    def test_phoenix_endpoint_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_phoenix_endpoint_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """PHOENIX_COLLECTOR_ENDPOINT env var sets phoenix_endpoint."""
         monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://phoenix:6006")
         config = load_config("/nonexistent/path.yaml")
         assert config.phoenix_endpoint == "http://phoenix:6006"
 
-    def test_webhook_secret_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_webhook_secret_env_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """STRONGHOLD_WEBHOOK_SECRET env var sets webhook_secret."""
         monkeypatch.setenv("STRONGHOLD_WEBHOOK_SECRET", "whsec_abcdefghijklmnop")
         config = load_config("/nonexistent/path.yaml")
@@ -162,7 +172,9 @@ class TestSecretValidation:
             load_config("/nonexistent/path.yaml")
         assert any("shorter than 32" in r.message for r in caplog.records)
 
-    def test_short_webhook_secret_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_short_webhook_secret_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """STRONGHOLD_WEBHOOK_SECRET shorter than 16 chars raises ValueError."""
         monkeypatch.setenv("STRONGHOLD_WEBHOOK_SECRET", "tooshort")
         with pytest.raises(ValueError, match="at least 16 characters"):
@@ -178,7 +190,9 @@ class TestCorsValidation:
         with pytest.raises(ValueError, match="must not contain"):
             load_config("/nonexistent/path.yaml")
 
-    def test_cors_javascript_uri_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cors_javascript_uri_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """CORS_ORIGINS containing javascript: URI raises ValueError."""
         monkeypatch.setenv("STRONGHOLD_CORS_ORIGINS", "javascript:alert(1)")
         with pytest.raises(ValueError, match="unsafe origin"):
@@ -217,13 +231,17 @@ class TestJwksUrlValidation:
         with pytest.raises(ValueError, match="must use HTTPS"):
             load_config("/nonexistent/path.yaml")
 
-    def test_auth_authorization_url_http_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_auth_authorization_url_http_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Auth authorization URL without HTTPS raises ValueError."""
         monkeypatch.setenv("STRONGHOLD_AUTH_AUTHORIZATION_URL", "http://sso.example.com/auth")
         with pytest.raises(ValueError, match="must use HTTPS"):
             load_config("/nonexistent/path.yaml")
 
-    def test_auth_token_url_http_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_auth_token_url_http_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Auth token URL without HTTPS raises ValueError."""
         monkeypatch.setenv("STRONGHOLD_AUTH_TOKEN_URL", "http://sso.example.com/token")
         with pytest.raises(ValueError, match="must use HTTPS"):
@@ -251,7 +269,9 @@ class TestValidateUrlNotPrivate:
         with pytest.raises(ValueError, match="private"):
             _validate_url_not_private("https://localhost/path", "test_field")
 
-    def test_unresolvable_hostname_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_unresolvable_hostname_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         import logging
 
         from stronghold.config.loader import _validate_url_not_private

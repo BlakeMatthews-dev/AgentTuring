@@ -24,7 +24,27 @@ from tests.fakes import FakeToolPolicy
 
 class TestFakeToolPolicy:
     def test_satisfies_protocol(self) -> None:
-        assert isinstance(FakeToolPolicy(), ToolPolicyProtocol)
+        """FakeToolPolicy exposes every Protocol method as callable.
+
+        Replaces the ``isinstance`` structural check — ``@runtime_checkable``
+        only verifies attribute presence, not callability. Explicit
+        ``callable`` checks catch the drift bug the old test targeted
+        (a method replaced with a non-callable attribute).
+        """
+        fake = FakeToolPolicy()
+        for name in ("check_tool_call", "check_task_creation"):
+            attr = getattr(fake, name, None)
+            assert callable(attr), f"{name} must be callable on FakeToolPolicy"
+        # Behavioural smoke: default policy allows tool calls and task creation.
+        assert fake.check_tool_call("u", "o", "t") is True
+        assert fake.check_task_creation("u", "o", "a") is True
+
+    def test_protocol_rejects_incomplete_impl(self) -> None:
+        """Negative control: a bare class missing policy methods fails the check."""
+        class Incomplete:
+            pass
+
+        assert not isinstance(Incomplete(), ToolPolicyProtocol)
 
     def test_default_allows_tool_call(self) -> None:
         policy = FakeToolPolicy()
@@ -87,11 +107,24 @@ m = (r.sub == p.sub || p.sub == "*") && (r.org == p.org || p.org == "*") && (r.o
 
 class TestCasbinToolPolicy:
     def test_satisfies_protocol(self) -> None:
+        """Real CasbinToolPolicy matches the Protocol AND behaves correctly.
+
+        isinstance alone is weak (only checks method names); pair it with a
+        behavioral probe that exercises check_tool_call + check_task_creation
+        to catch signature or return-type regressions.
+        """
         model, policy = _write_casbin_files([
             "p, *, *, *, tool_call, allow",
+            "p, *, *, *, task_create, allow",
         ])
         tp = CasbinToolPolicy(model, policy)
-        assert isinstance(tp, ToolPolicyProtocol)
+        # Structural contract: every Protocol method is callable.
+        for name in ("check_tool_call", "check_task_creation"):
+            attr = getattr(tp, name, None)
+            assert callable(attr), f"{name} must be callable on CasbinToolPolicy"
+        # Behavioral probe: both methods must return a bool matching the rule.
+        assert tp.check_tool_call("u", "o", "t") is True
+        assert tp.check_task_creation("u", "o", "a") is True
 
     def test_wildcard_allow_all(self) -> None:
         model, policy = _write_casbin_files([

@@ -111,10 +111,28 @@ async def test_delegate_network_failure() -> None:
     assert audit.entries[0]["user_id"] == "alice"
 
 
-def test_audit_logger_protocol() -> None:
-    from stronghold.a2a.guest_peers import AuditLogger
+async def test_audit_logger_protocol() -> None:
+    """InMemoryAuditLogger implements the AuditLogger protocol AND actually
+    records entries passed to log_delegation — runtime Protocol acceptance
+    alone wouldn't catch a method whose implementation is a no-op."""
+    from stronghold.a2a.guest_peers import AuditLogger  # noqa: F401 — protocol reference
     audit = InMemoryAuditLogger()
-    assert isinstance(audit, AuditLogger)
+    # Structural contract: the required method is callable on the fake.
+    assert callable(getattr(audit, "log_delegation", None))
+    # Behavioral: log_delegation actually records an entry we can read back.
+    assert audit.entries == []
+    await audit.log_delegation(
+        peer_name="peer-1",
+        agent_id="ranger",
+        tenant_id="acme",
+        user_id="alice",
+        status="ok",
+        detail="",
+    )
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["peer_name"] == "peer-1"
+    assert audit.entries[0]["status"] == "ok"
+    assert audit.entries[0]["tenant_id"] == "acme"
 
 
 async def test_delegate_empty_allowed_agents_means_all() -> None:

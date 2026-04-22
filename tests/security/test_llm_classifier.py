@@ -62,11 +62,14 @@ class TestClassifyToolResult:
         assert result["label"] == "suspicious"
 
     async def test_tokens_from_usage(self) -> None:
+        """Classifier must report the exact token usage from the LLM response."""
         llm = FakeLLMClient()
         llm.set_simple_response("safe")
         result = await classify_tool_result("text", llm)
-        assert isinstance(result["tokens"], int)
-        assert result["tokens"] == 30  # FakeLLMClient default total_tokens
+        # Exact value check (subsumes isinstance(int)): 30 is FakeLLMClient's
+        # default total_tokens. A bug returning "30" (str) or None would fail.
+        assert result["tokens"] == 30
+        assert type(result["tokens"]) is int
 
     async def test_fail_open_on_error(self) -> None:
         """On any error, default to safe (availability over security)."""

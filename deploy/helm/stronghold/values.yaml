@@ -22,7 +22,10 @@ ingress:
           pathType: Prefix
   tls: []
 
-# Vault sidecar (disabled by default; enabled per-environment for prod overlays)
+# OpenBao / HashiCorp Vault (per-user credential vault — ADR-K8S-018).
+# Off by default; the full deployment arrives with #957 (OpenBao Helm subchart).
+# This block must exist (even disabled) because templates/vault-deployment.yaml
+# references `.Values.vault.enabled` — absent map = helm lint nil-pointer error.
 vault:
   enabled: false
 
@@ -230,6 +233,11 @@ strongholdApi:
 # pinned to pgvector/pgvector:pg17 because the application requires the
 # pgvector and pg_trgm extensions.
 postgresql:
+  # Set to false to use an external managed database (e.g. Azure Flexible Server).
+  # When false, the StatefulSet, Service, ServiceAccount, RBAC, init ConfigMap,
+  # and stub credentials Secret are all skipped. Set postgresql.existingSecret
+  # to the name of a Secret containing POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB.
+  enabled: true
   image:
     registry: ""
     repository: pgvector/pgvector
@@ -401,6 +409,32 @@ route:
     host: phoenix.apps.cluster.example.com
     tlsTermination: edge
 
+# -----------------------------------------------------------------------------
+# Autoscaling (HorizontalPodAutoscaler). Disabled by default — enable in
+# per-environment overlays (e.g. values-aks.yaml). When enabled, the HPA
+# takes ownership of replica counts; the static .replicas value is only
+# the initial seed.
+# -----------------------------------------------------------------------------
+autoscaling:
+  strongholdApi:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 6
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+    scaleUpStabilization: 30     # seconds before allowing another scale-up
+    scaleUpMaxPods: 2            # max pods added per 60s window
+    scaleDownStabilization: 300  # seconds before allowing scale-down
+  litellm:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+    scaleUpStabilization: 30
+    scaleUpMaxPods: 2
+    scaleDownStabilization: 300
+
 # Vanilla Kubernetes Ingress fallbacks (rendered when
 # openshift.enabled=false AND ingressRoutes.enabled=true). The PR-6
 # top-level `ingress` block is preserved for backward compatibility;
@@ -414,3 +448,61 @@ ingressRoutes:
     host: litellm.example.com
   phoenix:
     host: phoenix.example.com
+
+# -----------------------------------------------------------------------------
+# Builders — heavy agent deployment for Mason, Frank, Auditor, Archie,
+# Quartermaster, and Gatekeeper pipeline stages. Spawns subprocesses
+# (pytest, mypy, ruff, bandit) that spike to 500-800 MB. Isolated from
+# the chat-serving stronghold-api pods.
+# -----------------------------------------------------------------------------
+builders:
+  enabled: false
+  replicas: 1
+  image:
+    registry: ""
+    repository: ""  # defaults to strongholdApi.image if empty
+    tag: ""
+    pullPolicy: IfNotPresent
+  maxConcurrency: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1500m
+      memory: 2560Mi  # 2.5Gi — pytest + mypy + Python runtime
+  nodeSelector: {}
+  tolerations: []
+  # Extra envFrom entries (e.g. GitHub App secrets per bot identity)
+  extraEnvFrom: []
+  # Workspace PVC for git clone + worktrees
+  workspacePvcName: ""  # set to PVC name, or use workspace.create below
+  workspace:
+    create: false
+    size: 2Gi
+    storageClassName: ""
+
+# Spot builders — KEDA-scaled burst capacity on preemptible nodes.
+buildersSpot:
+  enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1500m
+      memory: 2560Mi
+
+# KEDA (Kubernetes Event-Driven Autoscaler). Requires KEDA to be installed
+# on the cluster. Scales stronghold-builders-spot from 0→N based on the
+# builders_queue_actionable Prometheus metric from /metrics.
+keda:
+  enabled: false
+  builders:
+    minReplicas: 0
+    maxReplicas: 5
+    pollingInterval: 30    # seconds between metric checks
+    cooldownPeriod: 300    # seconds before scaling to zero
+    threshold: "1"         # 1 pod per queued issue
+    # Prometheus server address. For in-cluster Prometheus:
+    prometheusAddress: "http://prometheus-server.monitoring.svc.cluster.local:80"

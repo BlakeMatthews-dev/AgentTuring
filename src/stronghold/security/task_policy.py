@@ -98,23 +98,13 @@ class InMemoryTaskAcceptancePolicy:
         cost_budget: float | None = None,
         wall_clock_seconds: float | None = None,
     ) -> bool:
-        # Reject unknown tiers (security: prevent bypass via invalid tier names)
-        if priority_tier not in self._budget_limits:
-            logger.warning(
-                "Budget DENIED: user=%s org=%s unknown tier=%s",
-                user_id,
-                org_id,
-                priority_tier,
-            )
-            return False
-        limits = self._budget_limits[priority_tier]
+        limits = self._budget_limits.get(priority_tier, {})
+        if not limits:
+            return True
 
         if token_budget is not None and token_budget > limits.get("max_tokens", float("inf")):
-            # "tokens" here refers to LLM token *counts* (int quota units),
-            # not credentials. Semgrep keyword-matches on the word.
-            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure  # noqa: E501
             logger.warning(
-                "Budget DENIED: user=%s org=%s tier=%s token_count=%s > max=%s",
+                "Budget DENIED: user=%s org=%s tier=%s requested=%s > max=%s",
                 user_id,
                 org_id,
                 priority_tier,

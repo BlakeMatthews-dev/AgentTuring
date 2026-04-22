@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,7 +12,7 @@ from stronghold.agents.context_builder import ContextBuilder
 from stronghold.agents.intents import IntentRegistry
 from stronghold.agents.strategies.direct import DirectStrategy
 from stronghold.classifier.engine import ClassifierEngine
-from stronghold.conduit import Conduit
+from stronghold.conduit import Conduit, determine_execution_tier
 from stronghold.memory.learnings.extractor import ToolCorrectionExtractor
 from stronghold.memory.learnings.store import InMemoryLearningStore
 from stronghold.memory.outcomes import InMemoryOutcomeStore
@@ -28,9 +29,10 @@ from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.types.agent import AgentIdentity
-from stronghold.types.auth import SYSTEM_AUTH, PermissionTable
+from stronghold.types.auth import SYSTEM_AUTH, AuthContext, PermissionTable
 from stronghold.types.config import StrongholdConfig, TaskTypeConfig
 from stronghold.types.errors import QuotaExhaustedError, RoutingError
+from stronghold.types.intent import Intent
 from tests.fakes import FakeLLMClient, FakeQuotaTracker
 
 
@@ -51,9 +53,7 @@ def _make_config(**overrides: Any) -> StrongholdConfig:
         },
         "task_types": {
             "chat": TaskTypeConfig(keywords=["hello", "hi"], preferred_strengths=["chat"]),
-            "code": TaskTypeConfig(
-                keywords=["code", "function", "bug"], preferred_strengths=["code"]
-            ),
+            "code": TaskTypeConfig(keywords=["code", "function", "bug"], preferred_strengths=["code"]),
         },
         "permissions": {"admin": ["*"]},
         "router_api_key": "sk-test",
@@ -159,10 +159,10 @@ class TestSessionStickiness:
             auth=SYSTEM_AUTH,
             session_id="sess-sticky-1",
         )
-        result1.get("_routing", {}).get("agent", "")
+        agent1 = result1.get("_routing", {}).get("agent", "")
 
         # Second request: vague, but same session should stick
-        await conduit.route_request(
+        result2 = await conduit.route_request(
             [{"role": "user", "content": "now do the same for the other file"}],
             auth=SYSTEM_AUTH,
             session_id="sess-sticky-1",
@@ -181,16 +181,14 @@ class TestSessionStickiness:
             session_id="sess-A",
         )
 
-        await conduit.route_request(
+        result2 = await conduit.route_request(
             [{"role": "user", "content": "hello there"}],
             auth=SYSTEM_AUTH,
             session_id="sess-B",
         )
         # sess-B should not inherit sess-A's agent
-        assert (
-            conduit._session_agents.get("sess-B") != conduit._session_agents.get("sess-A")
-            or "sess-B" not in conduit._session_agents
-        )
+        assert conduit._session_agents.get("sess-B") != conduit._session_agents.get("sess-A") or \
+            "sess-B" not in conduit._session_agents
 
 
 # ── Data Sharing Consent ──
@@ -250,9 +248,8 @@ class TestDataSharingConsent:
                 auth=SYSTEM_AUTH,
                 session_id=sid,
             )
-            assert "ds-prov" in conduit._session_consents.get(sid, set()), (
+            assert "ds-prov" in conduit._session_consents.get(sid, set()), \
                 f"Expected consent granted for '{word}'"
-            )
 
 
 # ── Quota Pre-check ──
@@ -295,6 +292,7 @@ class TestModelSelectionFallback:
         container = _make_container_with_agents()
 
         # Make router.select always raise RoutingError
+        original_select = container.router.select
 
         def broken_select(*args: Any, **kwargs: Any) -> Any:
             raise RoutingError("no models match")
@@ -436,7 +434,7 @@ class TestConsentPromptFlow:
             session_id="sess-ds",
         )
 
-        result.get("_routing", {})
+        routing = result.get("_routing", {})
         # If the ds provider scored higher, we should see consent_required
         # or the response just routes normally (safe provider selected)
         # Either way, the pipeline completes without error

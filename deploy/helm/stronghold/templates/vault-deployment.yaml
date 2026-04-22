@@ -1,4 +1,4 @@
-{{- if (and .Values.vault .Values.vault.enabled) }}
+{{- if .Values.vault.enabled }}
 # OpenBao / HashiCorp Vault deployment in stronghold-system namespace.
 # ADR-K8S-018: per-user credential vault with K8s auth.
 #

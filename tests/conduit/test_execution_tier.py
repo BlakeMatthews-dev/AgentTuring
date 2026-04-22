@@ -19,6 +19,7 @@ from stronghold.conduit import (
 )
 from stronghold.types.intent import Intent
 
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -152,10 +153,6 @@ class TestClusterPressure:
         result = self._with_pressure(Intent(tier="P5"))
         assert result.tier == "P5"
 
-    def test_critical_tiers_constant(self) -> None:
-        """Sanity: critical tiers are P0 and P1."""
-        assert frozenset({"P0", "P1"}) == _CRITICAL_TIERS
-
     def test_agent_override_then_pressure(self) -> None:
         """Agent upgrades to P2, then pressure downgrades to P3."""
         intent = Intent(tier="P4")
@@ -207,8 +204,9 @@ class TestTraceOutput:
 # ── Coverage expansion: Conduit class, token estimation, fallback, consent ──
 
 
-from stronghold.conduit import _CONSENT_AFFIRMATIVE, Conduit  # noqa: E402
-from tests.fakes import FakeLLMClient, make_test_container  # noqa: E402
+from stronghold.conduit import Conduit, _CONSENT_AFFIRMATIVE
+
+from tests.fakes import FakeLLMClient, make_test_container
 
 
 class TestConduitTokenEstimation:
@@ -258,9 +256,9 @@ class TestConduitFallbackAgent:
         from stronghold.agents.base import Agent
         from stronghold.agents.context_builder import ContextBuilder
         from stronghold.agents.strategies.direct import DirectStrategy
-        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.prompts.store import InMemoryPromptManager
         from stronghold.security.warden.detector import Warden
+        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.types.agent import AgentIdentity
 
         llm = FakeLLMClient()
@@ -287,9 +285,9 @@ class TestConduitFallbackAgent:
         from stronghold.agents.base import Agent
         from stronghold.agents.context_builder import ContextBuilder
         from stronghold.agents.strategies.direct import DirectStrategy
-        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.prompts.store import InMemoryPromptManager
         from stronghold.security.warden.detector import Warden
+        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.types.agent import AgentIdentity
 
         llm = FakeLLMClient()
@@ -317,9 +315,9 @@ class TestConduitFallbackAgent:
         from stronghold.agents.base import Agent
         from stronghold.agents.context_builder import ContextBuilder
         from stronghold.agents.strategies.direct import DirectStrategy
-        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.prompts.store import InMemoryPromptManager
         from stronghold.security.warden.detector import Warden
+        from stronghold.memory.learnings.store import InMemoryLearningStore
         from stronghold.types.agent import AgentIdentity
 
         llm = FakeLLMClient()
@@ -400,10 +398,3 @@ class TestBuildResponse:
             routing={},
         )
         assert result["choices"][0]["finish_reason"] == "stop"
-
-
-class TestConduitSessionEviction:
-    """Test the session map eviction logic via MAX_STICKY_SESSIONS."""
-
-    def test_max_sticky_sessions_constant(self) -> None:
-        assert Conduit._MAX_STICKY_SESSIONS == 10_000

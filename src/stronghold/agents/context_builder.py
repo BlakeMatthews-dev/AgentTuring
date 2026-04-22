@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("stronghold.context_builder")
 
+_LEARNINGS_BOUNDARY = "<stronghold:corrections"
+
 # 4 chars ≈ 1 token (conservative estimate, avoids tokenizer dependency)
 _CHARS_PER_TOKEN = 4
 
@@ -46,6 +48,7 @@ class ContextBuilder:
         org_id: str = "",
         team_id: str = "",
         system_token_budget: int = _DEFAULT_SYSTEM_TOKEN_BUDGET,
+        enable_cache_breakpoints: bool = False,
     ) -> list[dict[str, Any]]:
         """Build the full message list with injected context.
 
@@ -160,4 +163,47 @@ class ContextBuilder:
             else:
                 result_messages.insert(0, {"role": "system", "content": assembled})
 
+        if enable_cache_breakpoints:
+            result_messages = inject_cache_breakpoints(result_messages)
+
         return result_messages
+
+
+def inject_cache_breakpoints(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark stable system prompt prefix with cache_control for Anthropic prompt caching.
+
+    Splits system content at the learnings boundary so the soul prompt
+    (stable across calls) gets cached while dynamic learnings do not.
+    """
+    result = list(messages)
+    if not result or result[0].get("role") != "system":
+        return result
+
+    system_msg = dict(result[0])
+    content = system_msg["content"]
+
+    if isinstance(content, str):
+        idx = content.find(_LEARNINGS_BOUNDARY)
+        if idx > 0:
+            stable = content[:idx].rstrip()
+            dynamic = content[idx:]
+            blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": dynamic},
+            ]
+        else:
+            blocks = [
+                {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}},
+            ]
+        system_msg["content"] = blocks
+    elif isinstance(content, list):
+        blocks = []
+        for i, block in enumerate(content):
+            new_block = dict(block)
+            if i == 0 and "cache_control" not in new_block:
+                new_block["cache_control"] = {"type": "ephemeral"}
+            blocks.append(new_block)
+        system_msg["content"] = blocks
+
+    result[0] = system_msg
+    return result

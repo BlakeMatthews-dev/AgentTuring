@@ -209,7 +209,9 @@ def register_core_triggers(container: Container) -> None:
 
             token = _get_app_installation_token("gatekeeper")
         except ImportError:
-            pass
+            logger.debug(
+                "GitHub App token helper unavailable; falling back to GITHUB_TOKEN",
+            )
         if not token:
             import os  # noqa: PLC0415
 

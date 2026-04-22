@@ -58,8 +58,22 @@ def test_card_capabilities_structure() -> None:
     for name, card in _load_cards():
         caps = card["capabilities"]
         assert "reasoning_strategy" in caps, f"{name}: missing reasoning_strategy"
+        # reasoning_strategy is one of the documented values.
+        assert caps["reasoning_strategy"] in VALID_STRATEGIES, (
+            f"{name}: invalid reasoning_strategy '{caps['reasoning_strategy']}'"
+        )
         assert "tools" in caps, f"{name}: missing tools"
-        assert isinstance(caps["tools"], list), f"{name}: tools must be a list"
+        tools = caps["tools"]
+        # tools is a JSON array (not dict, not scalar). Every entry is a string
+        # naming a tool.
+        assert tools == list(tools), f"{name}: tools must be a list"
+        for tool in tools:
+            # Exact-type str (not a str subclass that may mangle encoding)
+            # and non-empty.
+            assert type(tool) is str, (
+                f"{name}: each tool must be a str, got {type(tool).__name__}"
+            )
+            assert tool, f"{name}: tool name must be non-empty, got {tool!r}"
 
 
 def test_card_id_matches_directory() -> None:

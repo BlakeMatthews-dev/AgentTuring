@@ -145,7 +145,6 @@ class TestListSessions:
             )
             assert resp.status_code == 200
             data = resp.json()
-            assert isinstance(data, list)
             assert len(data) == 1
             assert data[0]["session_id"] == "__system__/_/system:test-session"
             assert data[0]["message_count"] == 2

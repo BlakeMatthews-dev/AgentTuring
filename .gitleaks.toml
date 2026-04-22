@@ -1,0 +1,45 @@
+# Gitleaks configuration for Stronghold.
+# Extends the default ruleset; adds allowlists for documentation examples
+# that are intentional, redacted, or rendered in the security-scan UI.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation examples and test fixtures"
+paths = [
+    # Security-scan UI shows example credential shapes to users so they
+    # understand what leaks look like. These strings are not credentials.
+    '''src/stronghold/dashboard/scan-report\.js''',
+    # Test suites use intentionally-fake credentials as fixtures to drive
+    # the scanners themselves (Warden, Sentinel, pii_filter, Fixer, parser)
+    # AND to assert redaction works. Every match in these trees is
+    # illustrative by design.
+    '''tests/.*\.py''',
+    # Connector manifests ship with example `sk-example-*` shapes to
+    # document field format, never real keys.
+    '''src/stronghold/skills/connectors\.py''',
+    # Fixer patterns include regex literals that MATCH shapes like
+    # ghp_… and sk-… so they can be scrubbed. Those literals are in
+    # .py source, not leaks.
+    '''src/stronghold/skills/fixer\.py''',
+    # PII filter patterns include credential-shape regexes for the
+    # same reason.
+    '''src/stronghold/security/sentinel/pii_filter\.py''',
+    # Warden pattern tables: regex literals for credential shapes used
+    # to DETECT leaks at runtime.
+    '''src/stronghold/security/warden/patterns\.py''',
+]
+# Extra pattern-based allowlist for the known example-shapes we ship.
+regexes = [
+    '''sk-example-[a-zA-Z0-9-]+''',
+    '''sk-test-[a-zA-Z0-9-]+''',
+    '''sk-ci-test-[a-zA-Z0-9-]+''',
+    '''sk-stronghold-prod''',
+    # REAL_KEY_HERE is the literal placeholder in scan-report.js
+    '''REAL_KEY_HERE''',
+    # Intentional test-fixture tokens used to exercise scrubbers.
+    '''ghp_1234567890abcdefghijklmnopqrstuvwxyz''',
+    '''ghp_fake[a-zA-Z0-9]*''',
+    '''ghp_example[a-zA-Z0-9]*''',
+]

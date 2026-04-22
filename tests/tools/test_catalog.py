@@ -7,13 +7,7 @@ from stronghold.tools.decorator import get_decorated_tools, tool
 from stronghold.types.tool import ToolDefinition
 
 
-def _entry(
-    name: str,
-    scope: str = "builtin",
-    tenant_id: str = "",
-    user_id: str = "",
-    version: str = "1.0.0",
-) -> CatalogEntry:
+def _entry(name: str, scope: str = "builtin", tenant_id: str = "", user_id: str = "", version: str = "1.0.0") -> CatalogEntry:
     return CatalogEntry(
         definition=ToolDefinition(name=name),
         version=version,
@@ -143,7 +137,6 @@ def test_list_tools_no_args_returns_builtins_only() -> None:
 # Coverage tests for ToolCatalog — lines 64, 97-110
 # ---------------------------------------------------------------------------
 
-
 def test_resolve_skips_non_matching_tool_names() -> None:
     """Line 64: entry.definition.name != tool_name -> continue."""
     cat = ToolCatalog()
@@ -181,6 +174,7 @@ def test_list_tools_skips_invisible_user_entry() -> None:
 def test_load_plugins_no_entry_point(monkeypatch: object) -> None:
     """Lines 97-102: load_plugins with no stronghold.tools entry-points."""
     from unittest.mock import patch
+    from importlib.metadata import EntryPoint
 
     cat = ToolCatalog()
     # Mock entry_points to return empty for our group
@@ -202,9 +196,7 @@ def test_load_plugins_with_catalog_entry(monkeypatch: object) -> None:
     mock_tool_fn._catalog_entry = _entry("plugin_tool", version="3.0.0")
     mock_ep.load.return_value = mock_tool_fn
 
-    with patch(
-        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
-    ):
+    with patch("stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}):
         cat.load_plugins()
 
     assert len(cat._entries) == 1
@@ -221,9 +213,7 @@ def test_load_plugins_without_catalog_entry_attr() -> None:
     mock_ep.name = "bare_plugin"
     mock_ep.load.return_value = lambda: None  # no _catalog_entry
 
-    with patch(
-        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
-    ):
+    with patch("stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}):
         cat.load_plugins()
 
     assert len(cat._entries) == 0
@@ -238,9 +228,7 @@ def test_load_plugins_handles_exception() -> None:
     mock_ep.name = "broken_plugin"
     mock_ep.load.side_effect = ImportError("module not found")
 
-    with patch(
-        "stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}
-    ):
+    with patch("stronghold.tools.catalog.entry_points", return_value={"stronghold.tools": [mock_ep]}):
         cat.load_plugins()  # should not raise
 
     assert len(cat._entries) == 0

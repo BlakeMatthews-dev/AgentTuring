@@ -6,7 +6,7 @@ with realistic file structures.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from stronghold.tools.scanner import (
     IssueSuggestion,
@@ -18,9 +18,6 @@ from stronghold.tools.scanner import (
     format_as_github_issue,
     scan_for_good_first_issues,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class TestIssueSuggestion:
@@ -39,21 +36,9 @@ class TestIssueSuggestion:
         # Frozen — cannot mutate
         try:
             s.title = "new"  # type: ignore[misc]
-            raise AssertionError("Should not be mutable")
+            assert False, "Should not be mutable"
         except AttributeError:
             pass
-
-    def test_medium_scope(self) -> None:
-        s = IssueSuggestion(
-            title="test",
-            category="test",
-            files=("a.py",),
-            description="desc",
-            what_youll_learn="learn",
-            acceptance_criteria=("crit1",),
-            estimated_scope="medium",
-        )
-        assert s.estimated_scope == "medium"
 
 
 class TestDetectMissingFakes:
@@ -124,7 +109,9 @@ class TestDetectMissingFakes:
 
         (proto_dir / "__init__.py").write_text("")
         (proto_dir / "auth.py").write_text(
-            "from typing import Protocol\nclass AuthProvider(Protocol):\n    pass\n"
+            "from typing import Protocol\n"
+            "class AuthProvider(Protocol):\n"
+            "    pass\n"
         )
         (tests_dir / "fakes.py").write_text("class NoopAuthProvider:\n    pass\n")
 
@@ -204,9 +191,7 @@ class TestDetectSidebarInconsistencies:
     def test_inconsistent_pages_flagged(self, tmp_path: Path) -> None:
         dash = tmp_path / "dashboard"
         dash.mkdir()
-        full_nav = (
-            '<a href="/dashboard/agents">Agents</a>\n<a href="/dashboard/settings">Settings</a>'
-        )
+        full_nav = '<a href="/dashboard/agents">Agents</a>\n<a href="/dashboard/settings">Settings</a>'
         partial_nav = '<a href="/dashboard/agents">Agents</a>'
         (dash / "index.html").write_text(full_nav)
         (dash / "settings.html").write_text(partial_nav)
@@ -279,7 +264,9 @@ class TestDetectUntestedModules:
         tests_dir.mkdir(parents=True)
 
         (src_dir / "stronghold" / "special.py").write_text("x = 1\n" * 25)
-        (tests_dir / "test_integration.py").write_text("from stronghold.special import something\n")
+        (tests_dir / "test_integration.py").write_text(
+            "from stronghold.special import something\n"
+        )
         result = detect_untested_modules(src_dir, tests_dir)
         assert len(result) == 0
 

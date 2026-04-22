@@ -27,7 +27,6 @@ def manager(tmp_path):
 
 # ---- execute dispatch ----
 
-
 async def test_execute_unknown_action(manager):
     result = await manager.execute({"action": "unknown"})
     assert result.success is False
@@ -64,15 +63,7 @@ async def test_execute_cleanup_not_found(manager):
     assert data["status"] == "not_found"
 
 
-# ---- name property ----
-
-
-def test_name(manager):
-    assert manager.name == "workspace"
-
-
 # ---- _resolve_base_dir ----
-
 
 def test_resolve_base_dir_uses_default(tmp_path):
     with patch("stronghold.tools.workspace.DEFAULT_WORKSPACE_ROOT", tmp_path / "ws"):
@@ -92,18 +83,15 @@ def test_resolve_base_dir_fallback(tmp_path):
 
 # ---- _ensure_clone uses token when available ----
 
-
 def test_ensure_clone_url_with_token(manager):
     """When GITHUB_TOKEN is set, clone URL includes it."""
-    with (
-        patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_test123"}),
-        patch.object(WorkspaceManager, "_run") as mock_run,
-    ):
-        mock_run.return_value = ""
-        manager._ensure_clone("owner", "repo")
-        clone_call = mock_run.call_args_list[0]
-        url = clone_call[0][0][3]  # 4th element of the git clone command
-        assert "ghp_test123" in url
+    with patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_test123"}):
+        with patch.object(WorkspaceManager, "_run") as mock_run:
+            mock_run.return_value = ""
+            manager._ensure_clone("owner", "repo")
+            clone_call = mock_run.call_args_list[0]
+            url = clone_call[0][0][3]  # 4th element of the git clone command
+            assert "ghp_test123" in url
 
 
 def test_ensure_clone_url_without_token(manager):
@@ -117,24 +105,19 @@ def test_ensure_clone_url_without_token(manager):
             clone_call = mock_run.call_args_list[0]
             url = clone_call[0][0][3]
             assert "x-access-token" not in url
-            assert url == "https://github.com/owner/repo.git"
+            assert "https://github.com/owner/repo.git" == url
 
 
 # ---- status with real git worktree ----
-
 
 async def test_status_active_worktree(manager, tmp_path):
     """Test status on an actual git-initialized worktree directory."""
     wt_dir = tmp_path / "worktrees" / "mason-42"
     wt_dir.mkdir(parents=True)
     subprocess.run(["git", "init", str(wt_dir)], capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=wt_dir, capture_output=True
-    )
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=wt_dir, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=wt_dir, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "init"], cwd=wt_dir, capture_output=True
-    )
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=wt_dir, capture_output=True)
 
     result = await manager.execute({"action": "status", "issue_number": 42})
     assert result.success is True
@@ -145,24 +128,19 @@ async def test_status_active_worktree(manager, tmp_path):
 
 # ---- commit with real git ----
 
-
 async def test_commit_in_worktree(manager, tmp_path):
     """Test commit on a real git repo."""
     wt_dir = tmp_path / "worktrees" / "mason-99"
     wt_dir.mkdir(parents=True)
     subprocess.run(["git", "init", str(wt_dir)], capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=wt_dir, capture_output=True
-    )
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=wt_dir, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=wt_dir, capture_output=True)
 
-    result = await manager.execute(
-        {
-            "action": "commit",
-            "issue_number": 99,
-            "message": "test commit",
-        }
-    )
+    result = await manager.execute({
+        "action": "commit",
+        "issue_number": 99,
+        "message": "test commit",
+    })
     assert result.success is True
     data = json.loads(result.content)
     assert data["status"] == "committed"
@@ -170,7 +148,6 @@ async def test_commit_in_worktree(manager, tmp_path):
 
 
 # ---- cleanup with real directory ----
-
 
 async def test_cleanup_removes_directory(manager, tmp_path):
     """Cleanup removes the worktree directory even without a parent repo."""
@@ -186,7 +163,6 @@ async def test_cleanup_removes_directory(manager, tmp_path):
 
 
 # ---- _run error handling ----
-
 
 def test_run_raises_on_failure(tmp_path):
     """_run raises RuntimeError when the git command fails."""

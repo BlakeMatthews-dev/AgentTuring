@@ -119,3 +119,4 @@ class StrongholdConfig(BaseModel):
     cors_origins: list[str] = Field(default_factory=list)
     max_request_body_bytes: int = 1_048_576  # 1 MB
     webhook_secret: str = ""
+    cache_breakpoints_enabled: bool = False

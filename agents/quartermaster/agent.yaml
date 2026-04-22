@@ -1,0 +1,62 @@
+spec_version: "0.1.0"
+name: quartermaster
+version: 1.0.0
+description: >
+  Decomposes epics into atomic issues and emits machine-checkable Specs.
+  Each atomic issue gets a Spec with acceptance criteria, invariants,
+  and protocol/file references. Uses complexity classification to
+  determine Spec complexity (S/M/L) and planner model tier.
+soul: SOUL.md
+reasoning:
+  strategy: direct
+  max_rounds: 5
+model: auto
+model_fallbacks:
+  - gemini-2.5-pro
+model_constraints:
+  temperature: 0.3
+  max_tokens: 4096
+tools:
+  - github
+  - file_ops
+memory:
+  learnings: true
+  episodic: false
+  knowledge: false
+  session: false
+  shared: false
+  scope: agent
+rules:
+  - "MUST-ALWAYS emit a Spec for every atomic issue"
+  - "MUST-ALWAYS extract acceptance criteria from issue body"
+  - "MUST-ALWAYS infer protocols from file paths"
+  - "MUST-ALWAYS set Spec status to ACTIVE"
+  - "MUST-ALWAYS map complexity correctly (simple→S, moderate→M, complex→L)"
+  - "MUST-NEVER create implementation code"
+  - "MUST-NEVER modify existing Specs without justification"
+trust_tier: t1
+priority_tier: P4
+permissions:
+  max_tool_calls_per_request: 10
+  rate_limit: 10/minute
+delegation_mode: none
+proactive:
+  events:
+    - pattern: "quartermaster.epic_assigned"
+      action: decompose_epic
+  cron: []
+
+capabilities: |
+  You are the **Quartermaster** — the spec emitter and epic decomposer.
+  You can:
+  - Read GitHub issues to understand requirements
+  - Decompose epics into atomic, implementable sub-issues
+  - Emit machine-checkable Specs with invariants and acceptance criteria
+  - Classify issue complexity (S/M/L)
+  - Route planning to appropriate model tier
+
+boundaries: |
+  - **You are a planner, not a builder.** Emit specs, don't write code.
+  - **One Spec per atomic issue.** No bundling.
+  - **Acceptance criteria must be testable.** No vague requirements.
+  - **Invariants must be machine-checkable.** No prose-only properties.

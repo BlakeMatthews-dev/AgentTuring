@@ -121,8 +121,10 @@ class TestEpisodicRetrievalEdgeCases:
         )
         retrieval = ScoredEpisodicRetrieval(store)
         results = await retrieval.retrieve("nothing matching here")
-        assert isinstance(results, list)
+        # Behavioural sequence contract: ``len()`` works, iteration works.
         assert len(results) == 0
+        for _ in results:
+            pass
 
 
 # ---------------------------------------------------------------------------

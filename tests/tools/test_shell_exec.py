@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from stronghold.tools.shell_exec import QualityGateExecutor, ShellExecutor
+from stronghold.tools.shell_exec import ShellExecutor, QualityGateExecutor
 
 
 @pytest.fixture
@@ -20,7 +20,6 @@ def workspace(tmp_path):
 
 
 # ---- basic execution ----
-
 
 async def test_allowed_command_runs(executor, workspace):
     result = await executor.execute({"command": "echo hello", "workspace": str(workspace)})
@@ -48,11 +47,8 @@ async def test_cat_command(executor, workspace):
 
 # ---- security: allowlist ----
 
-
 async def test_blocked_command(executor, workspace):
-    result = await executor.execute(
-        {"command": "curl http://evil.com", "workspace": str(workspace)}
-    )
+    result = await executor.execute({"command": "curl http://evil.com", "workspace": str(workspace)})
     assert result.success is False
     assert "not allowed" in result.error
 
@@ -64,15 +60,12 @@ async def test_dangerous_command_blocked(executor, workspace):
 
 async def test_dd_blocked(executor, workspace):
     """dd if= is in the blocked patterns."""
-    result = await executor.execute(
-        {"command": "echo dd if=/dev/zero", "workspace": str(workspace)}
-    )
+    result = await executor.execute({"command": "echo dd if=/dev/zero", "workspace": str(workspace)})
     assert result.success is False
     assert "blocked" in result.error or "not allowed" in result.error
 
 
 # ---- error cases ----
-
 
 async def test_no_workspace(executor):
     result = await executor.execute({"command": "ls", "workspace": ""})
@@ -93,9 +86,7 @@ async def test_empty_command(executor, workspace):
 
 
 async def test_failed_command_reports_exit_code(executor, workspace):
-    result = await executor.execute(
-        {"command": "grep nonexistent /dev/null", "workspace": str(workspace)}
-    )
+    result = await executor.execute({"command": "grep nonexistent /dev/null", "workspace": str(workspace)})
     assert result.success is True  # The tool itself succeeds; the command just has non-zero exit
     data = json.loads(result.content)
     assert data["passed"] is False
@@ -104,13 +95,11 @@ async def test_failed_command_reports_exit_code(executor, workspace):
 
 # ---- name property ----
 
-
 def test_executor_name(executor):
     assert executor.name == "shell"
 
 
 # ---- QualityGateExecutor ----
-
 
 async def test_quality_gate_make_executor(workspace):
     shell = ShellExecutor()

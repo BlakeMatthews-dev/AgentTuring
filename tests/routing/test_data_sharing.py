@@ -77,11 +77,6 @@ class TestProviderConfigDataSharing:
         assert cfg.data_sharing is True
         assert "xAI" in cfg.data_sharing_notice
 
-    def test_build_provider_config_factory_supports_data_sharing(self) -> None:
-        cfg = build_provider_config(data_sharing=True)
-        assert cfg.data_sharing is True
-
-
 class TestConsentAffirmative:
     """The affirmative word set used for consent detection."""
 

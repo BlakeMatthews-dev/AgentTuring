@@ -76,8 +76,7 @@ async def test_close() -> None:
 async def test_spawn_with_env_overrides() -> None:
     deployer = FakeMCPDeployerClient()
     result = await deployer.spawn(
-        "sandbox.shell",
-        tenant_id="acme",
+        "sandbox.shell", tenant_id="acme",
         env_overrides={"CUSTOM_VAR": "value"},
     )
     assert result["status"] == "running"
@@ -110,10 +109,10 @@ async def test_spawn_preserves_session_id() -> None:
 # ---------------------------------------------------------------------------
 # MCPDeployerClient (real HTTP client) tests using respx
 # ---------------------------------------------------------------------------
-import httpx  # noqa: E402
-import respx  # noqa: E402
+import httpx
+import respx
 
-from stronghold.sandbox.deployer import MCPDeployerClient  # noqa: E402
+from stronghold.sandbox.deployer import MCPDeployerClient
 
 
 async def test_real_client_init_uses_env_default() -> None:
@@ -144,9 +143,7 @@ async def test_real_client_spawn_success() -> None:
         )
         client = MCPDeployerClient()
         try:
-            result = await client.spawn(
-                "sandbox.shell", tenant_id="acme", user_id="alice", session_id="s1"
-            )
+            result = await client.spawn("sandbox.shell", tenant_id="acme", user_id="alice", session_id="s1")
             assert result["pod_id"] == "sandbox-1"
             assert result["status"] == "running"
         finally:
@@ -233,7 +230,9 @@ async def test_real_client_status_success() -> None:
     """Lines 81-84: GET /status/{pod_id}, raise_for_status, return json."""
     async with respx.mock:
         respx.get("http://localhost:8300/status/sandbox-1").mock(
-            return_value=httpx.Response(200, json={"pod_id": "sandbox-1", "status": "running"})
+            return_value=httpx.Response(
+                200, json={"pod_id": "sandbox-1", "status": "running"}
+            )
         )
         client = MCPDeployerClient()
         try:
@@ -263,7 +262,9 @@ async def test_real_client_list_active_no_filter() -> None:
     """Lines 88-95: GET /list without tenant filter."""
     async with respx.mock:
         respx.get("http://localhost:8300/list").mock(
-            return_value=httpx.Response(200, json={"pods": [{"pod_id": "a"}, {"pod_id": "b"}]})
+            return_value=httpx.Response(
+                200, json={"pods": [{"pod_id": "a"}, {"pod_id": "b"}]}
+            )
         )
         client = MCPDeployerClient()
         try:
@@ -306,7 +307,9 @@ async def test_real_client_list_active_empty() -> None:
 async def test_real_client_health_success() -> None:
     """Lines 99-101: health returns True on 200."""
     async with respx.mock:
-        respx.get("http://localhost:8300/health").mock(return_value=httpx.Response(200, text="ok"))
+        respx.get("http://localhost:8300/health").mock(
+            return_value=httpx.Response(200, text="ok")
+        )
         client = MCPDeployerClient()
         try:
             assert await client.health() is True

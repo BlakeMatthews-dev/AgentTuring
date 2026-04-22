@@ -287,8 +287,56 @@ class TestRevocation:
 
 
 class TestStoreProtocol:
-    def test_in_memory_satisfies_protocol(self) -> None:
-        assert isinstance(InMemoryOAuthStore(), OAuthStore)
+    async def test_in_memory_satisfies_protocol_behaviorally(self) -> None:
+        """The in-memory store must honor every method on the OAuthStore
+        protocol. Runtime-checkable protocol acceptance is a starting point,
+        but we also drive a full register/get + store/validate/revoke
+        round-trip to prove the methods actually behave per contract."""
+        from stronghold.mcp.oauth.store import issue_access_token
+        from stronghold.mcp.oauth.types import OAuthClient
+
+        store = InMemoryOAuthStore()
+
+        # Structural contract: every Protocol method is callable on the store.
+        # (The grep-flagged ``isinstance(store, OAuthStore)`` form is replaced
+        # by explicit callability checks — a regression replacing a method
+        # with a non-callable attribute would now fail.)
+        for name in (
+            "register_client", "get_client",
+            "store_auth_code", "consume_auth_code",
+            "store_token", "validate_token", "revoke_token",
+        ):
+            attr = getattr(store, name, None)
+            assert callable(attr), f"{name} must be callable on InMemoryOAuthStore"
+
+        # Clients: register + lookup round-trip.
+        client = OAuthClient(
+            client_id="mcp_client_1",
+            client_secret_hash="hashed",
+            client_name="Test Client",
+            redirect_uris=["http://localhost/cb"],
+        )
+        await store.register_client(client)
+        fetched = await store.get_client("mcp_client_1")
+        assert fetched is not None
+        assert fetched.client_id == "mcp_client_1"
+        assert fetched.redirect_uris == ["http://localhost/cb"]
+        assert await store.get_client("unknown") is None
+
+        # Tokens: store + validate returns the expected claims.
+        value, token = issue_access_token("mcp_client_1", "u1", "t1", "tools")
+        await store.store_token(token)
+        claims = await store.validate_token(value)
+        assert claims is not None
+        assert claims.user_id == "u1"
+        assert claims.tenant_id == "t1"
+        assert claims.client_id == "mcp_client_1"
+
+        # Revoke invalidates the token for subsequent validation calls.
+        assert await store.revoke_token(value) is True
+        assert await store.validate_token(value) is None
+        # Revoking an unknown token returns False (no exception).
+        assert await store.revoke_token("does-not-exist") is False
 
 
 class TestTokenValidation:

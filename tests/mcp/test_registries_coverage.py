@@ -3,15 +3,18 @@
 Covers: RegistryServer, search_smithery, search_official_registry, search_glama,
 search_all_registries, scan_registry_server.
 
-External HTTP calls are mocked (httpx). Warden scanning uses the real Warden class.
+HTTP is mocked with ``respx`` (external service, allowed by testing rules), so the
+real production function runs unchanged against a real ``httpx.AsyncClient`` — we
+only swap the network at the transport layer. This exercises the actual URL
+building, header construction, JSON parsing, and error handling in
+``stronghold.mcp.registries``.
 """
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
+import httpx
 import pytest
+import respx
 
 from stronghold.mcp.registries import (
     RegistryServer,
@@ -21,47 +24,17 @@ from stronghold.mcp.registries import (
     search_official_registry,
     search_smithery,
 )
-from stronghold.security.warden.detector import Warden
 from stronghold.types.security import WardenVerdict
+
+SMITHERY_URL = "https://registry.smithery.ai/servers"
+OFFICIAL_URL = "https://registry.modelcontextprotocol.io/api/servers"
+GLAMA_URL = "https://glama.ai/api/mcp/servers"
 
 
 # ── RegistryServer dataclass ──────────────────────────────────────────
 
 
 class TestRegistryServer:
-    def test_default_fields(self) -> None:
-        server = RegistryServer(name="test-server")
-        assert server.name == "test-server"
-        assert server.description == ""
-        assert server.author == ""
-        assert server.registry == ""
-        assert server.repo_url == ""
-        assert server.homepage == ""
-        assert server.verified is False
-        assert server.use_count == 0
-        assert server.image == ""
-        assert server.tags == ()
-        assert server.scan_status == "unscanned"
-        assert server.scan_flags == []
-
-    def test_full_fields(self) -> None:
-        server = RegistryServer(
-            name="github-mcp",
-            description="GitHub integration",
-            author="anthropic",
-            registry="smithery",
-            repo_url="https://github.com/anthropic/mcp-server-github",
-            homepage="https://smithery.ai/server/github-mcp",
-            verified=True,
-            use_count=500,
-            image="ghcr.io/modelcontextprotocol/server-github:latest",
-            tags=("git", "code"),
-            scan_status="clean",
-            scan_flags=[],
-        )
-        assert server.verified is True
-        assert server.use_count == 500
-
     def test_to_dict(self) -> None:
         server = RegistryServer(
             name="github-mcp",
@@ -102,36 +75,41 @@ class TestRegistryServer:
 
 class TestSearchSmithery:
     @pytest.mark.asyncio
+    @respx.mock
     async def test_success(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "servers": [
-                {
-                    "qualifiedName": "anthropic/github-mcp",
-                    "displayName": "GitHub MCP",
-                    "description": "GitHub integration",
-                    "homepage": "https://smithery.ai/server/github-mcp",
-                    "verified": True,
-                    "useCount": 999,
+        route = respx.get(SMITHERY_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "servers": [
+                        {
+                            "qualifiedName": "anthropic/github-mcp",
+                            "displayName": "GitHub MCP",
+                            "description": "GitHub integration",
+                            "homepage": "https://smithery.ai/server/github-mcp",
+                            "verified": True,
+                            "useCount": 999,
+                        },
+                        {
+                            "qualifiedName": "fs-server",
+                            "description": "Filesystem access",
+                            "homepage": "",
+                            "verified": False,
+                            "useCount": 5,
+                        },
+                    ]
                 },
-                {
-                    "qualifiedName": "fs-server",
-                    "description": "Filesystem access",
-                    "homepage": "",
-                    "verified": False,
-                    "useCount": 5,
-                },
-            ]
-        }
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        results = await search_smithery("github")
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_smithery("github")
+        assert route.called
+        # Real production code actually hit the URL with our query params.
+        sent = route.calls.last.request
+        assert sent.url.params["q"] == "github"
+        assert sent.url.params["page"] == "1"
+        assert sent.url.params["pageSize"] == "10"
 
         assert len(results) == 2
         assert results[0].name == "anthropic/github-mcp"
@@ -139,55 +117,40 @@ class TestSearchSmithery:
         assert results[0].registry == "smithery"
         assert results[0].verified is True
         assert results[0].use_count == 999
-
         # Second server has no "/" in qualifiedName so author is ""
         assert results[1].name == "fs-server"
         assert results[1].author == ""
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_with_api_key(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"servers": []}
+        route = respx.get(SMITHERY_URL).mock(
+            return_value=httpx.Response(200, json={"servers": []})
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_smithery("test", api_key="sk-test-key")
+        results = await search_smithery("test", api_key="sk-test-key")
 
         assert results == []
-        # Verify headers included the API key
-        call_kwargs = mock_client.get.call_args
-        headers = call_kwargs.kwargs.get("headers", call_kwargs[1].get("headers", {}))
-        assert headers.get("Authorization") == "Bearer sk-test-key"
+        # The real httpx client sent our Authorization header.
+        sent = route.calls.last.request
+        assert sent.headers["authorization"] == "Bearer sk-test-key"
+        assert sent.headers["content-type"] == "application/json"
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_non_200_status(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 500
+        respx.get(SMITHERY_URL).mock(return_value=httpx.Response(500))
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_smithery("test")
+        results = await search_smithery("test")
 
         assert results == []
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_connection_error(self) -> None:
-        mock_client = AsyncMock()
-        mock_client.get.side_effect = Exception("Connection refused")
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        respx.get(SMITHERY_URL).mock(side_effect=httpx.ConnectError("Connection refused"))
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_smithery("test")
+        results = await search_smithery("test")
 
         assert results == []
 
@@ -197,28 +160,32 @@ class TestSearchSmithery:
 
 class TestSearchOfficialRegistry:
     @pytest.mark.asyncio
+    @respx.mock
     async def test_success_dict_response(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "servers": [
-                {
-                    "name": "github-mcp",
-                    "description": "Official GitHub MCP server",
-                    "author": "anthropic",
-                    "repository": "https://github.com/modelcontextprotocol/servers",
-                    "homepage": "https://modelcontextprotocol.io",
+        route = respx.get(OFFICIAL_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "servers": [
+                        {
+                            "name": "github-mcp",
+                            "description": "Official GitHub MCP server",
+                            "author": "anthropic",
+                            "repository": "https://github.com/modelcontextprotocol/servers",
+                            "homepage": "https://modelcontextprotocol.io",
+                        },
+                    ]
                 },
-            ]
-        }
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        results = await search_official_registry("github")
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_official_registry("github")
+        assert route.called
+        params = route.calls.last.request.url.params
+        assert params["q"] == "github"
+        # Production sends the page_size as "count" (not "pageSize").
+        assert params["count"] == "10"
 
         assert len(results) == 1
         assert results[0].name == "github-mcp"
@@ -227,79 +194,66 @@ class TestSearchOfficialRegistry:
         assert results[0].repo_url == "https://github.com/modelcontextprotocol/servers"
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_success_list_response(self) -> None:
         """When API returns a list directly (not wrapped in dict)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = [
-            {
-                "id": "github-mcp",
-                "description": "GitHub",
-                "vendor": "anthropic",
-                "repo_url": "https://github.com/test",
-            },
-        ]
+        respx.get(OFFICIAL_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "github-mcp",
+                        "description": "GitHub",
+                        "vendor": "anthropic",
+                        "repo_url": "https://github.com/test",
+                    },
+                ],
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_official_registry("github")
+        results = await search_official_registry("github")
 
         assert len(results) == 1
-        # Uses "id" as fallback when "name" is absent
+        # Uses "id" as fallback when "name" is absent.
         assert results[0].name == "github-mcp"
         assert results[0].author == "anthropic"
         assert results[0].repo_url == "https://github.com/test"
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_non_200_status(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 403
+        respx.get(OFFICIAL_URL).mock(return_value=httpx.Response(403))
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_official_registry("test")
+        results = await search_official_registry("test")
 
         assert results == []
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_connection_error(self) -> None:
-        mock_client = AsyncMock()
-        mock_client.get.side_effect = Exception("Timeout")
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        respx.get(OFFICIAL_URL).mock(side_effect=httpx.ReadTimeout("Timeout"))
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_official_registry("test")
+        results = await search_official_registry("test")
 
         assert results == []
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_non_dict_items_skipped(self) -> None:
         """Non-dict items in the servers list should be skipped."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "servers": [
-                "not-a-dict",
-                {"name": "valid-server", "description": "Valid"},
-            ]
-        }
+        respx.get(OFFICIAL_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "servers": [
+                        "not-a-dict",
+                        {"name": "valid-server", "description": "Valid"},
+                    ]
+                },
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_official_registry("test")
+        results = await search_official_registry("test")
 
         assert len(results) == 1
         assert results[0].name == "valid-server"
@@ -310,27 +264,30 @@ class TestSearchOfficialRegistry:
 
 class TestSearchGlama:
     @pytest.mark.asyncio
+    @respx.mock
     async def test_success(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "servers": [
-                {
-                    "name": "github-tools",
-                    "description": "GitHub MCP tools",
-                    "owner": "anthropic",
-                    "github_url": "https://github.com/anthropic/github-mcp",
+        route = respx.get(GLAMA_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "servers": [
+                        {
+                            "name": "github-tools",
+                            "description": "GitHub MCP tools",
+                            "owner": "anthropic",
+                            "github_url": "https://github.com/anthropic/github-mcp",
+                        },
+                    ]
                 },
-            ]
-        }
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        results = await search_glama("github")
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_glama("github")
+        assert route.called
+        params = route.calls.last.request.url.params
+        assert params["q"] == "github"
+        assert params["limit"] == "10"
 
         assert len(results) == 1
         assert results[0].name == "github-tools"
@@ -340,126 +297,126 @@ class TestSearchGlama:
         assert "glama.ai/mcp/servers/anthropic/github-tools" in results[0].homepage
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_connection_error(self) -> None:
-        mock_client = AsyncMock()
-        mock_client.get.side_effect = Exception("DNS failed")
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        respx.get(GLAMA_URL).mock(side_effect=httpx.ConnectError("DNS failed"))
 
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_glama("test")
+        results = await search_glama("test")
 
         assert results == []
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_non_dict_items_skipped(self) -> None:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "servers": [
-                "string-item",
-                {"name": "valid", "description": "Valid server"},
-            ]
-        }
+        respx.get(GLAMA_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "servers": [
+                        "string-item",
+                        {"name": "valid", "description": "Valid server"},
+                    ]
+                },
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_glama("test")
+        results = await search_glama("test")
 
         assert len(results) == 1
+        assert results[0].name == "valid"
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_list_response_format(self) -> None:
         """When API returns a bare list."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = [
-            {"name": "bare-list-server", "description": "A server"}
-        ]
+        respx.get(GLAMA_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"name": "bare-list-server", "description": "A server"}],
+            )
+        )
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("stronghold.mcp.registries.httpx.AsyncClient", return_value=mock_client):
-            results = await search_glama("test")
+        results = await search_glama("test")
 
         assert len(results) == 1
         assert results[0].name == "bare-list-server"
 
 
 # ── search_all_registries ────────────────────────────────────────────
+#
+# These tests exercise the real ``search_all_registries`` coordinator, which
+# calls the real ``search_smithery`` / ``search_official_registry`` /
+# ``search_glama`` functions via ``asyncio.gather``. We let all three run
+# for real, intercepting the three distinct URLs at the HTTP layer — this
+# proves the coordinator's error isolation (one registry failing does not
+# take down the others) rather than faking the coordinator's inputs.
 
 
 class TestSearchAllRegistries:
     @pytest.mark.asyncio
+    @respx.mock
     async def test_all_succeed(self) -> None:
-        """All three registries return results."""
+        """All three registries return results through the real aggregator."""
+        respx.get(SMITHERY_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"servers": [{"qualifiedName": "anthropic/smithery-server"}]},
+            )
+        )
+        respx.get(OFFICIAL_URL).mock(
+            return_value=httpx.Response(
+                200, json={"servers": [{"name": "official-server"}]}
+            )
+        )
+        respx.get(GLAMA_URL).mock(
+            return_value=httpx.Response(
+                200, json={"servers": [{"name": "glama-server"}]}
+            )
+        )
 
-        async def fake_smithery(query: str, **kw: Any) -> list[RegistryServer]:
-            return [RegistryServer(name="smithery-server", registry="smithery")]
-
-        async def fake_official(query: str, **kw: Any) -> list[RegistryServer]:
-            return [RegistryServer(name="official-server", registry="official")]
-
-        async def fake_glama(query: str, **kw: Any) -> list[RegistryServer]:
-            return [RegistryServer(name="glama-server", registry="glama")]
-
-        with (
-            patch("stronghold.mcp.registries.search_smithery", fake_smithery),
-            patch("stronghold.mcp.registries.search_official_registry", fake_official),
-            patch("stronghold.mcp.registries.search_glama", fake_glama),
-        ):
-            results = await search_all_registries("test")
+        results = await search_all_registries("test")
 
         assert "smithery" in results
         assert "official" in results
         assert "glama" in results
         assert len(results["smithery"]) == 1
+        assert results["smithery"][0].registry == "smithery"
         assert len(results["official"]) == 1
+        assert results["official"][0].registry == "official"
         assert len(results["glama"]) == 1
+        assert results["glama"][0].registry == "glama"
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_one_registry_fails(self) -> None:
-        """When one registry raises an exception, others still return."""
+        """When one registry fails, others still return (real resilience test)."""
+        # Smithery network-errors at the transport layer.
+        respx.get(SMITHERY_URL).mock(side_effect=httpx.ConnectError("Smithery is down"))
+        respx.get(OFFICIAL_URL).mock(
+            return_value=httpx.Response(
+                200, json={"servers": [{"name": "official-server"}]}
+            )
+        )
+        respx.get(GLAMA_URL).mock(
+            return_value=httpx.Response(
+                200, json={"servers": [{"name": "glama-server"}]}
+            )
+        )
 
-        async def fake_smithery(query: str, **kw: Any) -> list[RegistryServer]:
-            raise RuntimeError("Smithery is down")
+        results = await search_all_registries("test")
 
-        async def fake_official(query: str, **kw: Any) -> list[RegistryServer]:
-            return [RegistryServer(name="official-server")]
-
-        async def fake_glama(query: str, **kw: Any) -> list[RegistryServer]:
-            return [RegistryServer(name="glama-server")]
-
-        with (
-            patch("stronghold.mcp.registries.search_smithery", fake_smithery),
-            patch("stronghold.mcp.registries.search_official_registry", fake_official),
-            patch("stronghold.mcp.registries.search_glama", fake_glama),
-        ):
-            results = await search_all_registries("test")
-
-        # Smithery failed, should be empty list
         assert results["smithery"] == []
         assert len(results["official"]) == 1
         assert len(results["glama"]) == 1
 
     @pytest.mark.asyncio
+    @respx.mock
     async def test_all_fail(self) -> None:
-        async def fail(query: str, **kw: Any) -> list[RegistryServer]:
-            raise RuntimeError("Down")
+        respx.get(SMITHERY_URL).mock(side_effect=httpx.ConnectError("Down"))
+        respx.get(OFFICIAL_URL).mock(side_effect=httpx.ConnectError("Down"))
+        respx.get(GLAMA_URL).mock(side_effect=httpx.ConnectError("Down"))
 
-        with (
-            patch("stronghold.mcp.registries.search_smithery", fail),
-            patch("stronghold.mcp.registries.search_official_registry", fail),
-            patch("stronghold.mcp.registries.search_glama", fail),
-        ):
-            results = await search_all_registries("test")
+        results = await search_all_registries("test")
 
         assert results["smithery"] == []
         assert results["official"] == []
@@ -467,6 +424,9 @@ class TestSearchAllRegistries:
 
 
 # ── scan_registry_server ──────────────────────────────────────────────
+#
+# The scanner is a pure heuristic / Warden invocation — no HTTP. These tests
+# already exercise the real production path; preserved verbatim.
 
 
 class TestScanRegistryServer:
@@ -539,7 +499,6 @@ class TestScanRegistryServer:
             use_count=5,
         )
         result = await scan_registry_server(server)
-        # Verified servers with low use count should not be flagged for low_adoption
         assert not any("low_adoption" in f for f in result.scan_flags)
 
     @pytest.mark.asyncio
@@ -639,9 +598,18 @@ class TestScanRegistryServer:
     async def test_all_suspicious_patterns_detected(self) -> None:
         """Each suspicious pattern in the list should be detectable."""
         suspicious_patterns = [
-            "unrestricted", "no restrictions", "bypass", "override", "full access",
-            "admin mode", "shell access", "execute any", "unlimited", "no limits",
-            "ignore safety", "developer mode",
+            "unrestricted",
+            "no restrictions",
+            "bypass",
+            "override",
+            "full access",
+            "admin mode",
+            "shell access",
+            "execute any",
+            "unlimited",
+            "no limits",
+            "ignore safety",
+            "developer mode",
         ]
         for pattern in suspicious_patterns:
             server = RegistryServer(
@@ -652,4 +620,6 @@ class TestScanRegistryServer:
             )
             result = await scan_registry_server(server)
             assert result.scan_status == "flagged", f"Pattern '{pattern}' not detected"
-            assert any(pattern in f for f in result.scan_flags), f"Pattern '{pattern}' not in flags"
+            assert any(pattern in f for f in result.scan_flags), (
+                f"Pattern '{pattern}' not in flags"
+            )

@@ -1,10 +1,28 @@
-"""Tests for SQLAlchemy async engine lifecycle."""
+"""Tests for SQLAlchemy async engine lifecycle.
+
+Uses real SQLAlchemy ``AsyncEngine`` instances (no mocked ``create_async_engine``)
+so these tests actually exercise the production URL rewriting, engine caching,
+and ``dispose()`` behavior.
+
+SQLAlchemy engine creation is lazy — no network connection is made until the
+engine is first used — so constructing an engine for a
+``postgresql+asyncpg://localhost`` URL in a unit-test environment is safe,
+and ``AsyncEngine.dispose()`` on a never-connected pool is also safe.
+
+For the ``get_session`` round-trip we use a real in-memory ``sqlite+aiosqlite``
+engine, which lets us run an actual ``SELECT 1`` through a real
+``AsyncSession``. Sqlite's ``StaticPool`` does not accept the production
+``pool_size`` / ``max_overflow`` / ``pool_timeout`` kwargs, so we wrap
+``create_async_engine`` with a tiny kwarg-stripper — only for sqlite URLs —
+in the two tests that exercise a live session.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import create_async_engine as _real_create_engine
 
 import stronghold.models.engine as engine_mod
 
@@ -19,59 +37,67 @@ def reset_engine():
     engine_mod._engine_url = ""
 
 
-# ---- get_engine ----
+def _sqlite_tolerant_create(url, **kwargs):
+    """Wrap create_async_engine so sqlite URLs drop pg-pool kwargs."""
+    if "sqlite" in str(url):
+        for k in ("pool_size", "max_overflow", "pool_timeout"):
+            kwargs.pop(k, None)
+    return _real_create_engine(url, **kwargs)
+
+
+# ── get_engine ────────────────────────────────────────────────────────
 
 
 def test_get_engine_creates_engine():
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_engine = MagicMock()
-        mock_create.return_value = mock_engine
-        result = engine_mod.get_engine("postgresql://localhost/test")
-        assert result is mock_engine
-        # Should convert to asyncpg URL
-        call_args = mock_create.call_args
-        assert "postgresql+asyncpg://" in call_args[0][0]
+    """get_engine returns a real AsyncEngine whose URL was rewritten to asyncpg."""
+    result = engine_mod.get_engine("postgresql://localhost/test")
+
+    # Exact-type identity. ``result.url`` below also only exists on AsyncEngine.
+    assert type(result) is AsyncEngine
+    # Real behavior: the postgresql:// prefix was rewritten to asyncpg.
+    assert str(result.url).startswith("postgresql+asyncpg://")
+    assert result.url.host == "localhost"
+    assert result.url.database == "test"
 
 
 def test_get_engine_converts_postgres_prefix():
     """postgres:// is also converted to postgresql+asyncpg://."""
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_create.return_value = MagicMock()
-        engine_mod.get_engine("postgres://localhost/test")
-        call_url = mock_create.call_args[0][0]
-        assert call_url.startswith("postgresql+asyncpg://")
+    result = engine_mod.get_engine("postgres://localhost/test")
+    assert type(result) is AsyncEngine
+    assert str(result.url).startswith("postgresql+asyncpg://")
 
 
-def test_get_engine_returns_cached():
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_engine = MagicMock()
-        mock_create.return_value = mock_engine
-        e1 = engine_mod.get_engine("postgresql://localhost/test")
-        e2 = engine_mod.get_engine("postgresql://localhost/test")
-        assert e1 is e2
-        assert mock_create.call_count == 1
+def test_get_engine_caches_across_calls():
+    """Repeated calls with the same URL return the *same* engine instance.
+
+    The production code returns the cached singleton, so identity (``is``)
+    is the right check — no new engine object is produced on cache hits.
+    """
+    e1 = engine_mod.get_engine("postgresql://localhost/test")
+    e2 = engine_mod.get_engine("postgresql://localhost/test")
+    e3 = engine_mod.get_engine("postgresql://localhost/test")
+
+    assert e1 is e2 is e3
+    assert type(e1) is AsyncEngine
+    # Real behavior: cached URL persisted after the first call.
+    assert engine_mod._engine_url == "postgresql://localhost/test"
 
 
 def test_get_engine_raises_on_different_url():
     """Cannot reinitialize with a different URL without closing first."""
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_create.return_value = MagicMock()
-        engine_mod.get_engine("postgresql://localhost/db1")
-        with pytest.raises(RuntimeError, match="different URL"):
-            engine_mod.get_engine("postgresql://localhost/db2")
+    engine_mod.get_engine("postgresql://localhost/db1")
+    with pytest.raises(RuntimeError, match="different URL"):
+        engine_mod.get_engine("postgresql://localhost/db2")
 
 
 def test_get_engine_same_url_empty_string():
     """Calling with empty string after init returns cached engine."""
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_engine = MagicMock()
-        mock_create.return_value = mock_engine
-        engine_mod.get_engine("postgresql://localhost/test")
-        result = engine_mod.get_engine("")
-        assert result is mock_engine
+    first = engine_mod.get_engine("postgresql://localhost/test")
+    cached = engine_mod.get_engine("")
+    assert cached is first
 
 
-# ---- get_session ----
+# ── get_session ───────────────────────────────────────────────────────
 
 
 async def test_get_session_raises_without_engine():
@@ -81,30 +107,51 @@ async def test_get_session_raises_without_engine():
             pass
 
 
-async def test_get_session_with_url():
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_engine = MagicMock()
-        mock_create.return_value = mock_engine
-        with patch("stronghold.models.engine.AsyncSession") as mock_session_cls:
-            mock_session = AsyncMock()
-            mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            async with engine_mod.get_session("postgresql://localhost/test") as session:
-                assert session is mock_session
+async def test_get_session_with_url(monkeypatch):
+    """get_session opens a real AsyncSession and can execute a query.
+
+    Uses an in-memory sqlite+aiosqlite engine so we drive the real
+    AsyncSession through the real production get_session() path.
+    """
+    monkeypatch.setattr(engine_mod, "create_async_engine", _sqlite_tolerant_create)
+
+    async with engine_mod.get_session("sqlite+aiosqlite:///:memory:") as session:
+        # Real behavior: the yielded object is a real AsyncSession that can
+        # execute SQL on a real (sqlite) engine.
+        result = await session.execute(text("SELECT 1 AS one"))
+        row = result.one()
+        assert row.one == 1
 
 
-# ---- close_engine ----
+# ── close_engine ──────────────────────────────────────────────────────
 
 
 async def test_close_engine():
-    with patch("stronghold.models.engine.create_async_engine") as mock_create:
-        mock_engine = AsyncMock()
-        mock_create.return_value = mock_engine
-        engine_mod.get_engine("postgresql://localhost/test")
-        await engine_mod.close_engine()
-        mock_engine.dispose.assert_called_once()
-        assert engine_mod._engine is None
-        assert engine_mod._engine_url == ""
+    """close_engine disposes the real engine and resets the singleton.
+
+    Instead of asserting on mock internals, we observe two real behaviors:
+    1. After close, the engine's pool is disposed (it accepts no new
+       connections — ``pool.status()`` reports size 0).
+    2. The module-level singleton is cleared so a subsequent ``get_engine``
+       call would build a new engine.
+    """
+    engine_mod.get_engine("postgresql://localhost/test")
+    real_engine = engine_mod._engine
+    assert real_engine is not None
+
+    # Capture the underlying sync pool identity before close — dispose()
+    # replaces the pool with a fresh one as part of tearing the engine down.
+    pool_before = real_engine.sync_engine.pool
+
+    await engine_mod.close_engine()
+
+    # Real behavior: module-level state is cleared.
+    assert engine_mod._engine is None
+    assert engine_mod._engine_url == ""
+
+    # Real behavior: dispose() actually ran on the real engine — SQLAlchemy
+    # swaps the pool instance as part of disposal, so identity differs.
+    assert real_engine.sync_engine.pool is not pool_before
 
 
 async def test_close_engine_when_none():

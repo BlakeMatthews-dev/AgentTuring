@@ -152,8 +152,11 @@ class TestDelete:
 class TestExportGitagent:
     async def test_valid_returns_zip_bytes(self, agent_store: InMemoryAgentStore) -> None:
         data = await agent_store.export_gitagent("arbiter")
-        assert isinstance(data, bytes)
+        # Non-empty bytes payload — exported zips should never be empty.
+        assert data
         assert len(data) > 0
+        # ZIP files begin with the "PK" magic number (0x50 0x4B).
+        assert data[:2] == b"PK", f"Expected ZIP magic bytes, got: {data[:4]!r}"
 
         # Verify zip contents
         buf = io.BytesIO(data)

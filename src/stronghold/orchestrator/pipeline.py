@@ -23,6 +23,56 @@ from typing import Any
 
 logger = logging.getLogger("stronghold.orchestrator.pipeline")
 
+_SPEC_SUMMARY_LIMIT = 2000
+
+
+def build_spec_summary(spec: Any) -> str:
+    """Build a text summary of a Spec for injection into pipeline prompts."""
+    parts: list[str] = [f"Spec: {spec.title}"]
+
+    if spec.protocols_touched:
+        parts.append(f"Protocols: {', '.join(spec.protocols_touched)}")
+
+    if spec.invariants:
+        inv_lines = [f"  - {inv.name}: {inv.description}" for inv in spec.invariants]
+        parts.append("Invariants:\n" + "\n".join(inv_lines))
+
+    if spec.acceptance_criteria:
+        crit_lines = [f"  - {c}" for c in spec.acceptance_criteria]
+        parts.append("Acceptance criteria:\n" + "\n".join(crit_lines))
+
+    summary = "\n".join(parts)
+    if len(summary) > _SPEC_SUMMARY_LIMIT:
+        summary = summary[: _SPEC_SUMMARY_LIMIT - 3] + "..."
+    return summary
+
+
+def _emit_and_save_spec(issue_number: int, title: str, body: str, store: Any) -> Any:
+    """Create a Spec from issue metadata via the spec emitter."""
+    from stronghold.builders.spec_emitter import emit_spec
+
+    return emit_spec(issue_number=issue_number, title=title, body=body)
+
+
+def _enrich_spec_with_property_tests(spec: Any) -> Any:
+    """Generate property tests for a Spec's invariants and return updated Spec."""
+    from stronghold.builders.property_gen import generate_property_tests
+    from stronghold.types.spec import Spec
+
+    tests = generate_property_tests(spec)
+    return Spec(
+        issue_number=spec.issue_number,
+        title=spec.title,
+        protocols_touched=spec.protocols_touched,
+        invariants=spec.invariants,
+        acceptance_criteria=spec.acceptance_criteria,
+        files_touched=spec.files_touched,
+        property_tests=tuple(tests),
+        complexity=spec.complexity,
+        status=spec.status,
+        created_at=spec.created_at,
+    )
+
 
 class StageStatus(Enum):
     PENDING = "pending"
@@ -108,11 +158,13 @@ BUILDER_PIPELINE = [
         agent_name="archie",
         prompt_template=(
             "Read issue #{issue_number}: {title}\n\n"
+            "{spec_summary}\n\n"
             "Create the scaffolding for this implementation:\n"
             "1. Define any new protocols in src/stronghold/protocols/\n"
             "2. Add fake implementations to tests/fakes.py\n"
             "3. Create empty module files with docstrings\n"
-            "4. Update ARCHITECTURE.md if adding new components\n\n"
+            "4. Update ARCHITECTURE.md if adding new components\n"
+            "5. Generate property test stubs from spec invariants\n\n"
             "Previous stage output:\n{prev_output}\n\n"
             "DO NOT write implementation code. Only structure."
         ),
@@ -123,11 +175,13 @@ BUILDER_PIPELINE = [
         prompt_template=(
             "Implement issue #{issue_number}: {title}\n\n"
             "Repository: https://github.com/{repo}\n\n"
+            "{spec_summary}\n\n"
             "Follow your TDD pipeline:\n"
-            "1. Write failing tests based on acceptance criteria\n"
+            "1. Write failing tests based on acceptance criteria and spec invariants\n"
             "2. Implement minimum code to pass tests\n"
-            "3. Run quality gates: pytest, ruff, mypy, bandit\n"
-            "4. Create a PR when all gates pass\n\n"
+            "3. Verify all spec invariants hold via property tests\n"
+            "4. Run quality gates: pytest, ruff, mypy, bandit\n"
+            "5. Create a PR when all gates pass\n\n"
             "Scaffold from previous stage:\n{prev_output}\n\n"
             "Create a focused PR with your changes."
         ),
@@ -137,7 +191,9 @@ BUILDER_PIPELINE = [
         agent_name="auditor",
         prompt_template=(
             "Review the PR created for issue #{issue_number}: {title}\n\n"
+            "{spec_summary}\n\n"
             "Check for:\n"
+            "- Spec invariant coverage (all invariants must have property tests)\n"
             "- Test coverage and quality\n"
             "- Security issues (injection, XSS, SSRF)\n"
             "- Multi-tenant isolation (org_id on all queries)\n"
@@ -173,10 +229,21 @@ class BuilderPipeline:
         run = await pipeline.execute(
             issue_number=42, title="Add caching", repo="Agent-StrongHold/stronghold",
         )
+
+    With spec-driven verification:
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
     """
 
-    def __init__(self, engine: Any) -> None:
+    def __init__(
+        self,
+        engine: Any,
+        *,
+        spec_store: Any | None = None,
+        spec_verifier: Any | None = None,
+    ) -> None:
         self._engine = engine
+        self._spec_store = spec_store
+        self._spec_verifier = spec_verifier
         self._runs: dict[str, PipelineRun] = {}
 
     async def execute(
@@ -202,6 +269,16 @@ class BuilderPipeline:
         self._runs[run_id] = run
         run.status = "running"
 
+        # Load spec if store is available
+        spec = None
+        if self._spec_store is not None:
+            spec = await self._spec_store.get(issue_number)
+            if spec is not None:
+                run.context["spec"] = spec.to_dict()
+                run.context["verifications"] = []
+
+        spec_summary = build_spec_summary(spec) if spec is not None else ""
+
         prev_output = ""
         for i, stage in enumerate(stages):
             run.current_stage = i
@@ -210,6 +287,15 @@ class BuilderPipeline:
             if stage.skip_if == "atomic" and skip_decompose:
                 stage.status = StageStatus.SKIPPED
                 logger.info("Pipeline %s: skipping %s (atomic issue)", run_id, stage.name)
+
+                # Emit spec from issue metadata when decompose is skipped
+                if stage.name == "decompose" and spec is None and self._spec_store is not None:
+                    spec = _emit_and_save_spec(issue_number, title, "", self._spec_store)
+                    await self._spec_store.save(spec)
+                    run.context["spec"] = spec.to_dict()
+                    run.context["verifications"] = []
+                    spec_summary = build_spec_summary(spec)
+
                 continue
 
             _clean_signals = ("no violations", "lgtm", "approved", "all checks pass", "clean")
@@ -238,6 +324,7 @@ class BuilderPipeline:
                 title=title,
                 repo=repo,
                 prev_output=prev_output[:2000],
+                spec_summary=spec_summary,
             )
 
             # Dispatch through orchestrator engine
@@ -314,6 +401,39 @@ class BuilderPipeline:
                 prev_output = ""
 
             logger.info("Pipeline %s: %s completed", run_id, stage.name)
+
+            # Post-stage spec hooks
+            if self._spec_store is not None:
+                if stage.name == "decompose" and spec is None:
+                    spec = _emit_and_save_spec(issue_number, title, prev_output, self._spec_store)
+                    await self._spec_store.save(spec)
+                    run.context["spec"] = spec.to_dict()
+                    run.context["verifications"] = []
+                    spec_summary = build_spec_summary(spec)
+
+                if stage.name == "scaffold" and spec is not None:
+                    spec = _enrich_spec_with_property_tests(spec)
+                    await self._spec_store.save(spec)
+                    run.context["spec"] = spec.to_dict()
+                    spec_summary = build_spec_summary(spec)
+
+            # Verify against spec if verifier is available
+            if spec is not None and self._spec_verifier is not None:
+                verification = await self._spec_verifier.verify(
+                    spec, stage.name, stage.result or {}
+                )
+                run.context["verifications"].append(verification.to_dict())
+                if not verification.passed:
+                    stage.status = StageStatus.FAILED
+                    stage.error = f"Spec verification failed: {', '.join(verification.failures)}"
+                    run.status = f"failed at {stage.name}"
+                    logger.error(
+                        "Pipeline %s: %s FAILED spec verification: %s",
+                        run_id,
+                        stage.name,
+                        verification.failures,
+                    )
+                    break
 
         if run.status == "running":
             run.status = "completed"

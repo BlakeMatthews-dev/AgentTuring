@@ -691,3 +691,59 @@ def make_test_container(
     }
     fields.update(overrides)
     return Container(**fields)
+
+
+# ── Spec-driven verification fakes ────────────────────────────────
+
+
+class FakeSpecStore:
+    """In-memory SpecStore for testing."""
+
+    def __init__(self) -> None:
+        from stronghold.types.spec import Spec
+
+        self._specs: dict[int, Spec] = {}
+
+    async def save(self, spec: Any) -> None:
+        self._specs[spec.issue_number] = spec
+
+    async def get(self, issue_number: int) -> Any | None:
+        return self._specs.get(issue_number)
+
+    async def list_active(self) -> list[Any]:
+        from stronghold.types.spec import SpecStatus
+
+        return [
+            s for s in self._specs.values() if s.status in (SpecStatus.DRAFT, SpecStatus.ACTIVE)
+        ]
+
+
+class FakeSpecVerifier:
+    """In-memory SpecVerifier that returns configurable results."""
+
+    def __init__(self, *, default_pass: bool = True) -> None:
+        from stronghold.types.spec import VerificationResult
+
+        self._default_pass = default_pass
+        self._overrides: dict[tuple[int, str], VerificationResult] = {}
+        self.verify_calls: list[tuple[int, str]] = []
+
+    def set_result(self, issue_number: int, stage: str, result: Any) -> None:
+        self._overrides[(issue_number, stage)] = result
+
+    async def verify(self, spec: Any, stage: str, result: dict[str, object]) -> Any:
+        from stronghold.types.spec import VerificationResult
+
+        self.verify_calls.append((spec.issue_number, stage))
+        key = (spec.issue_number, stage)
+        if key in self._overrides:
+            return self._overrides[key]
+        covered = len(spec.property_tests)
+        total = len(spec.invariants)
+        coverage = (covered / total * 100.0) if total > 0 else 0.0
+        return VerificationResult(
+            spec_issue_number=spec.issue_number,
+            stage=stage,
+            passed=self._default_pass,
+            coverage_pct=coverage,
+        )

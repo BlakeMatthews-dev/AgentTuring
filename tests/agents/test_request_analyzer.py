@@ -128,13 +128,22 @@ class TestEdgeCases:
         assert result.confidence >= 0.7
 
     def test_unicode_content(self) -> None:
+        """Unicode/emoji in request text MUST NOT crash the analyzer and MUST
+        still produce a well-formed result with in-range confidence and
+        a truthy/falsy sufficiency verdict."""
         result = analyze_request_sufficiency(
             "Create a function to validate UTF-8 strings with unicode chars like emoji",
             task_type="code",
         )
-        # Should not crash and should have some result
-        assert isinstance(result.sufficient, bool)
-        assert 0 <= result.confidence <= 1
+        # The result's sufficient field is True or False (not None, not truthy string).
+        assert result.sufficient is True or result.sufficient is False
+        # Confidence is a real probability-like value in [0, 1].
+        assert 0.0 <= result.confidence <= 1.0
+        # missing is always iterable (even when empty) — downstream code
+        # iterates it without a None-check.
+        for detail in result.missing:
+            assert detail.category
+            assert detail.question
 
     def test_automation_short_sufficient(self) -> None:
         result = analyze_request_sufficiency(

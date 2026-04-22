@@ -243,25 +243,111 @@ class TestOutcomeRecording:
         assert result.content == "ok"
 
 
-class TestTraceFinalizationWithToolHistory:
-    """Tests for trace finalization counting tool success/fail (lines 462-472)."""
+class _CapturingTrace:
+    """Trace double that records metadata updates and span calls.
 
-    async def test_trace_counts_tool_successes_and_failures(self) -> None:
-        """Trace finalization correctly counts success vs failure in tool_history."""
-        tool_history = [
-            {"tool_name": "run_pytest", "arguments": {}, "result": "Error: failed", "round": 0},
-            {"tool_name": "write_file", "arguments": {}, "result": '{"status": "ok"}', "round": 1},
-            {"tool_name": "run_pytest", "arguments": {}, "result": '"passed": true', "round": 2},
-        ]
-        result = ReasoningResult(
-            response="Done",
-            done=True,
-            tool_history=tool_history,
-        )
-        llm = FakeLLMClient()
-        tracer = NoopTracingBackend()
+    Unlike NoopTrace, this lets us assert what the agent actually stored on the
+    trace: tools_used, success/fail counts, tool_result strings, etc.
+    """
+
+    def __init__(self) -> None:
+        self.metadata: dict[str, Any] = {}
+        self.scores: list[tuple[str, float, str]] = []
+        self.ended = False
+
+    @property
+    def trace_id(self) -> str:
+        return "capture-trace-id"
+
+    def span(self, name: str) -> Any:
+        from tests.fakes import NoopSpan
+
+        return NoopSpan()
+
+    def score(self, name: str, value: float, comment: str = "") -> None:
+        self.scores.append((name, value, comment))
+
+    def update(self, metadata: dict[str, Any]) -> None:
+        self.metadata.update(metadata)
+
+    def end(self) -> None:
+        self.ended = True
+
+
+class _CapturingTracer:
+    """Tracing backend that hands out a single CapturingTrace we can inspect."""
+
+    def __init__(self) -> None:
+        self.last_trace: _CapturingTrace | None = None
+
+    def create_trace(
+        self,
+        *,
+        user_id: str = "",
+        session_id: str = "",
+        name: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> _CapturingTrace:
+        trace = _CapturingTrace()
+        self.last_trace = trace
+        return trace
+
+
+class TestTraceFinalizationWithToolHistory:
+    """Agent.handle updates the trace with accurate tool_history derived metadata.
+
+    Rather than simply asserting ``response.content`` (the old tests' only real
+    check), these tests use a capturing trace so we can verify the side-effect
+    we actually care about: the agent records the right tools + success/fail
+    counts on the trace, and the trace is closed.
+    """
+
+    @pytest.mark.parametrize(
+        ("tool_history", "expected_success", "expected_fail", "expected_tools"),
+        [
+            pytest.param(
+                [
+                    {"tool_name": "run_pytest", "arguments": {}, "result": "Error: failed", "round": 0},
+                    {"tool_name": "write_file", "arguments": {}, "result": '{"status": "ok"}', "round": 1},
+                    {"tool_name": "run_pytest", "arguments": {}, "result": '"passed": true', "round": 2},
+                ],
+                2, 1, {"run_pytest", "write_file"},
+                id="mixed-success-fail-dedup",
+            ),
+            pytest.param(
+                [
+                    {"tool_name": "read_file", "arguments": {}, "result": "file content with error in the middle", "round": 0},
+                ],
+                0, 1, {"read_file"},
+                id="error-substring-detected",
+            ),
+            pytest.param(
+                [
+                    {"tool_name": "run_pytest", "arguments": {}, "result": "ok", "round": 0},
+                    {"tool_name": "run_pytest", "arguments": {}, "result": "ok", "round": 1},
+                    {"tool_name": "run_ruff_check", "arguments": {}, "result": "ok", "round": 2},
+                ],
+                3, 0, {"run_pytest", "run_ruff_check"},
+                id="tools-used-deduped",
+            ),
+            pytest.param(
+                [],
+                0, 0, set(),
+                id="empty-history",
+            ),
+        ],
+    )
+    async def test_trace_metadata_reflects_tool_history(
+        self,
+        tool_history: list[dict[str, Any]],
+        expected_success: int,
+        expected_fail: int,
+        expected_tools: set[str],
+    ) -> None:
+        result = ReasoningResult(response="done", done=True, tool_history=tool_history)
+        tracer = _CapturingTracer()
         agent = await _make_agent(
-            llm=llm,
+            llm=FakeLLMClient(),
             strategy=FakeReactStrategy(result),
             tracer=tracer,
         )
@@ -270,101 +356,45 @@ class TestTraceFinalizationWithToolHistory:
             [{"role": "user", "content": "run tests"}],
             build_auth_context(),
         )
-        # The test passes if no error is raised during trace finalization
-        assert response.content == "Done"
 
-    async def test_trace_finalization_with_error_in_middle_of_result(self) -> None:
-        """Tool result containing 'error' (not at start) is detected via lowercase check."""
-        tool_history = [
-            {
-                "tool_name": "read_file",
-                "arguments": {},
-                "result": "file content with error in the middle",
-                "round": 0,
-            },
-        ]
-        result = ReasoningResult(
-            response="Read complete",
-            done=True,
-            tool_history=tool_history,
-        )
-        llm = FakeLLMClient()
-        tracer = NoopTracingBackend()
-        agent = await _make_agent(
-            llm=llm,
-            strategy=FakeReactStrategy(result),
-            tracer=tracer,
-        )
+        # The response still comes through.
+        assert response.content == "done"
 
-        response = await agent.handle(
-            [{"role": "user", "content": "read file"}],
-            build_auth_context(),
-        )
-        assert response.content == "Read complete"
-
-    async def test_trace_finalization_deduplicates_tool_names(self) -> None:
-        """tools_used in trace metadata deduplicates repeated tool names."""
-        tool_history = [
-            {"tool_name": "run_pytest", "arguments": {}, "result": "ok", "round": 0},
-            {"tool_name": "run_pytest", "arguments": {}, "result": "ok", "round": 1},
-            {"tool_name": "run_ruff_check", "arguments": {}, "result": "ok", "round": 2},
-        ]
-        result = ReasoningResult(
-            response="All checks passed",
-            done=True,
-            tool_history=tool_history,
-        )
-        llm = FakeLLMClient()
-        tracer = NoopTracingBackend()
-        agent = await _make_agent(
-            llm=llm,
-            strategy=FakeReactStrategy(result),
-            tracer=tracer,
-        )
-
-        response = await agent.handle(
-            [{"role": "user", "content": "run checks"}],
-            build_auth_context(),
-        )
-        assert response.content == "All checks passed"
-
-    async def test_trace_finalization_with_empty_tool_history(self) -> None:
-        """Trace finalization handles None/empty tool_history gracefully."""
-        result = ReasoningResult(
-            response="No tools used",
-            done=True,
-            tool_history=[],
-        )
-        llm = FakeLLMClient()
-        tracer = NoopTracingBackend()
-        agent = await _make_agent(
-            llm=llm,
-            strategy=FakeReactStrategy(result),
-            tracer=tracer,
-        )
-
-        response = await agent.handle(
-            [{"role": "user", "content": "hello"}],
-            build_auth_context(),
-        )
-        assert response.content == "No tools used"
+        # The trace was created, populated with metadata derived from the
+        # tool history, and closed.
+        assert tracer.last_trace is not None
+        meta = tracer.last_trace.metadata
+        assert meta.get("agent") == "test-agent"
+        assert meta.get("model") == "test-model"
+        if tool_history:
+            # Counts are stored as strings (langfuse-style metadata).
+            assert int(meta["tool_calls_total"]) == len(tool_history)
+            assert int(meta["tool_calls_success"]) == expected_success
+            assert int(meta["tool_calls_failed"]) == expected_fail
+            # tools_used is a comma-joined deduped set, in insertion order.
+            tools = {t for t in meta["tools_used"].split(",") if t}
+            assert tools == expected_tools
+        else:
+            # Empty history may either omit these fields or store zeros; both
+            # are acceptable, but there must be no invented tool names.
+            assert meta.get("tools_used", "") in ("", None)
+        assert tracer.last_trace.ended is True
 
     async def test_outcome_and_trace_both_fire_with_tool_history(self) -> None:
-        """Both outcome recording and trace finalization work together."""
+        """Both outcome recording and trace finalization work together.
+
+        Asserts the concrete side-effects: one outcome stored with success=False
+        (because tool_history contains an Error), and the trace finalized.
+        """
         tool_history = [
             {"tool_name": "run_pytest", "arguments": {}, "result": "Error: boom", "round": 0},
             {"tool_name": "write_file", "arguments": {}, "result": "ok", "round": 1},
         ]
-        result = ReasoningResult(
-            response="Partial success",
-            done=True,
-            tool_history=tool_history,
-        )
-        llm = FakeLLMClient()
-        tracer = NoopTracingBackend()
+        result = ReasoningResult(response="Partial success", done=True, tool_history=tool_history)
+        tracer = _CapturingTracer()
         outcome_store = InMemoryOutcomeStore()
         agent = await _make_agent(
-            llm=llm,
+            llm=FakeLLMClient(),
             strategy=FakeReactStrategy(result),
             tracer=tracer,
             outcome_store=outcome_store,
@@ -376,129 +406,26 @@ class TestTraceFinalizationWithToolHistory:
             session_id="sess-both",
         )
         assert response.content == "Partial success"
+
         outcomes = await outcome_store.list_outcomes()
         assert len(outcomes) == 1
         assert outcomes[0].success is False
+        assert outcomes[0].error_type == "tool_error"
+        assert len(outcomes[0].tool_calls) == 2
+
+        assert tracer.last_trace is not None
+        assert tracer.last_trace.ended is True
 
 
 # ===========================================================================
-# 2. tool_http.py: list_tools edge cases (lines 54-57)
+# 2. tool_http.py list_tools edge cases -- REMOVED
 # ===========================================================================
-
-
-class TestHTTPToolListToolsEdgeCases:
-    """Tests for list_tools response parsing (lines 54-57).
-
-    The main parsing logic (lines 54-57) expects resp.json() to have a "tools" key
-    and returns it as a list. We test with a real (unreachable) server to exercise
-    the exception path, and with the MockTransport from test_tool_http_extended
-    for the success path. The unreachable-server tests are already covered,
-    so here we focus on parsing correctness.
-    """
-
-    async def test_list_tools_returns_typed_list(self) -> None:
-        """list_tools response is typed as list[dict[str, str]]."""
-        import httpx
-        from stronghold.agents.strategies.tool_http import HTTPToolExecutor
-
-        class ToolListTransport(httpx.AsyncBaseTransport):
-            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-                body = {
-                    "tools": [
-                        {"name": "run_pytest", "description": "Run tests"},
-                        {"name": "read_file", "description": "Read a file"},
-                    ]
-                }
-                return httpx.Response(200, content=json.dumps(body).encode())
-
-        class InjectableExecutor(HTTPToolExecutor):
-            def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
-                super().__init__(base_url="http://test:8300")
-                self._transport = transport
-
-            async def list_tools(self) -> list[dict[str, str]]:
-                try:
-                    async with httpx.AsyncClient(
-                        transport=self._transport, timeout=10.0
-                    ) as client:
-                        resp = await client.get(f"{self._base_url}/tools")
-                        if resp.status_code == 200:
-                            data: dict[str, Any] = resp.json()
-                            tools: list[dict[str, str]] = data.get("tools", [])
-                            return tools
-                except Exception:
-                    pass
-                return []
-
-        executor = InjectableExecutor(ToolListTransport())
-        tools = await executor.list_tools()
-        assert len(tools) == 2
-        assert tools[0]["name"] == "run_pytest"
-        assert tools[1]["name"] == "read_file"
-
-    async def test_list_tools_missing_tools_key(self) -> None:
-        """list_tools returns empty list when response has no 'tools' key."""
-        import httpx
-        from stronghold.agents.strategies.tool_http import HTTPToolExecutor
-
-        class NoToolsTransport(httpx.AsyncBaseTransport):
-            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-                return httpx.Response(200, content=json.dumps({"other": "data"}).encode())
-
-        class InjectableExecutor(HTTPToolExecutor):
-            def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
-                super().__init__(base_url="http://test:8300")
-                self._transport = transport
-
-            async def list_tools(self) -> list[dict[str, str]]:
-                try:
-                    async with httpx.AsyncClient(
-                        transport=self._transport, timeout=10.0
-                    ) as client:
-                        resp = await client.get(f"{self._base_url}/tools")
-                        if resp.status_code == 200:
-                            data: dict[str, Any] = resp.json()
-                            tools: list[dict[str, str]] = data.get("tools", [])
-                            return tools
-                except Exception:
-                    pass
-                return []
-
-        executor = InjectableExecutor(NoToolsTransport())
-        tools = await executor.list_tools()
-        assert tools == []
-
-    async def test_list_tools_non_200_returns_empty(self) -> None:
-        """list_tools returns empty list when server responds non-200."""
-        import httpx
-        from stronghold.agents.strategies.tool_http import HTTPToolExecutor
-
-        class Non200Transport(httpx.AsyncBaseTransport):
-            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-                return httpx.Response(503, content=b"Service Unavailable")
-
-        class InjectableExecutor(HTTPToolExecutor):
-            def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
-                super().__init__(base_url="http://test:8300")
-                self._transport = transport
-
-            async def list_tools(self) -> list[dict[str, str]]:
-                try:
-                    async with httpx.AsyncClient(
-                        transport=self._transport, timeout=10.0
-                    ) as client:
-                        resp = await client.get(f"{self._base_url}/tools")
-                        if resp.status_code == 200:
-                            data: dict[str, Any] = resp.json()
-                            tools: list[dict[str, str]] = data.get("tools", [])
-                            return tools
-                except Exception:
-                    pass
-                return []
-
-        executor = InjectableExecutor(Non200Transport())
-        tools = await executor.list_tools()
-        assert tools == []
+# The previous class defined a local InjectableExecutor subclass that
+# re-implemented list_tools and then asserted the reimplementation's behavior.
+# That is a tautology -- it does not exercise src/.../tool_http.py.
+# Real coverage for HTTPToolExecutor.list_tools lives in
+# tests/agents/test_tool_http_extended.py (real class + httpx MockTransport)
+# and tests/agents/test_tool_http.py (unreachable-server path).
 
 
 # ===========================================================================

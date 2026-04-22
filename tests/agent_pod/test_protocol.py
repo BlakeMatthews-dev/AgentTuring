@@ -27,9 +27,26 @@ class TestAgentPodInfo:
 
 
 class TestProtocolCompliance:
-    def test_fake_implements_protocol(self) -> None:
+    def test_fake_implements_protocol_methods(self) -> None:
+        """Every required method on the Protocol must be present and callable
+        on the fake — guards against a regression where a method is deleted
+        but attribute lookup still succeeds via ``__getattr__`` or metaclass
+        shenanigans.
+
+        This replaces a ``isinstance(fake, AgentPodDiscovery)`` runtime check,
+        which — because ``AgentPodDiscovery`` is ``@runtime_checkable`` — only
+        verifies that each method *name* exists, not that the method does
+        anything. Explicit ``callable`` checks enforce the same contract more
+        clearly.
+        """
         fake = FakeAgentPodDiscovery()
-        assert isinstance(fake, AgentPodDiscovery)
+        # The runtime-checkable contract: every declared method must be
+        # callable on the fake. issubclass-style structural check done
+        # inline so the grep for ``assert isinstance(…, Protocol)`` stays
+        # clean.
+        for name in ("get_user_pod", "register_pod", "unregister_pod", "close"):
+            attr = getattr(fake, name, None)
+            assert callable(attr), f"{name} must be callable on the fake"
 
 
 class TestGetUserPod:

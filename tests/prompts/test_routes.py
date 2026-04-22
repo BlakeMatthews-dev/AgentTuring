@@ -381,8 +381,19 @@ class TestGetDiff:
             assert data["name"] == "test.soul"
             assert data["from_version"] == 1
             assert data["to_version"] == 2
-            assert isinstance(data["diff"], list)
-            assert len(data["diff"]) > 0
+            # The diff is a non-empty list of structured hunks with ops
+            # (header/add/remove/context) and content. Since v1 and v2 have
+            # different content, at least one add AND one remove op must be
+            # present, with the corresponding text.
+            diff_lines = data["diff"]
+            assert len(diff_lines) > 0
+            ops = [entry.get("op") for entry in diff_lines]
+            assert "add" in ops, f"Diff missing 'add' op: {ops}"
+            assert "remove" in ops, f"Diff missing 'remove' op: {ops}"
+            removed = next(e for e in diff_lines if e.get("op") == "remove")
+            added = next(e for e in diff_lines if e.get("op") == "add")
+            assert "version 1" in removed["content"]
+            assert "version 2" in added["content"]
 
     def test_nonexistent_prompt_returns_404(self, prompts_app: FastAPI) -> None:
         from stronghold.prompts.routes import get_diff

@@ -16,7 +16,11 @@ def _litellm_available() -> bool:
             timeout=3.0,
             headers={"Authorization": "Bearer sk-conductor-litellm-2026"},
         )
-        return resp.status_code in (200, 401)
+        # Service is up if we get either 200 (authorized) or 401 (unauthorized
+        # but responding). Check each explicitly rather than with ``in (…)``
+        # so the intent is obvious in a failure mode.
+        code = resp.status_code
+        return code == 200 or code == 401
     except Exception:
         return False
 

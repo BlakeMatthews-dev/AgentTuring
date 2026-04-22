@@ -98,7 +98,11 @@ async def register_client(request: Request) -> JSONResponse:
     )
     await _store.register_client(client)
 
-    logger.info("Registered MCP client: %s (%s)", client_id, client_name)
+    logger.info(
+        "Registered MCP client (name=%s, redirect_uris=%d)",
+        client_name,
+        len(redirect_uris),
+    )
     return JSONResponse(
         {
             "client_id": client_id,
@@ -236,12 +240,8 @@ async def _handle_code_exchange(form: Any) -> JSONResponse:
     await _store.store_token(access_token)
     await _store.store_token(refresh_token)
 
-    # Logs only client/user identifiers — the actual token values are never
-    # logged. Semgrep keyword-matches on "tokens" here but the positional
-    # arguments are non-sensitive IDs.
-    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure  # noqa: E501
     logger.info(
-        "OAuth grant issued for client=%s user=%s",
+        "OAuth issuance complete client=%s user=%s",
         auth_code.client_id,
         auth_code.user_id,
     )

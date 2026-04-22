@@ -18,13 +18,12 @@ concurrency:
 jobs:
   review:
     name: Gatekeeper auto-review
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.head_branch != 'main' &&
-      github.event.workflow_run.head_branch != 'integration' &&
-      github.event.workflow_run.head_branch != 'develop'
+      github.event.workflow_run.head_branch != 'integration'
     steps:
       - name: Find PR for this branch
         id: pr

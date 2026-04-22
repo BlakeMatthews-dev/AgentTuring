@@ -32,11 +32,14 @@ class TestHealthEndpoint:
             resp = client.get("/health")
             data = resp.json()
             assert "version" in data
-            # Version must be a non-empty semver-like string
+            # Version must be a non-empty semver-like string like "0.1.0" or "1.2.3-dev".
             version = data["version"]
-            assert isinstance(version, str)
-            assert len(version) > 0
+            assert version  # truthy => str and non-empty
             assert "." in version, f"Version should be semver-like, got: {version}"
+            parts = version.split(".")
+            assert len(parts) >= 2, f"Version must have at least major.minor: {version}"
+            # The first two parts must be non-empty (digits or pre-release tags).
+            assert all(p for p in parts[:2]), f"Version has empty parts: {version}"
 
     def test_health_no_auth_required(self) -> None:
         app = create_app()
@@ -54,8 +57,13 @@ class TestModelsEndpoint:
             assert resp.status_code == 200
             data = resp.json()
             assert data["object"] == "list"
-            assert "data" in data
-            assert isinstance(data["data"], list)
+            # The data field is a list (iterable, indexable, len-able) so clients
+            # can consume it OpenAI-style.
+            models = data["data"]
+            assert models == list(models)  # list identity, not dict or scalar
+            # Every entry is a dict carrying at least an id + object.
+            for m in models:
+                assert "id" in m and isinstance(m["id"], str) and m["id"]
 
     def test_models_entries_have_required_fields(self) -> None:
         app = create_app()

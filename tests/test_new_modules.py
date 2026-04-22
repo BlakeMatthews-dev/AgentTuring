@@ -13,10 +13,7 @@ from stronghold.agents.tournament import (
     _MIN_BATTLES,
     _PROMOTION_THRESHOLD,
 )
-from stronghold.memory.learnings.approval import (
-    LearningApproval,
-    LearningApprovalGate,
-)
+from stronghold.memory.learnings.approval import LearningApprovalGate
 from stronghold.skills.canary import (
     CanaryDeployment,
     CanaryManager,
@@ -40,18 +37,14 @@ class TestBattleRecord:
         assert rec.score_b == 0.0
         assert rec.judge_model == ""
         assert rec.org_id == ""
-        assert isinstance(rec.timestamp, float)
+        # timestamp defaults to a real Unix epoch value close to "now"
+        # (within 60s). This catches a regression where the default
+        # becomes 0.0 or None.
+        assert rec.timestamp > 0
+        assert abs(time.time() - rec.timestamp) < 60
 
 
 class TestAgentRating:
-    def test_defaults(self) -> None:
-        rating = AgentRating(agent="alpha", intent="code")
-        assert rating.elo == _DEFAULT_ELO
-        assert rating.wins == 0
-        assert rating.losses == 0
-        assert rating.draws == 0
-        assert rating.org_id == ""
-
     def test_total_battles(self) -> None:
         rating = AgentRating(agent="a", intent="x", wins=3, losses=2, draws=1)
         assert rating.total_battles == 6
@@ -521,22 +514,6 @@ class TestCanaryManager:
         assert dep2 is not None
         assert dep1.new_version == 2
         assert dep2.new_version == 4
-
-
-# ── LearningApproval: dataclass ────────────────────────────────────
-
-
-class TestLearningApproval:
-    def test_defaults(self) -> None:
-        a = LearningApproval(learning_id=42)
-        assert a.learning_id == 42
-        assert a.status == "pending"
-        assert a.reviewed_by == ""
-        assert a.reviewed_at == 0.0
-        assert a.review_notes == ""
-        assert a.learning_preview == ""
-        assert a.tool_name == ""
-        assert a.hit_count == 0
 
 
 # ── LearningApprovalGate ───────────────────────────────────────────

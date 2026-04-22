@@ -41,7 +41,12 @@ class TestIssueRecord:
         assert d["status"] == "queued"
         assert d["error"] == ""
         assert d["log_lines"] == 0
-        assert isinstance(d["queued_at"], str)
+        # queued_at is an ISO-8601 string that actually parses back to a datetime.
+        qa = d["queued_at"]
+        assert qa and "T" in qa, f"Expected ISO-8601 timestamp, got: {qa!r}"
+        from datetime import datetime
+        parsed = datetime.fromisoformat(qa)
+        assert parsed.tzinfo is not None, "queued_at must be timezone-aware"
         assert d["started_at"] is None
         assert d["completed_at"] is None
 
@@ -71,12 +76,15 @@ class TestMasonQueueAssign:
     def test_assign_returns_record(self):
         q = MasonQueue()
         record = q.assign(10, "Test issue", owner="org", repo="repo")
-        assert isinstance(record, IssueRecord)
+        # Behavioral: assign() must return the IssueRecord it stored, with
+        # all caller-provided fields preserved and status defaulting to QUEUED.
         assert record.issue_number == 10
         assert record.title == "Test issue"
         assert record.owner == "org"
         assert record.repo == "repo"
         assert record.status is IssueStatus.QUEUED
+        # And the returned record IS the one the queue stored (not a copy).
+        assert q.get(10) is record
 
     def test_assign_stores_record(self):
         q = MasonQueue()
@@ -160,10 +168,16 @@ class TestMasonQueueAddLog:
 class TestMasonQueueGet:
     """MasonQueue.get() retrieves or returns None."""
 
-    def test_get_existing(self):
+    def test_get_returns_assigned_record_with_title(self):
         q = MasonQueue()
-        q.assign(1, "Issue")
-        assert q.get(1) is not None
+        q.assign(1, "Fix typo")
+        rec = q.get(1)
+        # Stronger than is not None — verify the returned record is
+        # actually the one we just assigned (same issue number + title),
+        # not a sentinel.
+        assert rec is not None
+        assert rec.issue_number == 1
+        assert rec.title == "Fix typo"
 
     def test_get_missing(self):
         q = MasonQueue()

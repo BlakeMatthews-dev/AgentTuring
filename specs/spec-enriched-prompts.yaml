@@ -1,0 +1,47 @@
+# Spec: Spec-Enriched Pipeline Prompts
+# Issue: Pipeline stages receive spec invariants and acceptance criteria in their prompts
+
+issue_number: 1002
+title: "Enrich pipeline stage prompts with spec data"
+status: active
+complexity: M
+
+protocols_touched:
+  - BuilderPipeline
+
+files_touched:
+  - src/stronghold/orchestrator/pipeline.py
+  - tests/orchestrator/test_pipeline.py
+
+acceptance_criteria:
+  - "When a spec exists, {spec_summary} is available in prompt templates"
+  - "spec_summary includes invariant names, acceptance criteria, and protocols touched"
+  - "When no spec exists, {spec_summary} resolves to empty string"
+  - "Existing prompt templates remain backward-compatible (no KeyError on {spec_summary})"
+  - "Spec summary is truncated to 2000 chars to stay within context budget"
+
+invariants:
+  - name: spec_summary_contains_invariants
+    description: "spec_summary includes all invariant names from the spec"
+    kind: postcondition
+    expression: "all(inv.name in spec_summary for inv in spec.invariants)"
+    protocol: BuilderPipeline
+    severity: high
+
+  - name: spec_summary_contains_criteria
+    description: "spec_summary includes all acceptance criteria"
+    kind: postcondition
+    expression: "all(c in spec_summary for c in spec.acceptance_criteria)"
+    severity: high
+
+  - name: no_spec_no_error
+    description: "Pipeline runs without error when no spec is present"
+    kind: postcondition
+    expression: "run.status == 'completed'"
+    severity: critical
+
+  - name: summary_bounded
+    description: "spec_summary never exceeds 2000 characters"
+    kind: data_invariant
+    expression: "len(spec_summary) <= 2000"
+    severity: high

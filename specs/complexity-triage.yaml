@@ -1,0 +1,47 @@
+# Spec: Complexity-Based Planner Model Triage
+# Issue: Route simple issues to Sonnet for planning, reserve Opus for complex
+
+issue_number: 1005
+title: "Complexity-based planner model triage"
+status: active
+complexity: M
+
+protocols_touched:
+  - ModelRouter
+
+files_touched:
+  - src/stronghold/classifier/complexity.py
+  - tests/classifier/test_complexity.py
+
+acceptance_criteria:
+  - "planner_model_tier() returns model tier based on issue complexity"
+  - "simple complexity maps to 'medium' tier (Sonnet-class)"
+  - "moderate complexity maps to 'large' tier (Opus-class)"
+  - "complex complexity maps to 'frontier' tier (Opus-class)"
+  - "Override parameter allows forcing a specific tier"
+  - "Function is pure with no side effects"
+
+invariants:
+  - name: simple_avoids_opus
+    description: "Simple issues never route to frontier tier"
+    kind: postcondition
+    expression: "planner_model_tier('simple') != 'frontier'"
+    severity: high
+
+  - name: complex_gets_best
+    description: "Complex issues always route to frontier tier"
+    kind: postcondition
+    expression: "planner_model_tier('complex') == 'frontier'"
+    severity: high
+
+  - name: monotonic_escalation
+    description: "Tier escalates monotonically with complexity"
+    kind: state_invariant
+    expression: "TIER_ORDER[tier('simple')] <= TIER_ORDER[tier('moderate')] <= TIER_ORDER[tier('complex')]"
+    severity: critical
+
+  - name: override_wins
+    description: "Explicit override always takes precedence"
+    kind: postcondition
+    expression: "planner_model_tier(any, override='small') == 'small'"
+    severity: high

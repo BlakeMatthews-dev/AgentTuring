@@ -168,19 +168,26 @@ class TestServePage:
         assert "<html" in body.lower() or "<!doctype" in body.lower()
 
     def test_csp_header_present(self) -> None:
+        """Real dashboard pages always ship a locked-down CSP header."""
         resp = _serve_page("login.html")
-        if resp.status_code == 200:
-            assert "content-security-policy" in resp.headers
-            csp = resp.headers["content-security-policy"]
-            assert "default-src 'self'" in csp
-            assert "script-src" in csp
+        assert resp.status_code == 200
+        assert "content-security-policy" in resp.headers
+        csp = resp.headers["content-security-policy"]
+        assert "default-src 'self'" in csp
+        assert "script-src" in csp
+        # No inline-unsafe relaxations on default-src (check for XSS mitigation).
+        # default-src should not contain 'unsafe-inline' or 'unsafe-eval'.
+        default_src = csp.split(";", 1)[0]
+        assert "unsafe-inline" not in default_src
+        assert "unsafe-eval" not in default_src
 
     def test_no_cache_headers_present(self) -> None:
+        """Dashboard pages must be no-cache so session state doesn't leak."""
         resp = _serve_page("login.html")
-        if resp.status_code == 200:
-            assert resp.headers.get("cache-control") == "no-cache, no-store, must-revalidate"
-            assert resp.headers.get("pragma") == "no-cache"
-            assert resp.headers.get("expires") == "0"
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-cache, no-store, must-revalidate"
+        assert resp.headers.get("pragma") == "no-cache"
+        assert resp.headers.get("expires") == "0"
 
     def test_nonexistent_file_returns_404(self) -> None:
         resp = _serve_page("totally_nonexistent_page_xyz.html")
@@ -195,11 +202,14 @@ class TestServePage:
 
 class TestServeJs:
     def test_existing_js_returns_content(self) -> None:
+        """_serve_js returns the real file contents, not a stub comment."""
         resp = _serve_js("auth.js")
         assert resp.media_type == "application/javascript"
         body = resp.body.decode("utf-8")
-        # Should contain actual JS content, not the "not found" comment
-        assert "not found" not in body.lower() or len(body) > 50
+        # The "not found" comment is the single-line fallback used when the
+        # file is missing. A real asset is always bigger than that.
+        assert "not found" not in body.lower()
+        assert len(body) > 50, "auth.js body looks like a stub"
 
     def test_nonexistent_js_returns_comment(self) -> None:
         resp = _serve_js("nonexistent_xyz.js")
@@ -233,9 +243,10 @@ class TestCheckAuth:
         app = _build_authenticated_app()
         with TestClient(app) as client:
             resp = client.get("/dashboard/skills", headers=AUTH_HEADER)
-            # Should get the page (200 if file exists, 404 if HTML not found)
-            assert resp.status_code in (200, 404)
+            # Real HTML is shipped in src/stronghold/dashboard/ — must be 200.
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
+            assert "<" in resp.text, "expected HTML body, got empty"
 
     def test_invalid_auth_header_redirects(self) -> None:
         """Invalid auth header causes redirect to login."""
@@ -258,7 +269,13 @@ class TestCheckAuth:
             assert resp.headers["location"] == "/login"
 
     def test_valid_session_cookie_grants_access(self) -> None:
-        """A valid session cookie is accepted for auth."""
+        """A valid session cookie is accepted for auth — no login redirect.
+
+        The behavioural contract is "auth succeeded". Whether the page
+        itself renders 200 or 404 (missing template file in the test
+        environment) is independent of the security path. We assert the
+        explicit negative: no redirect to /login.
+        """
         # Use the actual API key as the cookie value so StaticKeyAuthProvider accepts it
         app = _build_authenticated_app()
         with TestClient(app) as client:
@@ -267,8 +284,13 @@ class TestCheckAuth:
                 cookies={"stronghold_session": "sk-test"},
                 follow_redirects=False,
             )
-            # Should authenticate via cookie path and serve the page
-            assert resp.status_code in (200, 404)
+            assert resp.status_code != 302, (
+                f"Valid cookie was rejected: {resp.status_code} loc={resp.headers.get('location')}"
+            )
+            assert resp.headers.get("location") != "/login"
+            # Route-level outcome: either rendered the page or template missing —
+            # both prove the auth gate did not trigger a redirect.
+            assert resp.status_code in {200, 404}
 
     def test_invalid_session_cookie_redirects(self) -> None:
         """Invalid session cookie causes redirect to login."""
@@ -335,10 +357,21 @@ class TestDashboardPageRoutes:
         ],
     )
     def test_authenticated_page_returns_html(self, authed_app: FastAPI, path: str) -> None:
+        """Each dashboard page must serve real HTML with auth — not a 404 stub.
+
+        The old form accepted ``200 or 404``, which silently green-lit a broken
+        router. All nine HTML files ship in ``src/stronghold/dashboard/`` so a
+        404 is a real regression.
+        """
         with TestClient(authed_app) as client:
             resp = client.get(path, headers=AUTH_HEADER)
-            assert resp.status_code in (200, 404)
+            assert resp.status_code == 200, f"{path} returned {resp.status_code}"
             assert "text/html" in resp.headers["content-type"]
+            # Body must be a real HTML doc, not an empty/error stub.
+            body = resp.text
+            assert "<" in body and "</" in body
+            # Responses from _serve_page must be no-cache (security hardening).
+            assert resp.headers.get("cache-control") == "no-cache, no-store, must-revalidate"
 
     @pytest.mark.parametrize(
         "path",
@@ -374,15 +407,20 @@ class TestPublicRoutes:
         return app
 
     def test_login_page_returns_html(self, app: FastAPI) -> None:
+        """The /login page is a real HTML file shipped with the package."""
         with TestClient(app) as client:
             resp = client.get("/login")
-            assert resp.status_code in (200, 404)
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
+            # Login page has a form that posts to the auth flow.
+            body = resp.text.lower()
+            assert "<html" in body or "<!doctype" in body
 
     def test_login_callback_returns_html(self, app: FastAPI) -> None:
+        """The /login/callback page is served for the OIDC redirect landing."""
         with TestClient(app) as client:
             resp = client.get("/login/callback")
-            assert resp.status_code in (200, 404)
+            assert resp.status_code == 200
             assert "text/html" in resp.headers["content-type"]
 
     def test_logout_clears_cookies_and_returns_html(self, app: FastAPI) -> None:
@@ -398,16 +436,24 @@ class TestPublicRoutes:
             assert "sessionStorage.clear" in body
 
     def test_logout_sets_delete_cookie_headers(self, app: FastAPI) -> None:
+        """/logout must emit Set-Cookie headers with Max-Age=0 for each
+        session cookie — not just render logout JS. The original test
+        only asserted "setTimeout" in resp.text, which ignored the
+        test's own name."""
         with TestClient(app) as client:
             resp = client.get("/logout")
             assert resp.status_code == 200
-            # Check that set-cookie headers are present for deletion
-            cookie_headers = resp.headers.get_list("set-cookie") if hasattr(resp.headers, "get_list") else []
-            # The response should have cookie deletion headers
-            # FastAPI/Starlette sets these as set-cookie response headers
-            raw_headers = resp.raw_headers if hasattr(resp, "raw_headers") else []
-            # At minimum, the response body has logout JS
-            assert "setTimeout" in resp.text
+
+            set_cookie_headers = resp.headers.get_list("set-cookie")
+            # At least one Set-Cookie header must be present, and each must
+            # be a deletion (Max-Age=0 or an Expires in the past).
+            assert set_cookie_headers, "/logout must emit Set-Cookie headers"
+            for raw in set_cookie_headers:
+                lower = raw.lower()
+                assert (
+                    "max-age=0" in lower
+                    or "expires=thu, 01 jan 1970" in lower
+                ), f"Set-Cookie header is not a deletion: {raw!r}"
 
 
 # ── JS asset routes ────────────────────────────────────────────────
@@ -445,10 +491,9 @@ class TestJsAssetRoutes:
 
 class TestContentSecurityPolicy:
     def test_csp_includes_required_directives(self) -> None:
-        """CSP header contains all required directives for security."""
+        """CSP header contains every directive needed to harden the dashboard."""
         resp = _serve_page("login.html")
-        if resp.status_code != 200:
-            pytest.skip("login.html not found in dashboard candidates")
+        assert resp.status_code == 200, "login.html missing from dashboard candidates"
         csp = resp.headers.get("content-security-policy", "")
         assert "default-src 'self'" in csp
         assert "script-src" in csp

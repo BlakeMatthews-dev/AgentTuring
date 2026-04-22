@@ -1,7 +1,8 @@
 """Tests for stronghold.log_config and stronghold.log_context.
 
-Logging foundation for the API process. configure_logging() sets up a
-dictConfig with named loggers, a RunIdFilter, and a format string that
+Logging foundation for the API process. The legacy basicConfig in worker_main.py
+is never invoked by the API process (uvicorn doesn't run it). configure_logging()
+sets up a dictConfig with named loggers, a RunIdFilter, and a format string that
 includes [run_id=...] so concurrent builder runs are debuggable.
 """
 
@@ -72,9 +73,16 @@ def _make_record(**extra_fields: object) -> logging.LogRecord:
 
 def test_run_id_filter_injects_default_when_missing() -> None:
     """Records emitted outside a workflow scope get run_id='-' so the format
-    string never raises KeyError."""
+    string never raises KeyError.
+
+    Precondition: a fresh LogRecord has no run_id attribute. Post-filter
+    the record must carry run_id='-'. This guards the format string from
+    crashing on boot-time / shutdown log lines that have no run context.
+    """
     record = _make_record()
-    assert not hasattr(record, "run_id")
+    # Precondition check: getattr with sentinel, not hasattr (won't be fooled
+    # by __getattr__ or slots weirdness on future LogRecord subclasses)
+    assert getattr(record, "run_id", "MISSING") == "MISSING"
     f = RunIdFilter()
     assert f.filter(record) is True
     assert record.run_id == "-"
@@ -133,12 +141,25 @@ def test_run_logger_adapter_does_not_mutate_caller_extra() -> None:
         assert user_extra[k] == v
 
 
-def test_get_run_logger_returns_adapter_with_correct_logger() -> None:
-    """get_run_logger() returns a RunLoggerAdapter wrapping the named logger."""
+def test_get_run_logger_returns_adapter_with_correct_logger(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """get_run_logger() returns a working RunLoggerAdapter.
+
+    Stronger than a bare isinstance check: we verify that logging through
+    the returned object actually attaches the run_id to emitted records.
+    A bug where get_run_logger returned a plain Logger (no run_id binding)
+    would pass isinstance via subclass tricks but fail this behavior check.
+    """
     adapter = get_run_logger("stronghold.builders.tdd", run_id="run-42")
-    assert isinstance(adapter, RunLoggerAdapter)
+    assert type(adapter) is RunLoggerAdapter
     assert adapter.logger.name == "stronghold.builders.tdd"
     assert adapter.extra == {"run_id": "run-42"}
+    # Behavioral proof: actually emit a record and verify run_id is attached.
+    with caplog.at_level(logging.INFO, logger="stronghold.builders.tdd"):
+        adapter.info("probe message")
+    assert len(caplog.records) == 1
+    assert caplog.records[0].run_id == "run-42"  # type: ignore[attr-defined]
 
 
 # Note: end-to-end format-string rendering is verified in PR 1's manual smoke

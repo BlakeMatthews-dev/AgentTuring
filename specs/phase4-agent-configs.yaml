@@ -1,0 +1,63 @@
+# Spec 1013: Quartermaster agent configuration
+
+issue_number: 1013
+title: "Create Quartermaster agent.yaml and SOUL.md"
+status: active
+complexity: S
+
+files_touched:
+  - agents/quartermaster/agent.yaml
+  - agents/quartermaster/SOUL.md
+
+acceptance_criteria:
+  - "agent.yaml defines quartermaster with direct strategy"
+  - "Model set to auto with Sonnet-class fallbacks for simple decomposition"
+  - "Tools include github (read issues), file_ops (read repo structure)"
+  - "Priority tier P4 per ADR-K8S-014"
+  - "Trust tier T1 (built-in operator-vetted)"
+  - "SOUL.md describes spec emission workflow"
+  - "SOUL.md references emit_spec() and SpecStore"
+
+invariants:
+  - name: valid_manifest
+    description: "agent.yaml parses without error"
+    kind: postcondition
+    severity: critical
+
+  - name: correct_priority
+    description: "Priority tier is P4"
+    kind: data_invariant
+    expression: "manifest['priority_tier'] == 'P4'"
+    severity: high
+---
+# Spec 1014: Archie agent configuration
+
+issue_number: 1014
+title: "Create Archie agent.yaml and SOUL.md"
+status: active
+complexity: S
+
+files_touched:
+  - agents/archie/agent.yaml
+  - agents/archie/SOUL.md
+
+acceptance_criteria:
+  - "agent.yaml defines archie with direct strategy"
+  - "Model set to auto (scaffolding is moderate complexity)"
+  - "Tools include file_ops, shell (mkdir, touch)"
+  - "Priority tier P5 (builder-level)"
+  - "Trust tier T1 (built-in)"
+  - "SOUL.md describes protocol scaffolding + property test generation"
+  - "SOUL.md references generate_property_tests() and SpecStore"
+
+invariants:
+  - name: valid_manifest
+    description: "agent.yaml parses without error"
+    kind: postcondition
+    severity: critical
+
+  - name: correct_priority
+    description: "Priority tier is P5"
+    kind: data_invariant
+    expression: "manifest['priority_tier'] == 'P5'"
+    severity: high

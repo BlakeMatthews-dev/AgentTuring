@@ -9,11 +9,14 @@ on:
   pull_request:
     branches:
       - integration
-      - develop
       - main
   push:
     branches:
       - integration
+      - main
+
+permissions:
+  contents: read
 
 concurrency:
   group: cleanroom-lint-${{ github.ref }}
@@ -22,7 +25,7 @@ concurrency:
 jobs:
   cleanroom-lint:
     name: Cleanroom string lint
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:

@@ -97,22 +97,77 @@ class TestCritical1OrgScopedLearnings:
 
 
 class TestCritical2TaskOrgIsolation:
-    """Tasks must use exact org_id match, no unscoped leakage."""
+    """Tasks must use exact org_id match, no unscoped leakage.
+
+    Behavioral: exercises the real /v1/stronghold/tasks list endpoint
+    against a fake task_queue populated with 3 tasks (caller-org,
+    empty-org, other-org) and verifies only the caller-org task is
+    returned. Catches any regression that loosens the org filter
+    (e.g. reintroduces `or task_org == ""`).
+    """
 
     def test_strict_org_match_only(self) -> None:
-        tasks = [
-            {"id": "1", "payload": {"org_id": "org-alpha"}},
-            {"id": "2", "payload": {"org_id": ""}},
-            {"id": "3", "payload": {"org_id": "org-beta"}},
-        ]
-        caller_org = "org-alpha"
-        filtered = [
-            t
-            for t in tasks
-            if t.get("payload", {}).get("org_id", "") == caller_org
-        ]
-        assert len(filtered) == 1
-        assert filtered[0]["id"] == "1"
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from stronghold.api.routes.tasks import router as tasks_router
+        from stronghold.types.auth import AuthContext, IdentityKind
+
+        class _FakeQueue:
+            def __init__(self) -> None:
+                self._tasks = [
+                    {"id": "1", "status": "done",
+                     "payload": {"org_id": "org-alpha"},
+                     "result": None, "error": None},
+                    {"id": "2", "status": "done",
+                     "payload": {"org_id": ""},
+                     "result": None, "error": None},
+                    {"id": "3", "status": "done",
+                     "payload": {"org_id": "org-beta"},
+                     "result": None, "error": None},
+                ]
+
+            async def list_tasks(self, status=None, limit=50):
+                return list(self._tasks)
+
+            async def get(self, task_id):
+                for t in self._tasks:
+                    if t["id"] == task_id:
+                        return t
+                return None
+
+        class _AlphaAuth:
+            async def authenticate(self, authorization, headers=None):
+                if not authorization:
+                    raise ValueError("missing")
+                return AuthContext(
+                    user_id="u1", username="u1", org_id="org-alpha",
+                    roles=frozenset({"user"}), kind=IdentityKind.USER,
+                    auth_method="static",
+                )
+
+        class _C:
+            def __init__(self) -> None:
+                self.task_queue = _FakeQueue()
+                self.auth_provider = _AlphaAuth()
+
+        app = FastAPI()
+        app.include_router(tasks_router)
+        app.state.container = _C()
+
+        with TestClient(app) as client:
+            resp = client.get(
+                "/v1/stronghold/tasks",
+                headers={"Authorization": "Bearer x"},
+            )
+            assert resp.status_code == 200, resp.text
+            returned_ids = [t["id"] for t in resp.json()["tasks"]]
+            # Under strict matching, ONLY the org-alpha task is visible.
+            # A regression that re-adds `or task_org == ""` would leak task 2.
+            assert returned_ids == ["1"], (
+                f"Expected only org-alpha task visible to org-alpha caller; "
+                f"got: {returned_ids}"
+            )
 
 
 # ── CRITICAL-3: Gate must re-scan LLM output ────────────────────────────
@@ -194,29 +249,59 @@ class TestCritical5NoDefaultKey:
 
 
 class TestHigh1AdminOrgFiltering:
-    """Admin endpoints must use explicit __system__ check, not empty string."""
+    """Admin endpoints must use explicit __system__ check, not empty string.
 
-    def test_fixed_admin_filtering(self) -> None:
-        learnings = [
-            {"org_id": "org-alpha", "learning": "alpha"},
-            {"org_id": "org-beta", "learning": "beta"},
-            {"org_id": "", "learning": "unscoped"},
-        ]
-        auth_org_id = ""
-        visible = [
-            lr
-            for lr in learnings
-            if auth_org_id == "__system__" or lr["org_id"] == auth_org_id
-        ]
-        # Empty org matches only the empty-org record
-        assert len(visible) == 1
+    Behavioral: populates a real InMemoryLearningStore with 3 learnings
+    from different orgs, then calls list_all() with different caller
+    org_ids and asserts visibility follows the __system__ contract:
+      - "__system__" sees everything
+      - empty string sees only global (empty-org) learnings
+      - "org-alpha" sees only org-alpha learnings
+    """
 
-        system_visible = [
-            lr
-            for lr in learnings
-            if "__system__" == "__system__" or lr["org_id"] == "__system__"
-        ]
-        assert len(system_visible) == 3
+    async def test_fixed_admin_filtering(self) -> None:
+        """Verify the __system__ sentinel mechanism that admin filtering
+        depends on: __system__ sees all; a specific org sees only its own.
+
+        The audit finding was that empty string was used as the admin
+        sentinel. The fix is the literal "__system__" sentinel — this
+        test exercises that sentinel end-to-end through list_all().
+        """
+        store = InMemoryLearningStore()
+        await store.store(
+            Learning(trigger_keys=["a"], learning="alpha",
+                     tool_name="t", org_id="org-alpha")
+        )
+        await store.store(
+            Learning(trigger_keys=["b"], learning="beta",
+                     tool_name="t", org_id="org-beta")
+        )
+        await store.store(
+            Learning(trigger_keys=["g"], learning="unscoped",
+                     tool_name="t", org_id="")
+        )
+
+        # __system__ caller: full visibility across all orgs.
+        # Regression: renaming the sentinel or dropping its special
+        # case would hide data from the system admin.
+        sys_view = await store.list_all(org_id="__system__")
+        sys_orgs = sorted({lr.org_id for lr in sys_view})
+        assert sys_orgs == ["", "org-alpha", "org-beta"], (
+            f"__system__ sentinel must see all records across orgs; "
+            f"got orgs: {sys_orgs}"
+        )
+        assert len(sys_view) == 3
+
+        # Org-scoped caller: only their own org's records.
+        alpha_view = await store.list_all(org_id="org-alpha")
+        assert {lr.org_id for lr in alpha_view} == {"org-alpha"}, (
+            f"org-alpha caller must not see other orgs; "
+            f"got: {[lr.org_id for lr in alpha_view]}"
+        )
+
+        # Another org stays fully isolated — no cross-org bleed.
+        beta_view = await store.list_all(org_id="org-beta")
+        assert {lr.org_id for lr in beta_view} == {"org-beta"}
 
 
 # ── HIGH-2: Burst limit must be enforced ─────────────────────────────────
@@ -459,13 +544,40 @@ class TestMedium7SessionValidation:
 
 
 class TestPositiveTimingSafe:
-    """Verify timing-safe comparison is used."""
+    """Verify timing-safe comparison is used.
 
-    def test_hmac_compare_digest_used(self) -> None:
-        import inspect
+    Behavioral: patch hmac.compare_digest to track calls, then run the
+    provider with a valid key. If StaticKeyAuthProvider.authenticate()
+    uses plain == instead of hmac.compare_digest, our patch never fires.
+    Catches any regression that replaces compare_digest with == (timing
+    attack resurface).
+    """
 
-        source = inspect.getsource(StaticKeyAuthProvider)
-        assert "hmac.compare_digest" in source
+    async def test_hmac_compare_digest_used(self) -> None:
+        import hmac as hmac_mod
+
+        calls: list[tuple[str, str]] = []
+        real_cd = hmac_mod.compare_digest
+
+        def spy(a, b):
+            calls.append((a if isinstance(a, str) else a.decode(),
+                          b if isinstance(b, str) else b.decode()))
+            return real_cd(a, b)
+
+        provider = StaticKeyAuthProvider(api_key="super-secret-key")
+        orig = hmac_mod.compare_digest
+        hmac_mod.compare_digest = spy  # type: ignore[assignment]
+        try:
+            await provider.authenticate("Bearer super-secret-key")
+        finally:
+            hmac_mod.compare_digest = orig
+
+        assert calls, (
+            "StaticKeyAuthProvider.authenticate must use hmac.compare_digest "
+            "for timing-safe key comparison. Regression: == was used."
+        )
+        # Both sides present: presented token + stored key
+        assert any("super-secret-key" in pair for pair in calls)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -477,19 +589,72 @@ class TestPositiveTimingSafe:
 
 
 class TestAuditC1WebhookGateOrgId:
-    """Webhook /gate endpoint must pass org-scoped auth to Gate."""
+    """Webhook /gate endpoint must pass org-scoped auth to Gate.
+
+    Behavioral: fire a fully-signed webhook request at /gate with
+    X-Webhook-Org="tenant-A" and verify the Gate receives an AuthContext
+    with org_id="tenant-A". Catches regressions that drop or mis-assign
+    the header-derived org_id.
+    """
 
     def test_gate_endpoint_captures_org_id(self) -> None:
-        """Verify the webhooks.py /gate endpoint captures org_id (code-level check)."""
-        import inspect
+        import time
 
-        from stronghold.api.routes.webhooks import webhook_gate
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        source = inspect.getsource(webhook_gate)
-        # Must capture return value of auth validation
-        assert "org_id" in source, "/gate must capture org_id from validation"
-        # Must pass auth to gate.process_input
-        assert "auth=" in source, "/gate must pass auth to gate.process_input()"
+        from stronghold.api.routes.webhooks import router as wh_router
+
+        captured: dict[str, object] = {}
+
+        class _RecordingGate:
+            async def process_input(self, content, *, execution_mode="best_effort", auth=None, **_):
+                captured["org_id"] = auth.org_id if auth else None
+                captured["content"] = content
+                captured["mode"] = execution_mode
+
+                class _V:
+                    clean = True
+                    flags: tuple[str, ...] = ()
+
+                class _R:
+                    sanitized_text = content
+                    blocked = False
+                    block_reason = ""
+                    warden_verdict = _V()
+
+                return _R()
+
+        class _Cfg:
+            webhook_secret = "s3cret"
+            webhook_org_id = ""  # no pinned org
+
+        class _C:
+            config = _Cfg()
+            gate = _RecordingGate()
+
+        app = FastAPI()
+        app.include_router(wh_router)
+        app.state.container = _C()
+
+        ts = str(int(time.time()))
+        with TestClient(app) as client:
+            resp = client.post(
+                "/v1/webhooks/gate",
+                json={"content": "hello"},
+                headers={
+                    "Authorization": "Bearer s3cret",
+                    "X-Webhook-Timestamp": ts,
+                    "X-Webhook-Nonce": f"n-{ts}-unique",
+                    "X-Webhook-Org": "tenant-A",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+
+        assert captured.get("org_id") == "tenant-A", (
+            "webhook_gate did NOT propagate X-Webhook-Org to Gate.process_input "
+            f"(captured: {captured!r}). Regression: auth=None or dropped header."
+        )
 
 
 # ── AUDIT-C2: DirectStrategy must Warden-scan responses ────────────────
@@ -499,14 +664,48 @@ class TestAuditC2DirectStrategyWarden:
     """DirectStrategy must accept and use Warden for response scanning."""
 
     async def test_direct_strategy_accepts_warden(self) -> None:
-        """DirectStrategy.reason() must accept a warden keyword arg."""
-        import inspect
+        """DirectStrategy.reason() must accept a warden kwarg AND invoke it.
 
+        Behavioral: pass a recording Warden and confirm scan() was called.
+        If the parameter is silently dropped (e.g. **kwargs swallow) the
+        scan never fires and the assertion catches it.
+        """
         from stronghold.agents.strategies.direct import DirectStrategy
 
-        sig = inspect.signature(DirectStrategy.reason)
-        params = list(sig.parameters.keys())
-        assert "warden" in params, "DirectStrategy.reason() must accept warden parameter"
+        from tests.fakes import FakeLLMClient
+
+        class _RecordingWarden:
+            def __init__(self) -> None:
+                self.scans: list[tuple[str, str]] = []
+
+            async def scan(self, text, boundary):
+                self.scans.append((text, boundary))
+
+                class _V:
+                    clean = True
+                    flags: tuple[str, ...] = ()
+
+                return _V()
+
+        llm = FakeLLMClient()
+        llm.set_simple_response("clean response text")
+        warden = _RecordingWarden()
+        result = await DirectStrategy().reason(
+            [{"role": "user", "content": "hi"}],
+            "test-model",
+            llm,
+            warden=warden,
+        )
+        assert warden.scans, (
+            "DirectStrategy.reason() did NOT invoke warden.scan(). "
+            "Either the kwarg is being dropped or the scan call was removed."
+        )
+        # Scan must see the LLM response content on the tool_result boundary
+        scanned_text, boundary = warden.scans[0]
+        assert "clean response text" in scanned_text
+        assert boundary in ("tool_result", "user_input")
+        # Clean verdict should pass through untouched
+        assert "clean response text" in result.response
 
     async def test_warden_blocks_injection_in_response(self) -> None:
         """Injection in LLM response must be caught by Warden scan."""
@@ -621,21 +820,85 @@ class TestAuditH2WardenScanWindow:
 class TestAuditH3RegisterOrgValidation:
     """Registration must reject org_ids not in the allowlist."""
 
-    def test_config_has_allowlist_field(self) -> None:
+    def test_config_allowlist_defaults_to_deny_all(self) -> None:
+        """Default config must deny all self-registration (empty allowlist).
+
+        Behavioral check, not a hasattr sniff: default value carries the
+        safe "deny all" semantics. An accidental default of ["*"] or a
+        non-list type would both break this test.
+        """
         from stronghold.types.config import AuthConfig
 
         cfg = AuthConfig()
-        assert hasattr(cfg, "allowed_registration_orgs")
+        # Default is empty list (deny all self-registration)
         assert cfg.allowed_registration_orgs == []
+        # Must be a mutable list, not a frozen tuple or None
+        assert type(cfg.allowed_registration_orgs) is list
+
+    def test_config_allowlist_roundtrips_values(self) -> None:
+        """Allowlist must round-trip values so registration can check them."""
+        from stronghold.types.config import AuthConfig
+
+        cfg = AuthConfig(allowed_registration_orgs=["acme", "beta"])
+        assert "acme" in cfg.allowed_registration_orgs
+        assert "beta" in cfg.allowed_registration_orgs
+        assert "evil-corp" not in cfg.allowed_registration_orgs
 
     def test_register_code_checks_allowlist(self) -> None:
-        """Verify the register_user function checks allowed_registration_orgs."""
-        import inspect
+        """Registration must reject org_ids not in the allowlist.
 
-        from stronghold.api.routes.auth import register_user
+        Behavioral: hit POST /auth/register with a non-allowlisted org
+        and confirm the response is 400 (not allowed) or 403 (disabled)
+        without touching the DB. Catches regressions that remove the
+        allowlist check entirely.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        source = inspect.getsource(register_user)
-        assert "allowed_registration_orgs" in source
+        from stronghold.api.routes.auth import router as auth_router
+        from stronghold.types.config import AuthConfig
+
+        class _Cfg:
+            auth = AuthConfig(allowed_registration_orgs=["acme"])
+
+        class _C:
+            config = _Cfg()
+
+            # No db_pool: if the allowlist check is bypassed, request
+            # would reach _get_db() and return 503 — we catch both.
+
+        app = FastAPI()
+        app.include_router(auth_router)
+        app.state.container = _C()
+
+        with TestClient(app) as client:
+            # Non-allowlisted org: must be rejected with 400
+            resp = client.post(
+                "/auth/register",
+                json={"email": "x@evil.com", "org_id": "evil-corp",
+                      "password": "pw12345678"},
+                headers={"X-Stronghold-Request": "1"},
+            )
+            assert resp.status_code == 400, (
+                f"Non-allowlisted org must be rejected at the allowlist "
+                f"check (400). Got {resp.status_code}: {resp.text}. "
+                f"A 503 (db) would mean the check was bypassed."
+            )
+            assert "not available" in resp.text.lower() or "registration" in resp.text.lower()
+
+            # Allowlisted org passes the check and reaches the DB layer
+            # (which returns 503 because we didn't wire a pool — fine,
+            #  that proves the allowlist gate let it through).
+            resp2 = client.post(
+                "/auth/register",
+                json={"email": "y@acme.com", "org_id": "acme",
+                      "password": "pw12345678"},
+                headers={"X-Stronghold-Request": "1"},
+            )
+            assert resp2.status_code == 503, (
+                f"Allowlisted org should pass the allowlist gate and hit "
+                f"the db layer (503 here). Got {resp2.status_code}: {resp2.text}"
+            )
 
 
 # ── AUDIT-H4: No innerHTML with unescaped e.message ───────────────────
@@ -645,30 +908,55 @@ class TestAuditH4DashboardXSS:
     """Dashboard must not use innerHTML with unescaped error messages."""
 
     def test_no_inner_html_with_unescaped_e_message(self) -> None:
-        """Check that no line injects e.message into innerHTML (XSS vector).
+        """No line may inject a raw error message into innerHTML (XSS).
 
-        Safe patterns (not flagged):
-        - e.message used with textContent (no XSS)
-        - innerHTML = '' (clearing, no injection)
-        - escHtml(e.message) (properly escaped)
+        This scans the shipped dashboard HTML/JS files for the dangerous
+        pattern: innerHTML assignment with a raw `e.message`, `err.message`,
+        `error.message`, or similar caught-error field concatenated in
+        without a visible escape (escHtml/escapeHtml/DOMPurify).
 
-        Dangerous pattern (flagged):
-        - innerHTML = '...' + e.message + '...' (direct injection)
+        Rejects: `.innerHTML = ... + e.message + ...`
+        Allows:  `.innerHTML = escHtml(e.message)`, `.textContent = e.message`.
         """
         import re
         from pathlib import Path
 
-        dashboard_dir = Path(__file__).parent.parent.parent / "src" / "stronghold" / "dashboard"
+        dashboard_dir = (
+            Path(__file__).parent.parent.parent
+            / "src" / "stronghold" / "dashboard"
+        )
         if not dashboard_dir.exists():
             pytest.skip("Dashboard directory not found")
-        # Pattern: innerHTML assigned with e.message concatenated in
-        danger_pattern = re.compile(r"\.innerHTML\s*=\s*['\"].*\+.*e\.message")
-        for html_file in list(dashboard_dir.glob("*.html")) + list(dashboard_dir.glob("*.js")):
-            for i, line in enumerate(html_file.read_text().splitlines(), 1):
-                assert not danger_pattern.search(line), (
-                    f"XSS risk: innerHTML with unescaped e.message "
-                    f"in {html_file.name}:{i}"
-                )
+
+        # Any of these concatenated into an innerHTML assignment = XSS.
+        field_re = r"(?:e|err|error|ex)\.message"
+        # innerHTML = '...' + e.message OR innerHTML = `${e.message}`
+        danger_patterns = [
+            re.compile(
+                r"\.innerHTML\s*=\s*[`'\"][^`'\"]*\+\s*" + field_re
+            ),
+            re.compile(
+                r"\.innerHTML\s*=\s*[`'\"][^`'\"]*\$\{\s*" + field_re
+            ),
+            re.compile(r"\.innerHTML\s*\+=\s*[`'\"][^`'\"]*\+\s*" + field_re),
+        ]
+        safe_wrappers = ("escHtml(", "escapeHtml(", "DOMPurify.sanitize(")
+
+        failures: list[str] = []
+        for f in (
+            list(dashboard_dir.glob("*.html")) + list(dashboard_dir.glob("*.js"))
+        ):
+            for i, line in enumerate(f.read_text().splitlines(), 1):
+                if not any(p.search(line) for p in danger_patterns):
+                    continue
+                if any(w in line for w in safe_wrappers):
+                    continue
+                failures.append(f"{f.name}:{i}: {line.strip()}")
+
+        assert not failures, (
+            "XSS risk — innerHTML assigned with unescaped error message:\n"
+            + "\n".join(failures)
+        )
 
 
 # ── AUDIT-M1: /auth/login must be rate-limited ────────────────────────

@@ -1,0 +1,231 @@
+# values-aks.yaml
+#
+# Azure AKS overlay — Tier-1 per ADR-K8S-007.
+#
+# Target architecture:
+#   - 2x B2ms on-demand nodes (core stack: api, litellm, phoenix)
+#   - 1x spot node pool (B2s, min 0 max 5, cluster autoscaler + KEDA)
+#   - Azure Database for PostgreSQL Flexible Server (B1ms, external)
+#   - KEDA for scale-to-zero builders on spot nodes
+#   - Azure AD Workload Identity + Entra ID auth
+#   - nginx-ingress (Standard LB, ~$18/mo)
+#
+# Prerequisites:
+#   1. AKS cluster with OIDC issuer + Workload Identity enabled
+#   2. On-demand node pool (2x B2ms) + spot node pool (B2s, autoscaler 0-5)
+#   3. KEDA installed: helm install keda kedacore/keda -n keda --create-namespace
+#   4. nginx-ingress installed
+#   5. Azure Database for PostgreSQL Flexible Server with pgvector enabled
+#   6. K8s secret "postgres-flexible-credentials" created manually
+#
+# Usage:
+#   helm upgrade --install stronghold deploy/helm/stronghold \
+#     --namespace stronghold-platform --create-namespace \
+#     -f deploy/helm/stronghold/values-vanilla-k8s.yaml \
+#     -f deploy/helm/stronghold/values-aks.yaml \
+#     --set auth.entraId.tenantId=<YOUR_TENANT_ID> \
+#     --set auth.entraId.clientId=<YOUR_CLIENT_ID>
+
+# --- Platform flags -----------------------------------------------------------
+
+openshift:
+  enabled: false
+
+priorityClasses:
+  create: true
+
+namespace:
+  create: false
+  name: stronghold-platform
+
+rbac:
+  create: true
+
+extraNamespaces:
+  create: true
+
+# --- Database: external Azure Flexible Server --------------------------------
+#
+# Disable in-cluster postgres. Use Azure Database for PostgreSQL Flexible Server
+# (B1ms burstable, ~$13/mo). The Secret must contain POSTGRES_USER,
+# POSTGRES_PASSWORD, POSTGRES_DB keys. The DATABASE_URL is constructed in
+# the deployment templates from these values.
+#
+# Create the secret before helm install:
+#   kubectl -n stronghold-platform create secret generic postgres-flexible-credentials \
+#     --from-literal=POSTGRES_USER=stronghold \
+#     --from-literal=POSTGRES_PASSWORD=<password> \
+#     --from-literal=POSTGRES_DB=stronghold
+
+postgresql:
+  enabled: false
+  existingSecret: postgres-flexible-credentials
+  # These are used in the DATABASE_URL template — must match Flexible Server config
+  containerPort: 5432
+  username: stronghold
+  database: stronghold
+
+# --- Azure AD Workload Identity -----------------------------------------------
+
+serviceAccounts:
+  strongholdApi:
+    name: stronghold-api
+    annotations:
+      azure.workload.identity/client-id: ""
+  mcpDeployer:
+    name: mcp-deployer
+    annotations:
+      azure.workload.identity/client-id: ""
+  postgres:
+    name: postgres
+    annotations: {}
+  litellm:
+    name: litellm
+    annotations:
+      azure.workload.identity/client-id: ""
+  phoenix:
+    name: phoenix
+    annotations: {}
+
+# --- Entra ID authentication --------------------------------------------------
+
+auth:
+  entraId:
+    enabled: true
+    tenantId: ""
+    clientId: ""
+  keycloak:
+    enabled: false
+
+# --- Ingress (nginx — cheap, ~$18/mo Standard LB) ----------------------------
+
+ingressRoutes:
+  enabled: true
+  className: nginx
+  stronghold:
+    host: stronghold.example.com
+  litellm:
+    host: litellm.internal.example.com
+  phoenix:
+    host: phoenix.internal.example.com
+
+# --- NetworkPolicy (Azure CNI + Calico) ---------------------------------------
+
+networkPolicy:
+  enabled: true
+  ingressOpen: false
+
+# --- Core stack (2x on-demand B2ms nodes) ------------------------------------
+#
+# stronghold-api runs replicas=2 with anti-affinity across on-demand nodes.
+# litellm and phoenix run replicas=1 — litellm is a stateless proxy,
+# phoenix is a single-writer OTEL collector.
+
+strongholdApi:
+  replicas: 2
+  image:
+    registry: ""
+    repository: stronghold/stronghold-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+litellmProxy:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+phoenixSvc:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# --- HPA (stronghold-api only) -----------------------------------------------
+
+autoscaling:
+  strongholdApi:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+    scaleUpStabilization: 0
+    scaleUpMaxPods: 2
+    scaleDownStabilization: 300
+  litellm:
+    enabled: false
+
+# --- Builders (always-warm, on-demand nodes) ----------------------------------
+
+builders:
+  enabled: true
+  replicas: 1
+  image:
+    registry: ""
+    repository: stronghold/stronghold-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  maxConcurrency: 10
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1500m
+      memory: 2560Mi  # 2.5Gi — pytest + mypy + ruff subprocesses
+  nodeSelector:
+    kubernetes.azure.com/scalesetpriority: ""  # empty = on-demand (no spot label)
+  tolerations: []
+  workspace:
+    create: true
+    size: 2Gi
+    storageClassName: managed-csi
+
+# --- Builders Spot (KEDA-scaled, spot nodes) ----------------------------------
+
+buildersSpot:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1500m
+      memory: 2560Mi
+
+# --- KEDA ---------------------------------------------------------------------
+
+keda:
+  enabled: true
+  builders:
+    minReplicas: 0
+    maxReplicas: 5
+    pollingInterval: 30
+    cooldownPeriod: 300
+    threshold: "1"
+    # Point at stronghold-api /metrics endpoint directly.
+    # KEDA prometheus scaler needs a Prometheus server that scrapes this.
+    # For simple setups, use the metrics-api scaler instead (see INSTALL-AKS.md).
+    prometheusAddress: "http://prometheus-server.monitoring.svc.cluster.local:80"
+
+# --- MCP servers --------------------------------------------------------------
+
+mcp:
+  github:
+    devMode: false

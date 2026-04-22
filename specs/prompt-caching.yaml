@@ -1,0 +1,56 @@
+# Spec: Prompt Caching Support
+# Issue: Reduce Opus input token cost by marking stable context with cache_control breakpoints
+
+issue_number: 1001
+title: "Add prompt caching support to ContextBuilder"
+status: active
+complexity: M
+
+protocols_touched:
+  - ContextBuilder
+
+files_touched:
+  - src/stronghold/agents/context_builder.py
+  - tests/agents/test_context_caching.py
+
+acceptance_criteria:
+  - "inject_cache_breakpoints() marks the first system content block with cache_control ephemeral"
+  - "Dynamic content (learnings) is NOT marked with cache_control"
+  - "Messages without a system message pass through unchanged"
+  - "Already-annotated messages are not double-annotated"
+  - "String system content is split at the <stronghold:corrections> boundary into cached (soul) and uncached (learnings) blocks"
+  - "ContextBuilder.build() accepts enable_cache_breakpoints kwarg"
+  - "When enabled, the returned system message uses content-block format with cache_control"
+  - "When disabled (default), behavior is unchanged from before"
+
+invariants:
+  - name: cache_only_stable_prefix
+    description: "Only the soul/stable prefix gets cache_control; dynamic learnings never do"
+    kind: postcondition
+    expression: "all(block.get('cache_control') is None for block in dynamic_blocks)"
+    protocol: ContextBuilder
+    severity: high
+
+  - name: idempotent_annotation
+    description: "Applying inject_cache_breakpoints twice produces the same result as once"
+    kind: state_invariant
+    expression: "inject_cache_breakpoints(inject_cache_breakpoints(msgs)) == inject_cache_breakpoints(msgs)"
+    severity: high
+
+  - name: message_count_preserved
+    description: "inject_cache_breakpoints never adds or removes messages"
+    kind: postcondition
+    expression: "len(output) == len(input)"
+    severity: critical
+
+  - name: non_system_untouched
+    description: "User and assistant messages are never modified"
+    kind: postcondition
+    expression: "all(out == inp for out, inp in zip(output, input) if inp['role'] != 'system')"
+    severity: critical
+
+  - name: backward_compatible_default
+    description: "ContextBuilder.build() without enable_cache_breakpoints returns string content"
+    kind: postcondition
+    expression: "isinstance(system_msg['content'], str)"
+    severity: critical

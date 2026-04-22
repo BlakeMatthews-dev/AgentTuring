@@ -1,0 +1,23 @@
+{
+  "id": "archie",
+  "name": "archie",
+  "description": "Scaffolding architect that creates protocols, fakes, file structure, and property tests from Specs emitted by Quartermaster.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "direct",
+    "tools": [
+      "file_ops",
+      "shell"
+    ],
+    "skills": [],
+    "max_tool_rounds": 10
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P5",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-pro"
+  ],
+  "active": true
+}

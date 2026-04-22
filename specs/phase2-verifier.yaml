@@ -1,0 +1,87 @@
+# Spec 1009: Real SpecVerifier implementation
+# Runs generated property tests and reports coverage/failures
+
+issue_number: 1009
+title: "Implement real SpecVerifier that runs property tests"
+status: active
+complexity: L
+
+protocols_touched:
+  - SpecVerifier
+
+files_touched:
+  - src/stronghold/builders/verifier.py
+  - tests/builders/test_verifier.py
+
+acceptance_criteria:
+  - "SpecVerifier.verify() checks stage result against spec invariants"
+  - "Coverage is computed as property_tests covering invariants / total invariants"
+  - "Failures list invariants that were violated"
+  - "Passes when all invariants have property tests and none are violated"
+  - "Works with empty invariants (trivially passes)"
+  - "Reports which specific invariants failed"
+
+invariants:
+  - name: coverage_accurate
+    description: "Coverage pct matches actual property test coverage"
+    kind: postcondition
+    expression: "coverage == covered_count / total_count * 100"
+    severity: critical
+
+  - name: empty_passes
+    description: "Spec with no invariants trivially passes verification"
+    kind: postcondition
+    expression: "verify(empty_spec) -> passed=True"
+    severity: high
+
+  - name: uncovered_fails
+    description: "Spec with uncovered invariants fails verification"
+    kind: postcondition
+    expression: "len(uncovered) > 0 -> passed=False"
+    severity: critical
+
+  - name: failures_specific
+    description: "Each failure message identifies the invariant by name"
+    kind: postcondition
+    expression: "all(inv_name in failure for failure in failures)"
+    severity: high
+---
+# Spec 1010: Auditor gates on spec invariant coverage
+
+issue_number: 1010
+title: "Auditor gates on invariant coverage in review stage"
+status: active
+complexity: M
+
+protocols_touched:
+  - ViolationStore
+
+files_touched:
+  - src/stronghold/types/feedback.py
+  - tests/orchestrator/test_pipeline.py
+
+acceptance_criteria:
+  - "SPEC_COVERAGE_GAP added to ViolationCategory"
+  - "When Auditor reviews a PR, uncovered invariants produce SPEC_COVERAGE_GAP findings"
+  - "Severity is CRITICAL for uncovered invariants"
+  - "Clean spec coverage produces no SPEC_COVERAGE_GAP findings"
+  - "Auditor can still review PRs without a Spec (backward compatible)"
+
+invariants:
+  - name: uncovered_produces_finding
+    description: "Each uncovered invariant produces a ReviewFinding"
+    kind: postcondition
+    expression: "len(findings) >= len(uncovered_invariants)"
+    severity: critical
+
+  - name: covered_no_finding
+    description: "Fully covered spec produces no coverage findings"
+    kind: postcondition
+    expression: "uncovered == () -> no SPEC_COVERAGE_GAP findings"
+    severity: high
+
+  - name: backward_compatible
+    description: "No spec -> no coverage findings, review proceeds normally"
+    kind: postcondition
+    expression: "no spec -> no SPEC_COVERAGE_GAP in findings"
+    severity: critical

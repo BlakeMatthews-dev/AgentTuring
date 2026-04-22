@@ -1,5 +1,7 @@
 """Tests for 7-tier weight mechanics."""
 
+import pytest
+
 from stronghold.memory.episodic.tiers import clamp_weight, decay, reinforce
 from stronghold.types.memory import WEIGHT_BOUNDS, EpisodicMemory, MemoryTier
 
@@ -65,29 +67,20 @@ class TestDecayMechanics:
 
 
 class TestAllTiers:
-    def test_observation_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.OBSERVATION, 0.0) == 0.1
-        assert clamp_weight(MemoryTier.OBSERVATION, 1.0) == 0.5
-
-    def test_hypothesis_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.HYPOTHESIS, 0.0) == 0.2
-        assert clamp_weight(MemoryTier.HYPOTHESIS, 1.0) == 0.6
-
-    def test_opinion_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.OPINION, 0.0) == 0.3
-        assert clamp_weight(MemoryTier.OPINION, 1.0) == 0.8
-
-    def test_lesson_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.LESSON, 0.0) == 0.5
-        assert clamp_weight(MemoryTier.LESSON, 1.0) == 0.9
-
-    def test_affirmation_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.AFFIRMATION, 0.0) == 0.6
-        assert clamp_weight(MemoryTier.AFFIRMATION, 1.0) == 1.0
-
-    def test_wisdom_bounds(self) -> None:
-        assert clamp_weight(MemoryTier.WISDOM, 0.0) == 0.9
-        assert clamp_weight(MemoryTier.WISDOM, 1.0) == 1.0
+    @pytest.mark.parametrize(
+        "tier,floor,ceiling",
+        [
+            (MemoryTier.OBSERVATION, 0.1, 0.5),
+            (MemoryTier.HYPOTHESIS, 0.2, 0.6),
+            (MemoryTier.OPINION, 0.3, 0.8),
+            (MemoryTier.LESSON, 0.5, 0.9),
+            (MemoryTier.AFFIRMATION, 0.6, 1.0),
+            (MemoryTier.WISDOM, 0.9, 1.0),
+        ],
+    )
+    def test_tier_bounds(self, tier: MemoryTier, floor: float, ceiling: float) -> None:
+        assert clamp_weight(tier, 0.0) == floor
+        assert clamp_weight(tier, 1.0) == ceiling
 
 
 class TestReinforcementChain:

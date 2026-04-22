@@ -48,6 +48,10 @@ dev = [
     "hypothesis>=6.0.0",
     "diff-cover>=9.0.0",
     "fakeredis>=2.20.0",
+    "aiosqlite>=0.20.0",
+    "xenon>=0.9.0",
+    "vulture>=2.11",
+    "semgrep>=1.80.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -92,13 +96,10 @@ source = ["stronghold"]
 omit = ["src/stronghold/persistence/pg_*.py"]
 
 [tool.coverage.report]
-# Per-tier coverage enforced in CI (integration plays the role the retired
-# `develop` tier used to). Local pytest uses the lowest bar so devs aren't
-# blocked on feature branches; CI bumps it per target base.
-#   feature/*   → 85% diff coverage
-#   integration → 90% total coverage
-#   main        → 95% diff coverage (release workflow)
-fail_under = 85
+# No global fail_under — CI workflows enforce per-tier:
+#   feature/* PRs: 85% diff coverage
+#   integration PRs: 90% total coverage (QA gate)
+#   main PRs: 95% diff coverage (release gate, release.yml)
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

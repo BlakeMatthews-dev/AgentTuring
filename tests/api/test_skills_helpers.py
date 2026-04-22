@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+from fastapi import HTTPException
+
 from stronghold.api.routes.skills import (
     _ensure_skill_body,
     _sanitize_generated_skill,
@@ -146,7 +149,7 @@ class TestSanitizeGeneratedSkill:
 
 class TestEnsureSkillBody:
     def test_adds_body_when_only_frontmatter(self) -> None:
-        content = '---\nname: my_skill\ndescription: "Does stuff"\n---'
+        content = "---\nname: my_skill\ndescription: \"Does stuff\"\n---"
         result = _ensure_skill_body(content)
         assert "---" in result
         assert "does stuff" in result.lower()

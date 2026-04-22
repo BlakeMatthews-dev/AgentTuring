@@ -5,20 +5,31 @@ Production deployments should use PgOAuthStore (backed by PostgreSQL).
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, runtime_checkable
 
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
+
 from stronghold.mcp.oauth.types import AuthorizationCode, OAuthClient, OAuthToken, TokenClaims
+
+_PASSWORD_HASHER = PasswordHasher()
 
 
 def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
+    return _PASSWORD_HASHER.hash(token)
 
 
 def _hash_secret(secret: str) -> str:
-    return hashlib.sha256(secret.encode()).hexdigest()
+    return _PASSWORD_HASHER.hash(secret)
+
+
+def _verify_hash(value: str, hashed_value: str) -> bool:
+    try:
+        return _PASSWORD_HASHER.verify(hashed_value, value)
+    except (VerifyMismatchError, InvalidHashError):
+        return False
 
 
 @runtime_checkable
@@ -64,8 +75,11 @@ class InMemoryOAuthStore:
         self._tokens[token.token_hash] = token
 
     async def validate_token(self, token_value: str) -> TokenClaims | None:
-        token_hash = _hash_token(token_value)
-        token = self._tokens.get(token_hash)
+        token: OAuthToken | None = None
+        for stored_token in self._tokens.values():
+            if _verify_hash(token_value, stored_token.token_hash):
+                token = stored_token
+                break
         if token is None or token.revoked:
             return None
         if token.expires_at < datetime.now(UTC):
@@ -79,12 +93,11 @@ class InMemoryOAuthStore:
         )
 
     async def revoke_token(self, token_value: str) -> bool:
-        token_hash = _hash_token(token_value)
-        token = self._tokens.get(token_hash)
-        if token is None:
-            return False
-        token.revoked = True
-        return True
+        for token in self._tokens.values():
+            if _verify_hash(token_value, token.token_hash):
+                token.revoked = True
+                return True
+        return False
 
 
 def generate_client_credentials() -> tuple[str, str]:

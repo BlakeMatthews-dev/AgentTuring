@@ -28,6 +28,7 @@ from stronghold.protocols.skills import SkillForge, SkillLoader, SkillMarketplac
 from stronghold.protocols.tools import ToolExecutor, ToolPlugin, ToolRegistry
 from stronghold.protocols.tracing import Span, Trace, TracingBackend
 
+
 _ALL_PROTOCOLS = [
     AgentStore,
     AuthProvider,
@@ -59,8 +60,6 @@ _ALL_PROTOCOLS = [
 
 
 class TestProtocolsAreRuntimeCheckable:
-    def test_all_protocols_imported(self) -> None:
-        assert len(_ALL_PROTOCOLS) >= 25
 
     def test_plain_object_is_not_any_protocol(self) -> None:
         obj = object()

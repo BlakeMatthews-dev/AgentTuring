@@ -84,3 +84,22 @@ def automation_min_tier(user_text: str, base_min_tier: str) -> str:
     if TIER_ORDER.get(base_min_tier, 0) < TIER_ORDER["medium"]:
         return "medium"
     return base_min_tier
+
+
+_PLANNER_TIER_MAP: dict[str, str] = {
+    "simple": "medium",
+    "moderate": "large",
+    "complex": "frontier",
+}
+
+
+def planner_model_tier(complexity: str, *, override: str | None = None) -> str:
+    """Select planner model tier based on issue complexity.
+
+    Simple issues route to medium (Sonnet-class) to save Opus budget.
+    Moderate/complex issues route to large/frontier (Opus-class) where
+    planning quality affects outcomes.
+    """
+    if override is not None:
+        return override
+    return _PLANNER_TIER_MAP.get(complexity, "large")

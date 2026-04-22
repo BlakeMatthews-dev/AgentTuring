@@ -105,16 +105,18 @@ async def exchange_token(
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except httpx.RequestError as e:
-        logger.error("IdP exchange network error: %s", e)
+        logger.error("IdP code-exchange network error: %s", e)
         raise HTTPException(
             status_code=502,
             detail="Could not reach identity provider",
         ) from e
 
     if idp_resp.status_code != 200:
-        # Log only the HTTP status — response body may contain sensitive IdP
-        # error metadata (invalid_grant details, authorization codes, etc).
-        logger.warning("IdP exchange failed with status=%s", idp_resp.status_code)
+        logger.warning(
+            "IdP code-exchange returned non-200 status=%s body=%s",
+            idp_resp.status_code,
+            idp_resp.text[:200],
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Identity provider returned {idp_resp.status_code}",

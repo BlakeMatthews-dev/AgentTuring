@@ -20,10 +20,14 @@ concurrency:
   group: drift-check
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   drift:
     name: Full Repo Quality Check
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,32 +41,33 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
-      # NOTE: each check uses `set -o pipefail` via the default bash runner,
-      # so the pipe to `tee` preserves the tool's exit code. The summary step
-      # reads steps.X.outcome (NOT outputs) to decide drift, so no per-step
-      # error-count output is needed — earlier revisions had a `grep -c ... ||
-      # echo 0` tail that flipped outcome to failure under `set -e` and opened
-      # a spurious drift issue (#1125).
-
       - name: Ruff check (full)
         id: ruff_check
         continue-on-error: true
-        run: ruff check src/stronghold/ 2>&1 | tee /tmp/ruff-check.txt
+        run: |
+          ruff check src/stronghold/ 2>&1 | tee /tmp/ruff-check.txt
+          echo "errors=$(grep -c 'Found [0-9]' /tmp/ruff-check.txt || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Ruff format (full)
         id: ruff_format
         continue-on-error: true
-        run: ruff format --check src/stronghold/ 2>&1 | tee /tmp/ruff-format.txt
+        run: |
+          ruff format --check src/stronghold/ 2>&1 | tee /tmp/ruff-format.txt
+          echo "errors=$(grep -c 'would be reformatted' /tmp/ruff-format.txt || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Mypy strict (full)
         id: mypy
         continue-on-error: true
-        run: mypy src/stronghold/ --strict 2>&1 | tee /tmp/mypy.txt
+        run: |
+          mypy src/stronghold/ --strict 2>&1 | tee /tmp/mypy.txt
+          echo "errors=$(grep -c 'error:' /tmp/mypy.txt || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Bandit (full)
         id: bandit
         continue-on-error: true
-        run: bandit -r src/stronghold/ -ll --skip B608 2>&1 | tee /tmp/bandit.txt
+        run: |
+          bandit -r src/stronghold/ -ll --skip B608 2>&1 | tee /tmp/bandit.txt
+          echo "errors=$(grep -c 'Issue:' /tmp/bandit.txt || echo 0)" >> "$GITHUB_OUTPUT"
 
       - name: Check for drift
         id: summary

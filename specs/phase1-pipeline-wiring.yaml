@@ -1,0 +1,82 @@
+# Spec 1006: Quartermaster saves Spec to SpecStore during decompose stage
+# The pipeline's decompose stage calls emit_spec() and persists the result
+
+issue_number: 1006
+title: "Quartermaster saves emitted Spec to SpecStore during pipeline execution"
+status: active
+complexity: M
+
+protocols_touched:
+  - SpecStore
+  - BuilderPipeline
+
+files_touched:
+  - src/stronghold/orchestrator/pipeline.py
+  - tests/orchestrator/test_pipeline.py
+
+acceptance_criteria:
+  - "When decompose stage completes, emit_spec() is called with the stage output"
+  - "Emitted Spec is saved to SpecStore"
+  - "If skip_decompose=True, spec is still emitted from issue metadata"
+  - "Subsequent stages can retrieve the Spec from SpecStore"
+  - "Pipeline continues normally after spec emission"
+  - "If SpecStore is not configured, no emission occurs"
+
+invariants:
+  - name: spec_persisted_after_decompose
+    description: "After decompose (or skip), SpecStore contains a Spec for the issue"
+    kind: postcondition
+    expression: "await store.get(issue_number) is not None"
+    severity: critical
+
+  - name: spec_matches_issue
+    description: "Persisted Spec has correct issue_number and title"
+    kind: postcondition
+    expression: "spec.issue_number == issue_number and spec.title == title"
+    severity: critical
+
+  - name: no_store_no_emission
+    description: "Without SpecStore, pipeline runs normally with no emission"
+    kind: postcondition
+    expression: "pipeline runs without error"
+    severity: high
+---
+# Spec 1007: Archie enriches Spec with property tests during scaffold stage
+
+issue_number: 1007
+title: "Archie enriches Spec with generated property tests during scaffold"
+status: active
+complexity: M
+
+protocols_touched:
+  - SpecStore
+
+files_touched:
+  - src/stronghold/orchestrator/pipeline.py
+  - tests/orchestrator/test_pipeline.py
+
+acceptance_criteria:
+  - "After scaffold stage, Spec in SpecStore has property_tests populated"
+  - "generate_property_tests() is called with the current Spec"
+  - "Updated Spec has uncovered_invariants == ()"
+  - "If no Spec exists in store, scaffold runs normally without enrichment"
+  - "Spec status transitions from ACTIVE to ACTIVE (unchanged)"
+
+invariants:
+  - name: property_tests_populated
+    description: "After scaffold, Spec.property_tests is non-empty if invariants exist"
+    kind: postcondition
+    expression: "len(spec.property_tests) == len(spec.invariants)"
+    severity: critical
+
+  - name: full_coverage
+    description: "After scaffold, no invariants are uncovered"
+    kind: postcondition
+    expression: "spec.uncovered_invariants == ()"
+    severity: high
+
+  - name: no_spec_no_enrichment
+    description: "Without a Spec, scaffold runs normally"
+    kind: postcondition
+    expression: "pipeline completes without error"
+    severity: high

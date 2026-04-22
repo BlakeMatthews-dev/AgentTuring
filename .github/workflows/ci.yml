@@ -4,34 +4,43 @@ on:
   push:
     branches-ignore:
       - main
-      - develop
+      - integration
       - 'feature/**'
   pull_request:
     branches:
       - 'feature/**'
       - integration
-      - develop
+      - main
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Type Check
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up venv
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system deps
         run: |
-          python3 -m venv .venv
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          command -v psql && exit 0 || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: flock /tmp/stronghold-pip.lock pip install -e ".[dev]"
 
       # Option 1: full-codebase ruff (fast, ~100ms, catches drift)
       - name: Ruff check (full codebase)
@@ -61,17 +70,40 @@ jobs:
         if: steps.changed.outputs.files != ''
         run: bandit ${{ steps.changed.outputs.files }} -ll -q --skip B608
 
+      # Quality gates (issue #1035, #1036 — CI debt closeout)
+
+      - name: "Xenon complexity (warn-only baseline)"
+        # Rationale (#1036): current state has rank-E blocks (skills/fixer.py)
+        # and rank-D modules (agents/base.py, api/routes/admin.py). Shipping
+        # as warn-only for v1 rollout so CI goes green on merge; follow-up
+        # refactors will progressively tighten to --max-absolute C, then B.
+        # This mirrors pip-audit (also warn-only) and the staged rollout
+        # pattern in docs/test-quality-audit-and-ci-gate-proposal.md.
+        run: xenon --max-absolute C --max-modules C --max-average C src/stronghold/ || true
+
+      - name: "Vulture dead-code (min confidence 100)"
+        # Rationale (#1035): Protocol method parameters are "unused" by definition.
+        # .vulture_whitelist.py references them to suppress the false positives
+        # while still catching real dead code (unused helpers, imports, classes).
+        run: vulture src/stronghold/ .vulture_whitelist.py --min-confidence 100
+
   security:
     name: Security Tests
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
-      - name: Set up venv
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system deps
         run: |
-          python3 -m venv .venv
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          command -v psql && exit 0 || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: flock /tmp/stronghold-pip.lock pip install -e ".[dev]"
       - name: "Warden + Sentinel + Gate"
         run: pytest tests/security/test_gate.py tests/security/test_gate_sufficiency.py tests/security/test_sentinel_pipeline.py tests/security/test_sentinel_post_call.py tests/security/test_warden_extended.py tests/security/test_warden_heuristics.py tests/security/test_warden_isolation.py tests/security/test_pii_filter.py tests/security/test_semantic_poisoning.py -v --tb=short
       - name: "Adversarial + prompt injection"
@@ -87,21 +119,58 @@ jobs:
 
   sast:
     name: SAST & Supply Chain
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
     steps:
       - uses: actions/checkout@v4
-      - name: Set up venv
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system deps
         run: |
-          python3 -m venv .venv
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          command -v psql && exit 0 || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
       - name: Install dependencies
-        run: pip install -e ".[dev]" pip-audit
+        run: flock /tmp/stronghold-pip.lock pip install -e ".[dev]" pip-audit
 
       - name: "Bandit SAST (full codebase)"
         run: bandit -r src/stronghold/ -ll -q --skip B608
 
       - name: "pip-audit (dependency CVEs)"
         run: pip-audit --strict --desc 2>&1 || true
+
+      # New security gates (issue #1034, #1032, #1038 — CI debt closeout)
+
+      - name: "Semgrep SAST (Flask + Python + secrets rulesets, blocking)"
+        # Rationale (#1038): Semgrep surfaced 5 logger-credential-disclosure
+        # findings + 1 Flask format-string vulnerability that Bandit missed.
+        # Run the three rulesets that caught real issues.
+        run: semgrep --config p/flask --config p/secrets --config p/python --error --skip-unknown-extensions src/stronghold/
+
+      - name: "Gitleaks (blocking, with .gitleaks.toml allowlist)"
+        # Rationale (#1034): doc examples in scan-report.js were false-positives.
+        # .gitleaks.toml allowlists the dashboard file and test fixtures.
+        run: |
+          if ! command -v gitleaks >/dev/null; then
+            GITLEAKS_VERSION=8.21.2
+            curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+              | sudo tar -xz -C /usr/local/bin gitleaks
+          fi
+          gitleaks detect --config=.gitleaks.toml --source=. --no-banner --exit-code=1
+
+      - name: "Hadolint (Dockerfile, blocking)"
+        # Rationale (#1032): DL3008 (pin apt versions) ignored inline — git version
+        # pinning would rot faster than CI can update.
+        run: |
+          if ! command -v hadolint >/dev/null; then
+            HADOLINT_VERSION=2.14.0
+            sudo curl -sSL -o /usr/local/bin/hadolint \
+              "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+            sudo chmod +x /usr/local/bin/hadolint
+          fi
+          hadolint Dockerfile
 
       - name: "Secret detection (hardcoded keys, tokens, passwords)"
         run: |
@@ -157,7 +226,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: [self-hosted, stronghold]
+    runs-on: k3s-runners
 
     env:
       ROUTER_API_KEY: sk-ci-test-key-minimum-32-characters
@@ -166,13 +235,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up venv
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system deps
         run: |
-          python3 -m venv .venv
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          command -v psql && exit 0 || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client >/dev/null
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: flock /tmp/stronghold-pip.lock pip install -e ".[dev]"
+
+      - name: Start CI postgres
+        run: |
+          docker rm -f ci-postgres 2>/dev/null || true
+          docker run -d --name ci-postgres \
+            -e POSTGRES_USER=stronghold \
+            -e POSTGRES_PASSWORD=stronghold \
+            -e POSTGRES_DB=stronghold \
+            -p 5433:5432 \
+            --security-opt apparmor=unconfined \
+            pgvector/pgvector:pg17
+          echo "Waiting for postgres to be ready..."
+          READY=false
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5433 -U stronghold 2>/dev/null; then
+              echo "Postgres ready after ${i}s"
+              READY=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" != "true" ]; then
+            echo "::error::Postgres failed to start within 30s"
+            docker logs ci-postgres 2>&1 | tail -20
+            exit 1
+          fi
 
       - name: Start CI postgres
         run: |
@@ -233,8 +334,8 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-fail-under=85
 
-      - name: "Tier 3: Full test suite (PR to develop)"
-        if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+      - name: "Tier 3: Full test suite + 90% coverage (PR to integration or main)"
+        if: github.event_name == 'pull_request' && (github.base_ref == 'integration' || github.base_ref == 'main')
         env:
           DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
@@ -243,7 +344,8 @@ jobs:
             -m "not perf" \
             --cov=stronghold \
             --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=90
 
       - name: Upload coverage
         if: always() && hashFiles('coverage.xml')

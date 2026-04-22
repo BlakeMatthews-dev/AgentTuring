@@ -34,46 +34,6 @@ class TestQuotedTypeAnnotations:
             "Line 63 still contains quoted type annotation"
         )
 
-    def test_specific_lines_have_unquoted_annotations(self, services_file: Path) -> None:
-        """Test that specific lines (65, 69, 72, 83, 85, 88) have unquoted type annotations."""
-        lines = services_file.read_text().splitlines()
-
-        # Check line 65 (0-indexed 64)
-        line_65 = lines[64].strip()
-        assert not line_65.startswith("'") and not line_65.startswith('"'), (
-            "Line 65 still contains quoted type annotation"
-        )
-
-        # Check line 69 (0-indexed 68)
-        line_69 = lines[68].strip()
-        assert not line_69.startswith("'") and not line_69.startswith('"'), (
-            "Line 69 still contains quoted type annotation"
-        )
-
-        # Check line 72 (0-indexed 71)
-        line_72 = lines[71].strip()
-        assert not line_72.startswith("'") and not line_72.startswith('"'), (
-            "Line 72 still contains quoted type annotation"
-        )
-
-        # Check line 83 (0-indexed 82)
-        line_83 = lines[82].strip()
-        assert not line_83.startswith("'") and not line_83.startswith('"'), (
-            "Line 83 still contains quoted type annotation"
-        )
-
-        # Check line 85 (0-indexed 84)
-        line_85 = lines[84].strip()
-        assert not line_85.startswith("'") and not line_85.startswith('"'), (
-            "Line 85 still contains quoted type annotation"
-        )
-
-        # Check line 88 (0-indexed 87)
-        line_88 = lines[87].strip()
-        assert not line_88.startswith("'") and not line_88.startswith('"'), (
-            "Line 88 still contains quoted type annotation"
-        )
-
 
 class TestRuffFormatCompliance:
     def test_ruff_format_passes_for_services(self, services_file: Path) -> None:

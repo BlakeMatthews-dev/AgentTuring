@@ -225,7 +225,7 @@ class TestBrowseSkills:
             resp = client.get("/v1/stronghold/marketplace/skills", headers=AUTH_HEADER)
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
+        # Iteration below + ``len()`` enforces sequence-shape behaviourally.
         assert len(data) > 0
         # Should have both clawhub and claude demo items
         sources = {item.get("source_type") for item in data}
@@ -313,8 +313,9 @@ class TestBrowseAgents:
             resp = client.get("/v1/stronghold/marketplace/agents", headers=AUTH_HEADER)
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
         assert len(data) > 0
+        # Behavioural list contract: every entry is addressable via
+        # ``.get("name")`` — a non-list or non-dict entry would raise.
         assert any(item.get("name") == "code-reviewer" for item in data)
 
     @respx.mock
@@ -399,39 +400,33 @@ class TestScanItem:
             )
         assert resp.status_code == 400
 
-    def test_scan_ssrf_private_ip_returns_400(self, marketplace_app: FastAPI) -> None:
-        """SSRF protection: private IPs should be blocked."""
+    @pytest.mark.parametrize("url", [
+        "http://10.0.0.1/skill.md",                                    # RFC1918 private
+        "http://127.0.0.1:8080/skill.md",                              # loopback
+        "http://localhost:8080/skill.md",                              # loopback by name
+        "http://metadata.google.internal/computeMetadata/v1/",         # cloud metadata
+        "http://169.254.169.254/latest/meta-data/",                    # AWS metadata IP
+    ])
+    def test_scan_ssrf_blocks_internal_targets(
+        self, marketplace_app: FastAPI, url: str,
+    ) -> None:
+        """SSRF protection must block every class of internal/cloud-metadata target.
+
+        If any of these slip through, a scan could be used to read internal
+        infra from the server side.
+        """
         with TestClient(marketplace_app) as client:
             resp = client.post(
                 "/v1/stronghold/marketplace/scan",
-                json={"url": "http://10.0.0.1/skill.md", "type": "skill"},
+                json={"url": url, "type": "skill"},
                 headers=AUTH_HEADER,
             )
-        assert resp.status_code == 400
-        assert (
-            "blocked" in resp.json()["detail"].lower() or "private" in resp.json()["detail"].lower()
+        assert resp.status_code == 400, f"SSRF target not blocked: {url!r}"
+        detail = resp.json()["detail"].lower()
+        # The detail must name the policy, not leak the internal target.
+        assert any(k in detail for k in ("blocked", "private", "ssrf", "not allowed", "forbidden")), (
+            f"400 detail does not explain SSRF block: {detail!r}"
         )
-
-    def test_scan_ssrf_localhost_returns_400(self, marketplace_app: FastAPI) -> None:
-        with TestClient(marketplace_app) as client:
-            resp = client.post(
-                "/v1/stronghold/marketplace/scan",
-                json={"url": "http://localhost:8080/skill.md", "type": "skill"},
-                headers=AUTH_HEADER,
-            )
-        assert resp.status_code == 400
-
-    def test_scan_ssrf_metadata_returns_400(self, marketplace_app: FastAPI) -> None:
-        with TestClient(marketplace_app) as client:
-            resp = client.post(
-                "/v1/stronghold/marketplace/scan",
-                json={
-                    "url": "http://metadata.google.internal/computeMetadata/v1/",
-                    "type": "skill",
-                },
-                headers=AUTH_HEADER,
-            )
-        assert resp.status_code == 400
 
     @respx.mock
     def test_scan_skill_non_demo_url_success(self, marketplace_app: FastAPI) -> None:
@@ -782,8 +777,9 @@ class TestImportItem:
             )
         assert resp.status_code == 400
 
-    def test_import_malicious_skill_auto_fix_or_block(self, marketplace_app: FastAPI) -> None:
-        """Import of malicious content should auto-fix or block (403 if deeply flawed)."""
+    def test_import_deeply_malicious_skill_has_defined_outcome(self, marketplace_app: FastAPI) -> None:
+        """A deeply-malicious skill must either be blocked (403) OR auto-fixed
+        to safe content (200 with deeply_flawed=False)."""
         malicious_content = (
             "---\nname: evil_skill\ndescription: Evil\ngroups: [evil]\n"
             "parameters:\n  type: object\n  properties:\n    x:\n      type: string\n"
@@ -807,8 +803,29 @@ class TestImportItem:
                 },
                 headers=AUTH_HEADER,
             )
-        # Should be blocked as deeply flawed (403) or auto-fixed
-        assert resp.status_code in (200, 403)
+        # Exactly one of these branches must hold. A 500 or silent 200 with
+        # deeply_flawed=True is a regression.
+        code = resp.status_code
+        if code == 403:
+            # Blocked path: must name the reason.
+            detail = resp.json().get("detail", "").lower()
+            assert (
+                "deeply" in detail or "malicious" in detail or "blocked" in detail
+                or "flawed" in detail or "unsafe" in detail
+            ), f"403 detail does not explain the block: {detail!r}"
+        elif code == 200:
+            # Auto-fix path: the imported skill must NOT still be deeply_flawed.
+            data = resp.json()
+            assert data.get("deeply_flawed") is not True, (
+                f"malicious content was imported without being fixed: {data!r}"
+            )
+        else:
+            msg = (
+                f"Malicious import returned unexpected status {code}; "
+                f"only 200 (auto-fixed) or 403 (blocked) are valid outcomes. "
+                f"Body: {resp.text!r}"
+            )
+            raise AssertionError(msg)
 
     def test_import_unauthenticated_returns_401(self, marketplace_app: FastAPI) -> None:
         with TestClient(marketplace_app) as client:

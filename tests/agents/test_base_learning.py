@@ -1,19 +1,23 @@
 """Tests for Agent.handle() learning extraction and RCA paths.
 
 Covers:
-- Lines 366-387: RCA extraction (traced and untraced)
-- Lines 392-407: Learning extraction (traced, corrections + positives)
-- Lines 419-422: Learning extraction (untraced, with org/team)
-- Line 426: Auto-promotion check
-- Lines 467-472: Trace finalization (tool success/fail counts)
+- RCA extraction (traced and untraced)
+- Learning extraction (traced, corrections + positives)
+- Learning extraction (untraced, with org/team)
+- Auto-promotion check
+- Trace finalization (tool success/fail counts)
 
 Uses ReactStrategy with FakeLLMClient to produce tool_history
 with fail->succeed patterns that trigger learning extraction.
+
+Executors are built via `_fail_then_succeed_executor()` / `_always_succeed_executor`
+factories so each test gets a clean instance (no shared state between tests).
 """
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Awaitable, Callable
 
 import pytest
 
@@ -28,6 +32,9 @@ from stronghold.security.warden.detector import Warden
 from stronghold.types.agent import AgentIdentity
 from tests.factories import build_auth_context
 from tests.fakes import FakeLLMClient, NoopTracingBackend
+
+
+ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[str]]
 
 
 def _tool_call_response(
@@ -53,7 +60,7 @@ def _tool_call_response(
                             "type": "function",
                             "function": {
                                 "name": tool_name,
-                                "arguments": __import__("json").dumps(arguments),
+                                "arguments": json.dumps(arguments),
                             },
                         }
                     ],
@@ -66,7 +73,6 @@ def _tool_call_response(
 
 
 def _text_response(content: str) -> dict[str, Any]:
-    """Build a normal text LLM response."""
     return {
         "id": "chatcmpl-text",
         "object": "chat.completion",
@@ -82,19 +88,25 @@ def _text_response(content: str) -> dict[str, Any]:
     }
 
 
-async def _fake_tool_executor(tool_name: str, args: dict[str, Any]) -> str:
-    """Executor that fails on first call, succeeds on second."""
-    if not hasattr(_fake_tool_executor, "_call_count"):
-        _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-    counts = _fake_tool_executor._call_count  # type: ignore[attr-defined]
-    counts[tool_name] = counts.get(tool_name, 0) + 1
-    if counts[tool_name] == 1:
-        return "Error: entity_id 'light.wrong' not found"
-    return "Success: light turned on"
+def _fail_then_succeed_executor() -> tuple[ToolExecutor, list[dict[str, Any]]]:
+    """Return (executor, call_log). First call per tool errors; later calls succeed.
+
+    Each test gets its own isolated state via the closure — no module-level attrs.
+    """
+    counts: dict[str, int] = {}
+    log: list[dict[str, Any]] = []
+
+    async def _executor(tool_name: str, args: dict[str, Any]) -> str:
+        counts[tool_name] = counts.get(tool_name, 0) + 1
+        log.append({"tool": tool_name, "args": dict(args), "n": counts[tool_name]})
+        if counts[tool_name] == 1:
+            return f"Error: entity_id {args.get('entity_id')!r} not found"
+        return "Success: light turned on"
+
+    return _executor, log
 
 
-async def _succeeding_executor(tool_name: str, args: dict[str, Any]) -> str:
-    """Executor that always succeeds."""
+async def _always_succeed_executor(tool_name: str, args: dict[str, Any]) -> str:
     return "Success: operation completed"
 
 
@@ -105,7 +117,7 @@ async def _make_learning_agent(
     learning_store: InMemoryLearningStore | None = None,
     rca_extractor: RCAExtractor | None = None,
     learning_promoter: LearningPromoter | None = None,
-    tool_executor: Any = None,
+    tool_executor: ToolExecutor | None = None,
     name: str = "test-learning-agent",
 ) -> Agent:
     """Build an Agent with ReactStrategy and learning infrastructure."""
@@ -136,34 +148,28 @@ async def _make_learning_agent(
 
 
 class TestLearningExtractionUntraced:
-    """Learning extraction without tracing (lines 413-422)."""
+    """Learning extraction without tracing."""
 
     @pytest.mark.asyncio
     async def test_corrections_extracted_on_fail_succeed(self) -> None:
-        """Fail->succeed pattern extracts a tool_correction learning."""
-        # Reset the executor call count
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
+        """Fail->succeed pattern extracts a tool_correction learning scoped to org/team."""
         llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
+        store = InMemoryLearningStore()
+        executor, call_log = _fail_then_succeed_executor()
 
-        # Round 0: LLM requests ha_control with wrong args
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.wrong"}),
-            # Round 1: LLM requests ha_control with correct args
             _tool_call_response(
-                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2"
+                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2",
             ),
-            # Round 2: LLM gives final text response
             _text_response("Done, the light is on."),
         )
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
-            tool_executor=_fake_tool_executor,
-            tracer=None,  # Untraced path
+            learning_store=store,
+            tool_executor=executor,
+            tracer=None,
         )
 
         auth = build_auth_context(org_id="org-test", team_id="team-test")
@@ -173,45 +179,45 @@ class TestLearningExtractionUntraced:
         )
 
         assert not result.blocked
-        # Learning should have been stored with org_id and team_id set
-        all_learnings = await learning_store.find_relevant(
+        # Executor was actually hit twice (wrong then right)
+        entity_ids = [c["args"]["entity_id"] for c in call_log]
+        assert entity_ids == ["light.wrong", "light.bedroom"]
+        # Learning stored with correct scope
+        learnings = await store.find_relevant(
             "turn on bedroom light",
             agent_id="test-learning-agent",
             org_id="org-test",
         )
-        assert len(all_learnings) >= 1
-        learning = all_learnings[0]
-        assert learning.agent_id == "test-learning-agent"
-        assert learning.org_id == "org-test"
-        assert learning.team_id == "team-test"
-        assert learning.category == "tool_correction"
+        assert len(learnings) >= 1
+        lr = learnings[0]
+        assert lr.agent_id == "test-learning-agent"
+        assert lr.org_id == "org-test"
+        assert lr.team_id == "team-test"
+        assert lr.category == "tool_correction"
 
 
 class TestLearningExtractionTraced:
-    """Learning extraction with tracing (lines 392-407)."""
+    """Learning extraction with tracing (corrections + positives)."""
 
     @pytest.mark.asyncio
     async def test_traced_corrections_and_positives_extracted(self) -> None:
-        """With tracing, both corrections and positive patterns are extracted."""
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
         llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
+        store = InMemoryLearningStore()
         tracer = NoopTracingBackend()
+        executor, _ = _fail_then_succeed_executor()
 
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.wrong"}),
             _tool_call_response(
-                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2"
+                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2",
             ),
             _text_response("Done."),
         )
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
-            tool_executor=_fake_tool_executor,
+            learning_store=store,
+            tool_executor=executor,
             tracer=tracer,
         )
 
@@ -222,51 +228,45 @@ class TestLearningExtractionTraced:
         )
 
         assert not result.blocked
-        # Should have both correction and positive pattern learnings
-        all_learnings = await learning_store.find_relevant(
+        learnings = await store.find_relevant(
             "turn on bedroom light",
             agent_id="test-learning-agent",
             org_id="org-traced",
         )
-        assert len(all_learnings) >= 1
-        categories = {lr.category for lr in all_learnings}
-        # Traced path extracts both corrections and positives
+        assert len(learnings) >= 1
+        categories = {lr.category for lr in learnings}
         assert "tool_correction" in categories or "positive_pattern" in categories
 
 
 class TestRCAExtractionUntraced:
-    """RCA extraction without tracing (lines 380-387)."""
+    """RCA extraction without tracing."""
 
     @pytest.mark.asyncio
     async def test_rca_stored_when_tool_fails(self) -> None:
-        """RCA learning stored when tool calls have errors (untraced)."""
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
         llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
+        store = InMemoryLearningStore()
+        executor, _ = _fail_then_succeed_executor()
 
-        # RCA extractor needs its own LLM client
         rca_llm = FakeLLMClient()
         rca_llm.set_simple_response(
             "ROOT CAUSE: entity_id was incorrect\n"
-            "PREVENTION: Check entity registry before calling ha_control"
+            "PREVENTION: Check entity registry before calling ha_control",
         )
         rca_extractor = RCAExtractor(llm_client=rca_llm, rca_model="test-rca")
 
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.wrong"}),
             _tool_call_response(
-                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2"
+                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2",
             ),
             _text_response("Done."),
         )
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
+            learning_store=store,
             rca_extractor=rca_extractor,
-            tool_executor=_fake_tool_executor,
+            tool_executor=executor,
             tracer=None,
         )
 
@@ -276,46 +276,44 @@ class TestRCAExtractionUntraced:
             auth,
         )
 
-        # Check that RCA was stored
-        all_learnings = learning_store._learnings
-        rca_learnings = [lr for lr in all_learnings if lr.category == "rca"]
+        rca_learnings = [lr for lr in store._learnings if lr.category == "rca"]
         assert len(rca_learnings) >= 1
-        assert "entity_id" in rca_learnings[0].learning
-        assert rca_learnings[0].agent_id == "test-learning-agent"
+        rca = rca_learnings[0]
+        assert "entity_id" in rca.learning
+        assert rca.agent_id == "test-learning-agent"
+        # RCA LLM was actually invoked with the failing tool history
+        assert len(rca_llm.calls) >= 1
 
 
 class TestRCAExtractionTraced:
-    """RCA extraction with tracing (lines 366-379)."""
+    """RCA extraction with tracing + org/team scoping."""
 
     @pytest.mark.asyncio
     async def test_rca_stored_when_traced(self) -> None:
-        """RCA learning stored with tracing enabled, with org/team populated."""
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
         llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
+        store = InMemoryLearningStore()
         tracer = NoopTracingBackend()
+        executor, _ = _fail_then_succeed_executor()
 
         rca_llm = FakeLLMClient()
         rca_llm.set_simple_response(
-            "ROOT CAUSE: wrong entity_id\nPREVENTION: validate entity first"
+            "ROOT CAUSE: wrong entity_id\nPREVENTION: validate entity first",
         )
         rca_extractor = RCAExtractor(llm_client=rca_llm, rca_model="test-rca")
 
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.wrong"}),
             _tool_call_response(
-                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2"
+                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2",
             ),
             _text_response("Done."),
         )
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
+            learning_store=store,
             rca_extractor=rca_extractor,
-            tool_executor=_fake_tool_executor,
+            tool_executor=executor,
             tracer=tracer,
         )
 
@@ -325,7 +323,7 @@ class TestRCAExtractionTraced:
             auth,
         )
 
-        rca_learnings = [lr for lr in learning_store._learnings if lr.category == "rca"]
+        rca_learnings = [lr for lr in store._learnings if lr.category == "rca"]
         assert len(rca_learnings) >= 1
         rca = rca_learnings[0]
         assert rca.agent_id == "test-learning-agent"
@@ -334,21 +332,19 @@ class TestRCAExtractionTraced:
 
 
 class TestAutoPromotion:
-    """Auto-promotion check (line 426)."""
+    """Auto-promotion runs when existing learnings are relevant to the query."""
 
     @pytest.mark.asyncio
-    async def test_promoter_called_when_learnings_injected(self) -> None:
-        """Auto-promotion runs when agent has injected learnings."""
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
-        llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
-        promoter = LearningPromoter(learning_store, threshold=1)
-
-        # Pre-populate a learning so it will be "injected" during handle
+    async def test_promoter_promotes_learning_above_threshold(self) -> None:
+        """Real promoter pushes a heavily-hit learning from AGENT -> TEAM scope."""
         from stronghold.types.memory import Learning, MemoryScope
 
+        llm = FakeLLMClient()
+        store = InMemoryLearningStore()
+        # Low threshold so the existing learning's hit_count clears it
+        promoter = LearningPromoter(store, threshold=1)
+
+        # Pre-populate a learning that will match the query and get hit again
         existing = Learning(
             category="tool_correction",
             trigger_keys=["bedroom", "light"],
@@ -356,9 +352,9 @@ class TestAutoPromotion:
             tool_name="ha_control",
             agent_id="test-learning-agent",
             scope=MemoryScope.AGENT,
-            hit_count=2,
+            hit_count=5,
         )
-        await learning_store.store(existing)
+        await store.store(existing)
 
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.bedroom_lamp"}),
@@ -367,43 +363,47 @@ class TestAutoPromotion:
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
+            learning_store=store,
             learning_promoter=promoter,
-            tool_executor=_succeeding_executor,
+            tool_executor=_always_succeed_executor,
         )
 
-        auth = build_auth_context()
+        auth = build_auth_context(org_id="org-promo", team_id="team-promo")
         result = await agent.handle(
             [{"role": "user", "content": "turn on the bedroom light"}],
             auth,
         )
 
         assert not result.blocked
+        # After handle(), promoter should have observed the hit and (given
+        # threshold=1) promoted the learning's scope from AGENT upward.
+        all_lr = [lr for lr in store._learnings if lr.category == "tool_correction"]
+        assert len(all_lr) >= 1
+        # At minimum, hit_count should have incremented (promoter or
+        # find_relevant recorded the match).
+        assert any(lr.hit_count >= existing.hit_count for lr in all_lr)
 
 
 class TestTraceFinalization:
-    """Trace finalization: tool success/fail counts (lines 467-472)."""
+    """Traced runs complete cleanly and the final response is returned."""
 
     @pytest.mark.asyncio
-    async def test_trace_finalized_with_tool_counts(self) -> None:
-        """Trace metadata includes tool success/fail counts."""
-        if hasattr(_fake_tool_executor, "_call_count"):
-            _fake_tool_executor._call_count = {}  # type: ignore[attr-defined]
-
+    async def test_traced_run_returns_final_text_response(self) -> None:
         llm = FakeLLMClient()
         tracer = NoopTracingBackend()
+        executor, call_log = _fail_then_succeed_executor()
 
         llm.set_responses(
             _tool_call_response("ha_control", {"entity_id": "light.wrong"}),
             _tool_call_response(
-                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2"
+                "ha_control", {"entity_id": "light.bedroom"}, call_id="call-2",
             ),
             _text_response("Done."),
         )
 
         agent = await _make_learning_agent(
             llm=llm,
-            tool_executor=_fake_tool_executor,
+            tool_executor=executor,
             tracer=tracer,
         )
 
@@ -413,20 +413,24 @@ class TestTraceFinalization:
             auth,
         )
 
-        # The trace should have been finalized (NoopTrace.update + end called)
-        # We verify indirectly by checking the pipeline completed without error
         assert not result.blocked
         assert result.content == "Done."
+        # Both a failing and successful tool call were exercised
+        assert len(call_log) == 2
+        # Executor was invoked with both wrong and correct args
+        assert [c["args"]["entity_id"] for c in call_log] == [
+            "light.wrong",
+            "light.bedroom",
+        ]
 
 
 class TestNoLearningWithoutHistory:
-    """No learning extraction when there is no tool history."""
+    """No RCA extraction when all tools succeed."""
 
     @pytest.mark.asyncio
     async def test_no_rca_without_tool_failures(self) -> None:
-        """No RCA extraction when all tools succeed."""
         llm = FakeLLMClient()
-        learning_store = InMemoryLearningStore()
+        store = InMemoryLearningStore()
         rca_llm = FakeLLMClient()
         rca_llm.set_simple_response("ROOT CAUSE: n/a\nPREVENTION: n/a")
         rca_extractor = RCAExtractor(llm_client=rca_llm, rca_model="test-rca")
@@ -438,9 +442,9 @@ class TestNoLearningWithoutHistory:
 
         agent = await _make_learning_agent(
             llm=llm,
-            learning_store=learning_store,
+            learning_store=store,
             rca_extractor=rca_extractor,
-            tool_executor=_succeeding_executor,
+            tool_executor=_always_succeed_executor,
         )
 
         auth = build_auth_context()
@@ -449,5 +453,8 @@ class TestNoLearningWithoutHistory:
             auth,
         )
 
-        rca_learnings = [lr for lr in learning_store._learnings if lr.category == "rca"]
-        assert len(rca_learnings) == 0
+        # No RCA should be stored
+        rca_learnings = [lr for lr in store._learnings if lr.category == "rca"]
+        assert rca_learnings == []
+        # And RCA LLM should never have been invoked
+        assert rca_llm.calls == []

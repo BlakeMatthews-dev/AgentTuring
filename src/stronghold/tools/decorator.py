@@ -19,6 +19,7 @@ def tool(
     *,
     version: str = "1.0.0",
     description: str = "",
+    required_permissions: list[str] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to register a function as a Stronghold tool."""
 

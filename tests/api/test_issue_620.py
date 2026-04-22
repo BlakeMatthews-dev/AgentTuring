@@ -1,138 +1,62 @@
-"""Tests for FakeIntentClassifier protocol compliance."""
+"""Behavioural tests for tests.fakes.FakeIntentClassifier.
+
+The original file (issue #620) contained ~10 tests that mostly checked
+``isinstance(result["intent"], str)`` and ``hasattr(cls, "classify")`` —
+things the type annotations already guarantee. The rewrites below test
+actual classifier behaviour that downstream code relies on.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+import pytest
+
+from tests.fakes import FakeIntentClassifier
 
 
-@runtime_checkable
-class IntentClassifier(Protocol):
-    """Protocol for intent classifiers."""
+class TestFakeIntentClassifierBehaviour:
+    """FakeIntentClassifier is wired into the test Container; it must
+    produce the exact shape the real IntentClassifier promises so that
+    downstream consumers don't branch on ``isinstance`` at runtime."""
 
-    async def classify(self, text: str) -> dict[str, Any]: ...
-
-
-def test_fake_intent_classifier_implements_protocol() -> None:
-    """Verify FakeIntentClassifier exists and implements IntentClassifier protocol."""
-    from tests.fakes import FakeIntentClassifier
-
-    classifier = FakeIntentClassifier
-    assert isinstance(classifier, type)
-    assert isinstance(classifier(), IntentClassifier)
-
-
-class TestFakeIntentClassifierHappyPath:
-    async def test_classify_intent_returns_default_with_confidence(self) -> None:
-        """Test happy path: classify_intent returns default intent with confidence."""
-        from tests.fakes import FakeIntentClassifier
-
-        classifier = FakeIntentClassifier
-        result = await classifier().classify("any text input")
-
-        assert isinstance(result, dict)
-        assert "intent" in result
-        assert "confidence" in result
-        assert isinstance(result["intent"], str)
-        assert result["intent"] == "unknown"
-        assert isinstance(result["confidence"], float)
-        assert 0.0 <= result["confidence"] <= 1.0
-
-
-class TestFakeIntentClassifierEdgeCases:
-    async def test_classify_empty_string_returns_unknown(self) -> None:
-        """Test edge case: empty string input returns unknown intent with confidence."""
-        from tests.fakes import FakeIntentClassifier
-
-        classifier = FakeIntentClassifier
-        result = await classifier().classify("")
-
-        assert isinstance(result, dict)
-        assert "intent" in result
-        assert "confidence" in result
-        assert isinstance(result["intent"], str)
-        assert result["intent"] == "unknown"
-        assert isinstance(result["confidence"], float)
-        assert 0.0 <= result["confidence"] <= 1.0
-
-
-class TestFakeIntentClassifierProtocolMethod:
-    def test_has_classify_method(self) -> None:
-        """Verify FakeIntentClassifier has classify method."""
-        from tests.fakes import FakeIntentClassifier
-
-        assert hasattr(FakeIntentClassifier, "classify")
-
-    def test_classify_method_accepts_one_parameter(self) -> None:
-        """Verify classify method accepts exactly one parameter (self excluded)."""
-        import inspect
-
-        from tests.fakes import FakeIntentClassifier
-
-        sig = inspect.signature(FakeIntentClassifier.classify)
-        params = list(sig.parameters.keys())
-        # self is implicit, so we expect only 'text' as the explicit parameter
-        assert len(params) == 1
-        assert params[0] == "text"
-
-
-# Define the FakeIntentClassifier class if it's missing from tests.fakes
-try:
-    from tests.fakes import FakeIntentClassifier
-except ImportError:
-
-    class FakeIntentClassifier:
-        """Fake implementation of IntentClassifier protocol."""
-
-        async def classify(self, text: str) -> dict[str, Any]:
-            """Classify the given text and return a default intent with confidence."""
-            return {"intent": "unknown", "confidence": 0.5}
-
-
-def test_fake_intent_classifier_is_class() -> None:
-    """Verify FakeIntentClassifier is a class and implements IntentClassifier protocol."""
-
-    assert isinstance(FakeIntentClassifier, type)
-    instance = FakeIntentClassifier()
-    # Check if the instance implements the protocol by checking for required methods
-    assert hasattr(instance, "classify")
-    assert callable(instance.classify)
-
-
-class TestFakeIntentClassifierDefaultValues:
-    async def test_classify_returns_expected_default_values(self) -> None:
-        """Test that classify returns expected default values for intent and confidence."""
-        classifier = FakeIntentClassifier()
-        result = await classifier.classify("test input")
-
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "turn on the kitchen light",
+            "",
+            "   \t\n   ",
+            "a" * 10_000,
+            "日本語の入力",
+            "<script>alert(1)</script>",
+        ],
+    )
+    async def test_classify_returns_stable_unknown_for_any_input(
+        self, text: str
+    ) -> None:
+        """FakeIntentClassifier is deliberately dumb — every input produces
+        the same ``unknown`` verdict. Callers that see a shifting intent
+        from the fake are getting nondeterminism in their test environment.
+        """
+        result = await FakeIntentClassifier().classify(text)
         assert result == {"intent": "unknown", "confidence": 0.5}
 
+    async def test_classify_is_independent_across_calls(self) -> None:
+        """The fake must not accumulate state — two calls on the same
+        instance produce identical results, and a fresh instance matches."""
+        c = FakeIntentClassifier()
+        r1 = await c.classify("one")
+        r2 = await c.classify("two")
+        r3 = await FakeIntentClassifier().classify("three")
+        assert r1 == r2 == r3
 
-class TestFakeIntentClassifierEmptyStringEdgeCase:
-    async def test_classify_empty_string_returns_valid_structure(self) -> None:
-        """Test edge case: empty string input returns valid dictionary structure."""
-        classifier = FakeIntentClassifier()
-        result = await classifier.classify("")
-
-        assert isinstance(result, dict)
-        assert "intent" in result
-        assert "confidence" in result
-        assert isinstance(result["intent"], str)
-        assert result["intent"] == "unknown"
-        assert isinstance(result["confidence"], float)
-        assert 0.0 <= result["confidence"] <= 1.0
-
-
-class TestFakeIntentClassifierProtocolSignature:
-    def test_has_classify_method(self) -> None:
-        """Verify FakeIntentClassifier has a classify method."""
-        assert hasattr(FakeIntentClassifier, "classify")
-
-    def test_classify_method_accepts_one_parameter(self) -> None:
-        """Verify classify method accepts exactly one parameter (self excluded)."""
+    async def test_classify_signature_is_single_text_param(self) -> None:
+        """Downstream consumers call ``classifier.classify(text)`` — a
+        signature regression (e.g. accidentally requiring a second arg)
+        would break the ``IntentClassifier`` protocol silently because
+        the fake is only duck-typed.
+        """
         import inspect
 
         sig = inspect.signature(FakeIntentClassifier.classify)
         params = list(sig.parameters.keys())
-        # self is implicit, so we expect only 'text' as the explicit parameter
-        assert len(params) == 1
-        assert params[0] == "text"
+        # @staticmethod — no implicit self — must be exactly ``text``.
+        assert params == ["text"]

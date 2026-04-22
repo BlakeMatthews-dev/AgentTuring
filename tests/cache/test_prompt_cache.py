@@ -57,7 +57,6 @@ async def test_invalidate_pattern(cache):
 async def test_set_serializes_non_json_types(cache):
     """Values with non-serializable types use str() fallback."""
     from datetime import datetime
-
     val = {"ts": datetime(2026, 1, 1, 12, 0, 0)}
     await cache.set("ts-key", val)
     result = await cache.get("ts-key")

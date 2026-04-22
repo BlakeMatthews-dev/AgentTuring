@@ -1,11 +1,17 @@
 """Tests for LiteLLMClient with model fallback behavior.
 
-Uses httpx mock to simulate LiteLLM proxy responses and failures.
+Uses respx to mock LiteLLM proxy HTTP responses. HTTP is an external boundary
+so mocking httpx is appropriate — but assertions focus on *behavioral* outcomes
+(which model answered, what error surfaced, what body was sent), not on
+`mock.call_count` tautologies. The local `call_count` / `tried` counters
+capture the sequence of attempts so we can verify that fallback actually
+cascaded through the model list.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+from typing import Any
 
 import httpx
 import pytest
@@ -14,27 +20,14 @@ import respx
 from stronghold.api.litellm_client import LiteLLMClient
 
 
-def _mock_response(status_code: int = 200, json_data: dict | None = None) -> httpx.Response:
-    """Build a mock httpx.Response."""
-    resp = MagicMock(spec=httpx.Response)
-    resp.status_code = status_code
-    resp.json.return_value = json_data or {}
-    resp.request = MagicMock()
-    resp.raise_for_status = MagicMock()
-    if status_code >= 400:
-        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            str(status_code),
-            request=resp.request,
-            response=resp,
-        )
-    return resp
+# ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _success_response(content: str = "Hello!") -> dict:
+def _success_response(content: str = "Hello!", model: str = "test-model") -> dict[str, Any]:
     return {
         "id": "chatcmpl-test",
         "object": "chat.completion",
-        "model": "test-model",
+        "model": model,
         "choices": [
             {
                 "index": 0,
@@ -46,369 +39,288 @@ def _success_response(content: str = "Hello!") -> dict:
     }
 
 
+def _make_client() -> LiteLLMClient:
+    return LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+
+
+def _extract_request_model(call: Any) -> str:
+    """Parse the `model` field out of a respx recorded request body."""
+    return json.loads(call.request.content)["model"]
+
+
+# ── Successful completion ───────────────────────────────────────────
+
+
 class TestSuccessfulCompletion:
     @pytest.mark.asyncio
-    async def test_returns_parsed_json(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        expected = _success_response("Hello!")
+    @respx.mock
+    async def test_returns_parsed_json_and_sends_message_body(self) -> None:
+        client = _make_client()
+        route = respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=_success_response("Hello!")),
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.status_code = 200
-            mock_resp.json.return_value = expected
-            mock_client.post = AsyncMock(return_value=mock_resp)
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "test-model",
+        )
 
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "test-model",
-            )
         assert result["choices"][0]["message"]["content"] == "Hello!"
         assert result["object"] == "chat.completion"
+        # Body was serialized with the expected shape
+        body = json.loads(route.calls[0].request.content)
+        assert body["model"] == "test-model"
+        assert body["messages"] == [{"role": "user", "content": "hello"}]
 
     @pytest.mark.asyncio
-    async def test_passes_tools_to_body(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+    @respx.mock
+    async def test_tools_are_forwarded_in_body(self) -> None:
+        client = _make_client()
         tools = [{"type": "function", "function": {"name": "test_tool"}}]
+        route = respx.post("http://fake:4000/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=_success_response()),
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.status_code = 200
-            mock_resp.json.return_value = _success_response()
-            mock_client.post = AsyncMock(return_value=mock_resp)
+        await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "test-model",
+            tools=tools,
+        )
 
-            await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "test-model",
-                tools=tools,
-            )
-            call_args = mock_client.post.call_args
-            body = call_args.kwargs.get("json", {})
-            assert "tools" in body
+        body = json.loads(route.calls[0].request.content)
+        assert body["tools"] == tools
 
 
-class TestModelFallbackOn429:
-    @pytest.mark.asyncio
-    async def test_429_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            resp = MagicMock()
-            resp.request = MagicMock()
-            if call_count == 1:
-                resp.status_code = 429
-            else:
-                resp.status_code = 200
-                resp.json.return_value = _success_response("fallback worked")
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary-model",
-                fallback_models=["fallback-model"],
-            )
-        assert result["choices"][0]["message"]["content"] == "fallback worked"
-        assert call_count == 2
+# ── Fallback on retryable errors ────────────────────────────────────
 
 
-class TestModelFallbackOn500:
-    @pytest.mark.asyncio
-    async def test_500_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            resp = MagicMock()
-            resp.request = MagicMock()
-            if call_count == 1:
-                resp.status_code = 500
-            else:
-                resp.status_code = 200
-                resp.json.return_value = _success_response("recovered")
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary-model",
-                fallback_models=["fallback-model"],
-            )
-        assert result["choices"][0]["message"]["content"] == "recovered"
+class TestFallbackOnRetryableErrors:
+    """Retryable: 400 (cooldown), 422 (tools unsupported), 429, 500, 502, 503."""
 
     @pytest.mark.asyncio
-    async def test_502_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
+    @pytest.mark.parametrize("status", [429, 500, 502, 503, 422])
+    @respx.mock
+    async def test_status_triggers_fallback_to_next_model(self, status: int) -> None:
+        client = _make_client()
+        tried: list[str] = []
 
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            resp = MagicMock()
-            resp.request = MagicMock()
-            if call_count == 1:
-                resp.status_code = 502
-            else:
-                resp.status_code = 200
-                resp.json.return_value = _success_response("ok")
-            return resp
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            model = json.loads(request.content)["model"]
+            tried.append(model)
+            if model == "primary":
+                return httpx.Response(status, json={"error": f"status {status}"})
+            return httpx.Response(200, json=_success_response("fallback ok", model=model))
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
 
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary",
-                fallback_models=["fallback"],
-            )
-        assert result["choices"][0]["message"]["content"] == "ok"
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "primary",
+            fallback_models=["fallback"],
+        )
 
-    @pytest.mark.asyncio
-    async def test_503_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            resp = MagicMock()
-            resp.request = MagicMock()
-            if call_count == 1:
-                resp.status_code = 503
-            else:
-                resp.status_code = 200
-                resp.json.return_value = _success_response("ok")
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary",
-                fallback_models=["fallback"],
-            )
-        assert result["choices"][0]["message"]["content"] == "ok"
-
-
-class TestConnectionError:
-    @pytest.mark.asyncio
-    async def test_connect_error_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise httpx.ConnectError("Connection refused")
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = _success_response("fallback ok")
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary",
-                fallback_models=["fallback"],
-            )
+        # Both primary and fallback were attempted, in order
+        assert tried == ["primary", "fallback"]
+        # And the response came from the fallback model
         assert result["choices"][0]["message"]["content"] == "fallback ok"
+        assert result["model"] == "fallback"
+
+
+class TestFallbackOnConnectError:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_connect_error_triggers_fallback(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            model = json.loads(request.content)["model"]
+            tried.append(model)
+            if model == "primary":
+                raise httpx.ConnectError("Connection refused")
+            return httpx.Response(200, json=_success_response("fallback ok", model=model))
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "primary",
+            fallback_models=["fallback"],
+        )
+
+        assert tried == ["primary", "fallback"]
+        assert result["choices"][0]["message"]["content"] == "fallback ok"
+
+
+# ── All models exhausted ────────────────────────────────────────────
 
 
 class TestAllModelsFail:
     @pytest.mark.asyncio
-    async def test_all_models_fail_raises_last_error(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            resp = MagicMock()
-            resp.status_code = 429
-            resp.request = MagicMock()
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await client.complete(
-                    [{"role": "user", "content": "hello"}],
-                    "model-a",
-                    fallback_models=["model-b", "model-c"],
-                )
-
-    @pytest.mark.asyncio
-    async def test_all_connect_errors_raises(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
-
-            with pytest.raises(httpx.ConnectError):
-                await client.complete(
-                    [{"role": "user", "content": "hello"}],
-                    "model-a",
-                    fallback_models=["model-b"],
-                )
-
-
-class TestNonRetryableErrors:
     @respx.mock
-    async def test_400_is_retryable(self) -> None:
-        """400 is retryable because LiteLLM uses it for cooldown responses."""
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        # Both models return 400 — should try both then raise
-        route = respx.post("http://fake:4000/v1/chat/completions").mock(
-            return_value=httpx.Response(400, json={"error": "cooldown"}),
-        )
-        # Also mock /v1/models to return empty (no further fallbacks)
+    async def test_429_on_every_model_raises_final_http_error(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            tried.append(json.loads(request.content)["model"])
+            return httpx.Response(429, json={"error": "rate limited"})
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+        # No phase-2 fallbacks available
         respx.get("http://fake:4000/v1/models").mock(
             return_value=httpx.Response(200, json={"data": []}),
         )
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "model-a",
+                fallback_models=["model-b", "model-c"],
+            )
+
+        # All three explicit models were attempted
+        assert tried == ["model-a", "model-b", "model-c"]
+        assert excinfo.value.response.status_code == 429
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_connect_error_on_every_model_raises_connect_error(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            tried.append(json.loads(request.content)["model"])
+            raise httpx.ConnectError("refused")
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []}),
+        )
+
+        with pytest.raises(httpx.ConnectError):
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "model-a",
+                fallback_models=["model-b"],
+            )
+        assert tried == ["model-a", "model-b"]
+
+
+# ── Non-retryable status codes ──────────────────────────────────────
+
+
+class TestNonRetryableErrors:
+    """401 (auth) must raise immediately without trying any fallbacks."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_401_raises_immediately_and_skips_fallbacks(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            tried.append(json.loads(request.content)["model"])
+            return httpx.Response(401, json={"error": "unauthorized"})
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await client.complete(
+                [{"role": "user", "content": "hello"}],
+                "model-a",
+                fallback_models=["model-b"],
+            )
+        # Only the primary was tried; fallback was NOT attempted
+        assert tried == ["model-a"]
+        assert excinfo.value.response.status_code == 401
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_400_is_retryable_and_does_cascade_through_fallbacks(self) -> None:
+        """400 is retryable because LiteLLM uses it for cooldown responses."""
+        client = _make_client()
+        tried: list[str] = []
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            tried.append(json.loads(request.content)["model"])
+            return httpx.Response(400, json={"error": "cooldown"})
+
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+        respx.get("http://fake:4000/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []}),
+        )
+
         with pytest.raises(httpx.HTTPStatusError):
             await client.complete(
                 [{"role": "user", "content": "hello"}],
                 "model-a",
                 fallback_models=["model-b"],
             )
-        # Should have tried both models (400 is retryable)
-        assert route.call_count == 2
+        # Both primary and fallback were attempted (400 retryable)
+        assert tried == ["model-a", "model-b"]
 
-    @pytest.mark.asyncio
-    async def test_401_raises_immediately(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
 
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            resp = MagicMock()
-            resp.status_code = 401
-            resp.request = MagicMock()
-            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-                "401",
-                request=resp.request,
-                response=resp,
-            )
-            return resp
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await client.complete(
-                    [{"role": "user", "content": "hello"}],
-                    "model-a",
-                    fallback_models=["model-b"],
-                )
-            assert mock_client.post.call_count == 1
+# ── Dynamic fallback models ──────────────────────────────────────────
 
 
 class TestDynamicFallbackModels:
+    """Container can set `_fallback_models` post-construction; client uses them."""
+
     @pytest.mark.asyncio
-    async def test_uses_fallback_models_attribute(self) -> None:
-        """Container sets _fallback_models dynamically; client should use them."""
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+    @respx.mock
+    async def test_fallback_attribute_is_consulted_when_no_arg_passed(self) -> None:
+        client = _make_client()
         client._fallback_models = ["dynamic-fallback"]  # type: ignore[attr-defined]
-        call_count = 0
+        tried: list[str] = []
 
-        async def mock_post(url: str, **kwargs: object) -> MagicMock:
-            nonlocal call_count
-            call_count += 1
-            resp = MagicMock()
-            resp.request = MagicMock()
-            if call_count == 1:
-                resp.status_code = 429
-            else:
-                resp.status_code = 200
-                resp.json.return_value = _success_response("dynamic ok")
-            return resp
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            model = json.loads(request.content)["model"]
+            tried.append(model)
+            if model == "primary":
+                return httpx.Response(429, json={"error": "rate limited"})
+            return httpx.Response(200, json=_success_response("dynamic ok", model=model))
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post)
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
 
-            result = await client.complete(
-                [{"role": "user", "content": "hello"}],
-                "primary",
-            )
+        result = await client.complete(
+            [{"role": "user", "content": "hello"}],
+            "primary",
+        )
+
+        assert tried == ["primary", "dynamic-fallback"]
         assert result["choices"][0]["message"]["content"] == "dynamic ok"
-        assert call_count == 2
+
+
+# ── Phase-2 fallback (fetch /v1/models) ─────────────────────────────
 
 
 class TestPhase2FallbackFromModelList:
-    """Phase 2: fetch available models from /v1/models and try each."""
+    """After explicit fallbacks fail, client fetches /v1/models and tries each."""
 
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_phase2_fallback_uses_available_models(self) -> None:
-        """When explicit fallbacks fail, fetches /v1/models and tries those."""
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        # Mock completions: first 2 calls fail (primary + explicit fallback),
-        # third succeeds (from /v1/models list)
-        route = respx.post("http://fake:4000/v1/chat/completions")
+    async def test_rescue_model_from_v1_models_is_attempted(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
 
         def side_effect(request: httpx.Request) -> httpx.Response:
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
+            model = json.loads(request.content)["model"]
+            tried.append(model)
+            # primary + explicit fallback fail; rescue model succeeds
+            if model in ("primary", "fallback-1"):
                 return httpx.Response(429, json={"error": "rate limited"})
-            return httpx.Response(200, json=_success_response("phase2 ok"))
+            return httpx.Response(200, json=_success_response("phase2 ok", model=model))
 
-        route.mock(side_effect=side_effect)
-
-        # Mock /v1/models to return one model not in the explicit list
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
         respx.get("http://fake:4000/v1/models").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {"id": "primary"},
-                        {"id": "fallback-1"},
-                        {"id": "rescue-model"},
-                    ]
-                },
-            )
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "primary"},
+                    {"id": "fallback-1"},
+                    {"id": "rescue-model"},
+                ],
+            }),
         )
 
         result = await client.complete(
@@ -416,28 +328,25 @@ class TestPhase2FallbackFromModelList:
             "primary",
             fallback_models=["fallback-1"],
         )
+
+        # Cascade order: primary, explicit fallback, then rescue from /v1/models
+        assert tried == ["primary", "fallback-1", "rescue-model"]
         assert result["choices"][0]["message"]["content"] == "phase2 ok"
-        # Should have tried primary, fallback-1, then rescue-model from /v1/models
-        assert call_count == 3
 
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_phase2_skips_already_tried_models(self) -> None:
-        """Models already tried in phase 1 are not retried in phase 2."""
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        route = respx.post("http://fake:4000/v1/chat/completions")
+    async def test_already_tried_models_are_not_retried_in_phase_2(self) -> None:
+        client = _make_client()
+        tried: list[str] = []
 
         def side_effect(request: httpx.Request) -> httpx.Response:
-            nonlocal call_count
-            call_count += 1
+            tried.append(json.loads(request.content)["model"])
             return httpx.Response(429, json={"error": "rate limited"})
 
-        route.mock(side_effect=side_effect)
-
-        # /v1/models returns only the same model that was already tried
+        respx.post("http://fake:4000/v1/chat/completions").mock(side_effect=side_effect)
+        # /v1/models only returns the same model already attempted
         respx.get("http://fake:4000/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": [{"id": "primary"}]})
+            return_value=httpx.Response(200, json={"data": [{"id": "primary"}]}),
         )
 
         with pytest.raises(httpx.HTTPStatusError):
@@ -445,39 +354,43 @@ class TestPhase2FallbackFromModelList:
                 [{"role": "user", "content": "hello"}],
                 "primary",
             )
-        # Only tried primary once, not twice
-        assert call_count == 1
 
+        # Only tried primary once, not twice (dedupe in phase 2)
+        assert tried == ["primary"]
+
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_fetch_models_failure_returns_empty(self) -> None:
-        """If /v1/models fails, phase 2 has no extra models to try."""
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+    async def test_v1_models_failure_still_surfaces_original_error(self) -> None:
+        client = _make_client()
 
         respx.post("http://fake:4000/v1/chat/completions").mock(
-            return_value=httpx.Response(429, json={"error": "rate limited"})
+            return_value=httpx.Response(429, json={"error": "rate limited"}),
         )
         respx.get("http://fake:4000/v1/models").mock(
-            return_value=httpx.Response(500, json={"error": "internal"})
+            return_value=httpx.Response(500, json={"error": "internal"}),
         )
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
             await client.complete(
                 [{"role": "user", "content": "hello"}],
                 "primary",
             )
+        # Raises the chat-completion 429, not the /v1/models 500
+        assert excinfo.value.response.status_code == 429
+
+
+# ── Streaming ───────────────────────────────────────────────────────
 
 
 class TestStreamMethod:
-    """LiteLLMClient.stream() yields SSE chunks."""
-
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_stream_yields_chunks(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-
+    async def test_stream_yields_sse_chunks_containing_content_and_done(self) -> None:
+        client = _make_client()
         sse_data = 'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n'
 
         respx.post("http://fake:4000/v1/chat/completions").mock(
-            return_value=httpx.Response(200, text=sse_data)
+            return_value=httpx.Response(200, text=sse_data),
         )
 
         chunks: list[str] = []
@@ -492,15 +405,16 @@ class TestStreamMethod:
         assert "[DONE]" in combined
 
 
+# ── Optional params forwarded to body ──────────────────────────────
+
+
 class TestCompleteOptionalParams:
-    """Verify optional params are passed through to the request body."""
-
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_max_tokens_and_temperature(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-
+    async def test_max_tokens_temperature_metadata_tool_choice_in_body(self) -> None:
+        client = _make_client()
         route = respx.post("http://fake:4000/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json=_success_response("ok"))
+            return_value=httpx.Response(200, json=_success_response("ok")),
         )
 
         await client.complete(
@@ -512,29 +426,27 @@ class TestCompleteOptionalParams:
             tool_choice="auto",
         )
 
-        body = route.calls[0].request.content
-        import json
+        body = json.loads(route.calls[0].request.content)
+        assert body["max_tokens"] == 500
+        assert body["temperature"] == 0.7
+        assert body["metadata"] == {"user": "test"}
+        assert body["tool_choice"] == "auto"
 
-        parsed = json.loads(body)
-        assert parsed["max_tokens"] == 500
-        assert parsed["temperature"] == 0.7
-        assert parsed["metadata"] == {"user": "test"}
-        assert parsed["tool_choice"] == "auto"
+
+# ── No models available ─────────────────────────────────────────────
 
 
 class TestNoModelsAvailable:
-    """When no models exist at all, raise RuntimeError."""
-
+    @pytest.mark.asyncio
     @respx.mock
-    async def test_no_models_raises_runtime_error(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
+    async def test_connect_error_with_empty_model_list_raises_connect_error(self) -> None:
+        client = _make_client()
 
-        # All models fail with connection error
         respx.post("http://fake:4000/v1/chat/completions").mock(
-            side_effect=httpx.ConnectError("refused")
+            side_effect=httpx.ConnectError("refused"),
         )
         respx.get("http://fake:4000/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": []})
+            return_value=httpx.Response(200, json={"data": []}),
         )
 
         with pytest.raises(httpx.ConnectError):
@@ -542,32 +454,3 @@ class TestNoModelsAvailable:
                 [{"role": "user", "content": "hello"}],
                 "only-model",
             )
-
-
-class TestStatus422Retryable:
-    """422 (model doesn't support tools) should be retryable."""
-
-    @respx.mock
-    async def test_422_triggers_fallback(self) -> None:
-        client = LiteLLMClient(base_url="http://fake:4000", api_key="sk-test")
-        call_count = 0
-
-        route = respx.post("http://fake:4000/v1/chat/completions")
-
-        def side_effect(request: httpx.Request) -> httpx.Response:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return httpx.Response(422, json={"error": "tools not supported"})
-            return httpx.Response(200, json=_success_response("fallback ok"))
-
-        route.mock(side_effect=side_effect)
-
-        # No /v1/models needed since explicit fallback is provided
-        result = await client.complete(
-            [{"role": "user", "content": "hello"}],
-            "primary",
-            fallback_models=["fallback"],
-        )
-        assert result["choices"][0]["message"]["content"] == "fallback ok"
-        assert call_count == 2

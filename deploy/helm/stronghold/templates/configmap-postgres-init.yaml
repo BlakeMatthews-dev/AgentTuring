@@ -1,3 +1,4 @@
+{{- if .Values.postgresql.enabled }}
 # Postgres init scripts. Mounted into /docker-entrypoint-initdb.d; the
 # official postgres image executes every *.sql file under that directory
 # in lexical order on first boot (see the docker-library/postgres README,
@@ -34,3 +35,4 @@ data:
         UNIQUE(name, version)
     );
     CREATE INDEX IF NOT EXISTS idx_prompts_name ON prompts (name);
+{{- end }}

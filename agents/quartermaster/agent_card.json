@@ -1,0 +1,23 @@
+{
+  "id": "quartermaster",
+  "name": "quartermaster",
+  "description": "Decomposes epics into atomic issues and emits machine-checkable Specs with acceptance criteria, invariants, and protocol references.",
+  "version": "1.0.0",
+  "protocolVersion": "2024-11-05",
+  "capabilities": {
+    "reasoning_strategy": "direct",
+    "tools": [
+      "github",
+      "file_ops"
+    ],
+    "skills": [],
+    "max_tool_rounds": 5
+  },
+  "trust_tier": "t1",
+  "priority_tier": "P4",
+  "model": "auto",
+  "model_fallbacks": [
+    "gemini-2.5-pro"
+  ],
+  "active": true
+}

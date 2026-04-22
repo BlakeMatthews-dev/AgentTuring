@@ -1,0 +1,35 @@
+{{- if and .Values.buildersSpot.enabled .Values.keda.enabled }}
+# KEDA ScaledObject — scales stronghold-builders-spot from 0→N based on
+# the builders queue depth exposed by stronghold-api at /metrics.
+#
+# The Prometheus metric `builders_queue_actionable` counts issues that are
+# queued or in-progress. KEDA polls this metric and sets the replica count
+# to ceil(metric_value / threshold). When the queue is empty, replicas
+# scale to 0 (the minReplicaCount).
+#
+# Requires: KEDA installed on the cluster (keda.sh)
+#   helm repo add kedacore https://kedacore.github.io/charts
+#   helm install keda kedacore/keda --namespace keda --create-namespace
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "stronghold.fullname" . }}-builders-spot
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-builders-spot
+spec:
+  scaleTargetRef:
+    name: {{ include "stronghold.fullname" . }}-builders-spot
+  minReplicaCount: {{ .Values.keda.builders.minReplicas }}
+  maxReplicaCount: {{ .Values.keda.builders.maxReplicas }}
+  pollingInterval: {{ .Values.keda.builders.pollingInterval | default 30 }}
+  cooldownPeriod: {{ .Values.keda.builders.cooldownPeriod | default 300 }}
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.keda.builders.prometheusAddress | quote }}
+        metricName: builders_queue_actionable
+        query: builders_queue_actionable
+        threshold: {{ .Values.keda.builders.threshold | default "1" | quote }}
+{{- end }}

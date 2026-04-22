@@ -79,39 +79,48 @@ def _make_client(transport: _FakeTransport) -> httpx.AsyncClient:
 # ── Helper tests ──
 
 
-class TestNormalize:
-    def test_lowercases(self) -> None:
-        assert _normalize("HELLO") == "hello"
-
-    def test_replaces_hyphens(self) -> None:
-        assert _normalize("web-search") == "web search"
-
-    def test_replaces_underscores(self) -> None:
-        assert _normalize("web_search") == "web search"
-
-    def test_combined(self) -> None:
-        assert _normalize("GitHub-Manager_Tool") == "github manager tool"
+import pytest
 
 
-class TestMatches:
-    def test_empty_query_matches_everything(self) -> None:
-        assert _matches("", "anything", "here") is True
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("HELLO", "hello"),
+        ("web-search", "web search"),
+        ("web_search", "web search"),
+        ("GitHub-Manager_Tool", "github manager tool"),
+    ],
+)
+def test_normalize_lowercases_and_treats_hyphen_and_underscore_as_space(
+    raw: str, expected: str,
+) -> None:
+    assert _normalize(raw) == expected
 
-    def test_single_term_matches(self) -> None:
-        assert _matches("web", "web-search", "Search the web") is True
 
-    def test_multi_term_all_must_match(self) -> None:
-        assert _matches("web search", "web-search", "Search the web") is True
-
-    def test_multi_term_partial_fails(self) -> None:
-        assert _matches("web banana", "web-search", "Search the web") is False
-
-    def test_hyphen_underscore_equivalence(self) -> None:
-        assert _matches("web search", "web_search", "") is True
-        assert _matches("web_search", "web-search", "") is True
-
-    def test_case_insensitive(self) -> None:
-        assert _matches("WEB", "web-search", "") is True
+@pytest.mark.parametrize(
+    ("query", "name", "description", "expected"),
+    [
+        # Empty query matches anything (nothing to filter on)
+        ("", "anything", "here", True),
+        # Single term found in name
+        ("web", "web-search", "Search the web", True),
+        # All terms must be present across name+description
+        ("web search", "web-search", "Search the web", True),
+        # Missing term means no match
+        ("web banana", "web-search", "Search the web", False),
+        # Hyphen / underscore are equivalent in both directions
+        ("web search", "web_search", "", True),
+        ("web_search", "web-search", "", True),
+        # Case-insensitive
+        ("WEB", "web-search", "", True),
+        # Term only in description still matches
+        ("unique", "plain", "description with unique word", True),
+    ],
+)
+def test_matches_requires_all_query_terms_across_name_and_description(
+    query: str, name: str, description: str, expected: bool,
+) -> None:
+    assert _matches(query, name, description) is expected
 
 
 # ── ClawHub connector tests ──
@@ -531,9 +540,13 @@ class TestGetDemoAgentContent:
         for url in DEMO_AGENT_CONTENT:
             content = get_demo_agent_content(url)
             assert content is not None
-            assert isinstance(content, dict)
+            # Mapping contract: ``in`` + subscript exercised below will fail
+            # with TypeError if ``content`` is not a Mapping.
             assert "agent.yaml" in content
             assert "SOUL.md" in content
+            # Subscripts prove dict-shape behaviourally.
+            assert content["agent.yaml"]
+            assert content["SOUL.md"]
 
     def test_unknown_url_returns_none(self) -> None:
         assert get_demo_agent_content("https://not-a-demo-url.com/nope") is None

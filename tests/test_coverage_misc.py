@@ -899,60 +899,37 @@ class TestPromptStoreVersionNotFound:
         assert config == {}
 
 
-# ── 12. Noop tracing (line 51 = NoopTrace.score) ──────────────────
+# ── 12. Noop tracing — single smoke test for the full lifecycle ──────
 
 
-class TestNoopTracingComplete:
-    """Cover all NoopTrace/NoopSpan methods for full coverage."""
+def test_noop_tracing_full_lifecycle_is_safe_and_silent() -> None:
+    """The noop backend exists so tests can inject a tracer without setting
+    up Langfuse. The invariant is: every call on every object is safe and
+    returns a consistent trace_id — no exceptions, no side effects."""
+    from stronghold.tracing.noop import NoopSpan, NoopTrace, NoopTracingBackend
 
-    def test_noop_trace_score(self) -> None:
-        from stronghold.tracing.noop import NoopTrace
+    backend = NoopTracingBackend()
+    trace = backend.create_trace(
+        user_id="user1", session_id="s1", name="t", metadata={"k": "v"},
+    )
+    assert trace.trace_id == "noop-trace"
 
-        trace = NoopTrace()
-        # score is a no-op that should not raise (line 50-51)
-        trace.score("quality", 0.95, comment="great")
-        trace.score("latency", 0.5)
+    # Score + update + end must all be no-ops (never raise).
+    trace.score("quality", 0.95, comment="great")
+    trace.update({"key": "value"})
+    trace.end()
 
-    def test_noop_trace_update(self) -> None:
-        from stronghold.tracing.noop import NoopTrace
+    # Span context manager must enter/exit cleanly and absorb set_* calls.
+    span = trace.span("child-span")
+    # Exact-type identity: proves the NoopSpan is returned, not a subclass.
+    assert type(span) is NoopSpan
+    with span as s:
+        s.set_input({"data": "test"})
+        s.set_output({"result": "ok"})
+        s.set_usage(input_tokens=10, output_tokens=20, model="test")
 
-        trace = NoopTrace()
-        trace.update({"key": "value"})
-
-    def test_noop_trace_end(self) -> None:
-        from stronghold.tracing.noop import NoopTrace
-
-        trace = NoopTrace()
-        trace.end()
-
-    def test_noop_trace_id(self) -> None:
-        from stronghold.tracing.noop import NoopTrace
-
-        trace = NoopTrace()
-        assert trace.trace_id == "noop-trace"
-
-    def test_noop_span_context_manager(self) -> None:
-        from stronghold.tracing.noop import NoopSpan
-
-        span = NoopSpan()
-        with span as s:
-            s.set_input({"data": "test"})
-            s.set_output({"result": "ok"})
-            s.set_usage(input_tokens=10, output_tokens=20, model="test")
-        # __exit__ returns None, no exception
-
-    def test_noop_tracing_backend_create_trace(self) -> None:
-        from stronghold.tracing.noop import NoopTracingBackend
-
-        backend = NoopTracingBackend()
-        trace = backend.create_trace(
-            user_id="user1",
-            session_id="session1",
-            name="test-trace",
-            metadata={"key": "val"},
-        )
-        assert trace.trace_id == "noop-trace"
-        span = trace.span("test-span")
-        assert span is not None
+    # Creating a trace via the raw NoopTrace (no backend) also works and
+    # returns the same trace_id — so tests can use either construction path.
+    assert NoopTrace().trace_id == "noop-trace"
 
 

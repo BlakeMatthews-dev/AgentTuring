@@ -1,0 +1,83 @@
+# Spec 1011: SpecTemplateStore — verified specs become reusable plan templates
+
+issue_number: 1011
+title: "SpecTemplateStore for plan reuse across similar issues"
+status: active
+complexity: L
+
+protocols_touched:
+  - SpecStore
+
+files_touched:
+  - src/stronghold/builders/spec_templates.py
+  - src/stronghold/protocols/spec.py
+  - tests/builders/test_spec_templates.py
+
+acceptance_criteria:
+  - "SpecTemplateStore.save_template() stores a verified Spec as a reusable template"
+  - "Templates are keyed by issue class (auth, dependency, refactor, test, protocol)"
+  - "SpecTemplateStore.match() finds the best template for a new issue"
+  - "Matching uses title/acceptance_criteria similarity"
+  - "Matched template can be adapted (new issue_number, new title)"
+  - "adapt() preserves invariant structure but updates issue-specific fields"
+  - "No match returns None, falling back to fresh emit_spec()"
+
+invariants:
+  - name: template_preserves_invariants
+    description: "Adapted template keeps the same invariant structure"
+    kind: postcondition
+    expression: "len(adapted.invariants) == len(template.invariants)"
+    severity: high
+
+  - name: adapted_has_new_identity
+    description: "Adapted spec has the new issue_number and title"
+    kind: postcondition
+    expression: "adapted.issue_number == new_issue_number"
+    severity: critical
+
+  - name: no_match_returns_none
+    description: "When no template matches, returns None"
+    kind: postcondition
+    expression: "match('unrelated') is None"
+    severity: high
+
+  - name: verified_only
+    description: "Only specs with VERIFIED status can become templates"
+    kind: precondition
+    expression: "spec.status == SpecStatus.VERIFIED"
+    severity: critical
+---
+# Spec 1012: Wire cache breakpoints into agent pipeline
+
+issue_number: 1012
+title: "Wire enable_cache_breakpoints into production agent pipeline"
+status: active
+complexity: S
+
+protocols_touched:
+  - ContextBuilder
+
+files_touched:
+  - src/stronghold/agents/base.py
+  - src/stronghold/types/config.py
+  - tests/agents/test_context_caching.py
+
+acceptance_criteria:
+  - "StrongholdConfig gains a cache_breakpoints_enabled: bool field (default False)"
+  - "Agent.handle() passes enable_cache_breakpoints to ContextBuilder.build()"
+  - "Config can be set via STRONGHOLD_CACHE_BREAKPOINTS env var"
+  - "When enabled, all agent calls benefit from prompt caching"
+  - "When disabled (default), behavior is unchanged"
+
+invariants:
+  - name: config_controls_caching
+    description: "cache_breakpoints_enabled=True activates caching in build()"
+    kind: postcondition
+    expression: "config.cache_breakpoints_enabled -> system_msg is list"
+    severity: high
+
+  - name: default_off
+    description: "Default config has cache_breakpoints_enabled=False"
+    kind: postcondition
+    expression: "StrongholdConfig().cache_breakpoints_enabled == False"
+    severity: critical

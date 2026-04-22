@@ -15,6 +15,7 @@ from stronghold.orchestrator.pipeline import (
     StageStatus,
 )
 
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -119,7 +120,13 @@ class TestPipelineRun:
         assert run.current_stage == 0
         assert run.status == "pending"
         assert run.stages == []
-        assert isinstance(run.created_at, datetime)
+        # created_at defaults to a real UTC-aware timestamp, not None.
+        assert run.created_at is not None
+        assert run.created_at.tzinfo is not None
+        # Must be close to "now" (within a wide 60-second window to avoid flakiness).
+        now = datetime.now(UTC)
+        delta_seconds = abs((now - run.created_at).total_seconds())
+        assert delta_seconds < 60, f"created_at drift too large: {delta_seconds}s"
 
     def test_to_dict_empty_stages(self) -> None:
         run = PipelineRun(id="r2", issue_number=2, title="T", repo="o/r")
@@ -360,3 +367,154 @@ class TestBuilderPipelineDefault:
 
     def test_cleanup_skips_on_review_clean(self) -> None:
         assert BUILDER_PIPELINE[4].skip_if == "review_clean"
+
+
+# ── Spec-driven pipeline tests ────────────────────────────────────
+
+
+class TestBuilderPipelineWithSpec:
+    """Tests for spec-aware pipeline execution."""
+
+    def _make_spec(self) -> "Spec":
+        from stronghold.types.spec import Invariant, InvariantKind, Spec
+
+        return Spec(
+            issue_number=42,
+            title="Add caching",
+            protocols_touched=("LLMClient",),
+            invariants=(
+                Invariant(
+                    name="cache_hit",
+                    description="Cache returns stored value",
+                    kind=InvariantKind.POSTCONDITION,
+                    expression="cache.get(k) == v",
+                    protocol="LLMClient",
+                ),
+            ),
+            acceptance_criteria=("Cache hit returns stored response",),
+            files_touched=("src/stronghold/api/litellm_client.py",),
+        )
+
+    async def test_spec_stored_in_run_context(self) -> None:
+        """When a spec is provided, it's stored in run.context['spec']."""
+        from tests.fakes import FakeSpecStore, FakeSpecVerifier
+
+        engine = FakeEngine()
+        store = FakeSpecStore()
+        verifier = FakeSpecVerifier()
+        spec = self._make_spec()
+        await store.save(spec)
+
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=42, title="Add caching", skip_decompose=True
+            )
+
+        assert run.context.get("spec") is not None
+        assert run.context["spec"]["issue_number"] == 42
+
+    async def test_verifier_called_per_stage(self) -> None:
+        """Verifier is called after each completed stage."""
+        from tests.fakes import FakeSpecStore, FakeSpecVerifier
+
+        engine = FakeEngine()
+        store = FakeSpecStore()
+        verifier = FakeSpecVerifier(default_pass=True)
+        spec = self._make_spec()
+        await store.save(spec)
+
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=42, title="Add caching", skip_decompose=True
+            )
+
+        assert run.status == "completed"
+        verified_stages = [s for _, s in verifier.verify_calls]
+        assert "scaffold" in verified_stages
+        assert "implement" in verified_stages
+
+    async def test_verification_failure_halts_pipeline(self) -> None:
+        """If verifier fails on a stage, the pipeline halts."""
+        from stronghold.types.spec import VerificationResult
+        from tests.fakes import FakeSpecStore, FakeSpecVerifier
+
+        engine = FakeEngine()
+        store = FakeSpecStore()
+        verifier = FakeSpecVerifier(default_pass=True)
+
+        verifier.set_result(
+            42,
+            "implement",
+            VerificationResult(
+                spec_issue_number=42,
+                stage="implement",
+                passed=False,
+                failures=("invariant 'cache_hit' violated",),
+                coverage_pct=0.0,
+            ),
+        )
+
+        spec = self._make_spec()
+        await store.save(spec)
+
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=42, title="Add caching", skip_decompose=True
+            )
+
+        assert "failed" in run.status
+        assert "implement" in run.status
+
+    async def test_no_spec_no_verification(self) -> None:
+        """Pipeline works normally without spec_store/spec_verifier."""
+        engine = FakeEngine()
+        pipeline = BuilderPipeline(engine)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=99, title="No spec", skip_decompose=True
+            )
+
+        assert run.status == "completed"
+        assert "spec" not in run.context
+
+    async def test_spec_not_found_emits_and_runs(self) -> None:
+        """If spec_store has no spec, pipeline emits one and runs with verification."""
+        from tests.fakes import FakeSpecStore, FakeSpecVerifier
+
+        engine = FakeEngine()
+        store = FakeSpecStore()
+        verifier = FakeSpecVerifier()
+
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=999, title="Missing spec", skip_decompose=True
+            )
+
+        assert run.status == "completed"
+        emitted = await store.get(999)
+        assert emitted is not None
+        assert emitted.title == "Missing spec"
+
+    async def test_verification_results_stored_in_context(self) -> None:
+        """Verification results are stored in run.context['verifications']."""
+        from tests.fakes import FakeSpecStore, FakeSpecVerifier
+
+        engine = FakeEngine()
+        store = FakeSpecStore()
+        verifier = FakeSpecVerifier(default_pass=True)
+        spec = self._make_spec()
+        await store.save(spec)
+
+        pipeline = BuilderPipeline(engine, spec_store=store, spec_verifier=verifier)
+        with patch("asyncio.sleep", return_value=None):
+            run = await pipeline.execute(
+                issue_number=42, title="Add caching", skip_decompose=True
+            )
+
+        verifications = run.context.get("verifications", [])
+        assert len(verifications) > 0
+        assert all(v["passed"] for v in verifications)

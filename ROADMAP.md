@@ -1,7 +1,7 @@
 # Stronghold Roadmap
 
-**Last Updated:** 2026-04-18
-**Status:** Pre-implementation — architecture complete, no code yet. CFM-1 through CFM-5 (Conductor Feature Migration, v1.4–v1.7) added 2026-04-18. Architecture coverage: `ARCHITECTURE.md §15`.
+**Last Updated:** 2026-04-16
+**Status:** Active development — core security, routing, classification, memory, agent runtime implemented. See progress dashboard at bottom.
 
 ---
 
@@ -639,29 +639,38 @@ stronghold/
 
 ---
 
-## v1.1: Closed-Loop Feedback (Phase 1-3 from §19.18)
+## v1.1: Closed-Loop Feedback + Tournament Hardening
+
+**Theme:** The feedback primitives exist (Auditor/Mason cycle, learning extraction, tournament scaffolding). v1.1 wires them into production and makes them self-tuning.
 
 - [ ] Latency tracking → rolling P50/P99 per model → adjust speed scores
 - [ ] Tool success rate per model per task_type → adjust quality scores
 - [ ] Retrospective intent labels (compare classified task_type vs actual tools used) → adjust keyword weights
-- [ ] Tournament system (head-to-head agent competition, 5-10% exploration rate)
+- [ ] Tournament system wired to production routing (currently in-memory only, not connected to live traffic)
 - [ ] Dynamic intent creation on agent import
+- [ ] Automated trust tier promotion gates (currently manual via `update_trust_tier` — no AI+admin auto-promotion exists yet)
 
-## v1.2: Forge + Advanced Memory
+## v1.2: Forge Iteration + Advanced Memory + RASO Phase 1
 
-- [ ] Forge agent (iterative ☠️→T3 loop: generate → scan → validate → test)
+**Theme:** Forge gains a real test→iterate loop (currently generate→scan→save only). Memory decay ships. RASO inner loop formalized.
+
+- [ ] Forge agent iteration loop: generate → scan → validate → **test with sample inputs** → iterate (max N rounds). Currently missing: test execution step and retry loop.
 - [ ] Learning A/B evaluation (random withhold + measure outcome delta)
-- [ ] Memory decay function (unused learnings lose weight over time)
+- [ ] Memory decay function (unused learnings lose weight over time — mechanism exists in episodic tiers, not yet in learnings)
 - [ ] Scribe committee (critic/advocate/editor debate)
 - [ ] Contradiction detection in learnings
+- [ ] RASO Phase 1: Formalize the Auditor→Mason→extract→store→track cycle as the inner feedback loop. Measure interaction effects between agents (not just individual pass/fail).
 
-## v1.3: Multi-Tenant + Adaptive Tools
+## v1.3: Multi-Tenant + RASO Phase 2
+
+**Theme:** Enterprise multi-tenancy ships. RASO meta-agent wraps the builders graph.
 
 - [ ] K8s namespace-per-tenant isolation
 - [ ] Per-tenant prompt isolation (tenant_id scoping in prompts table)
-- [ ] Usage-weighted tool schema pruning
-- [ ] Tool composition learning (frequent chains → pre-inject)
+- [ ] Namespace-scoped secrets (K8s secret manager per tenant)
+- [ ] Agent marketplace (registry for importing/sharing agents across tenants)
 - [ ] Custom agent containers (Dockerfile + A2A endpoint)
+- [ ] RASO Phase 2: Meta-agent that can modify graph structure (add/remove/reorder nodes, adjust strategy selection, tune scoring weights). Learns parameter sensitivity — which knobs to turn by inches, which to turn by leaps.
 
 ## v1.4: Review Queue + Session Trust Floor + Trust Ledger
 
@@ -761,26 +770,27 @@ stronghold/
 - [ ] Cross-user generalization (individual learnings → validated system facts)
 - [ ] Ebbinghaus forgetting curve for episodic memory
 - [ ] Stronghold native UI (replace Arize + LiteLLM dashboards, add prompt editor)
+- [ ] RASO Phase 3: The guide learns how to pick routes — meta-optimization of the optimization process itself
 
 ---
 
 ## Progress Dashboard
 
-Updated by CI on every merge to main:
+Updated 2026-04-16:
 
 ```
-Phase 0: Scaffold           [x] ██████████  done   (138 source files, pyproject.toml, pre-commit)
-Phase 1: Types + Protocols  [x] ██████████  done   (12 protocols, all value types, error hierarchy)
+Phase 0: Scaffold           [x] ██████████  done   (208 source files, pre-commit, CI)
+Phase 1: Types + Protocols  [x] ██████████  done   (20 protocols, 32+ Protocol classes, all value types, error hierarchy)
 Phase 2: Router + Classifier [x] ██████████  done   (scorer, scarcity, speed, filter, keyword, engine)
-Phase 3: Security Layer     [x] ██████████  done   (Warden patterns+detector+sanitizer, Sentinel validator+policy+pii+audit, Gate)
-Phase 4: Memory             [~] ██████░░░░  60%    (learnings store+extractor, episodic tiers — embeddings stub)
-Phase 5: Data + Auth        [~] ████░░░░░░  40%    (static key auth, config loader — PG sessions/quota not ported yet)
-Phase 6: Agent Runtime      [~] ██████░░░░  60%    (base.py, react, plan_execute, context_builder — streaming incomplete)
-Phase 7: Roster + Tools     [~] ████░░░░░░  40%    (artificer strategy, agent routes — other agents not defined yet)
-Phase 8: Import/Export + API [~] ██████░░░░  60%    (13 route files, chat+admin+status — import/export not started)
-Phase 9: Deployment         [ ] ░░░░░░░░░░  0%
-Phase 10: Polish + Ship     [ ] ░░░░░░░░░░  0%
+Phase 3: Security Layer     [x] ██████████  done   (4-layer Warden, Sentinel pipeline, Gate, 203 attack payloads, 30+ vulns fixed in Apr 13 audit)
+Phase 4: Memory             [~] ████████░░  80%    (learnings store+extractor+promoter, 7-tier episodic, 5 scopes — embeddings retrieval stub)
+Phase 5: Data + Auth        [~] ██████░░░░  60%    (Keycloak+Entra+static key auth, config loader, sessions — PG quota partial)
+Phase 6: Agent Runtime      [~] ████████░░  80%    (base.py, react, plan_execute, delegate, direct, context_builder, streaming — execution modes partial)
+Phase 7: Roster + Tools     [~] ██████░░░░  60%    (Artificer+Mason+Frank strategies, agent routes, MCP registry — Scribe/Ranger/WaA definitions partial)
+Phase 8: Import/Export + API [~] ████████░░  80%    (17 route files, chat+admin+status+skills+agents+mcp — import/export partial)
+Phase 9: Deployment         [~] ██████░░░░  60%    (Dockerfile, docker-compose, Helm chart skeleton, K8s ADRs 001-031)
+Phase 10: Polish + Ship     [~] ████░░░░░░  40%    (550+ tests, 95% coverage, ruff+mypy clean — docs and final audit pending)
 
-Tests: 352 green / 353 total (1 failure)
-Security gates: 1/3 passed (Phase 3 gate — Phases 7 and 10 pending)
+Tests: 3,000+ green, 95% coverage
+Security gates: 1/3 passed (Phase 3 — Phases 7 and 10 pending)
 ```

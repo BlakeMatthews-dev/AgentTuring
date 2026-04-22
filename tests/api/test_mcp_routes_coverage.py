@@ -286,7 +286,12 @@ class TestDeployFromCatalog:
         assert data["server"]["status"] == "failed"
         assert data["server"]["error"] != ""
 
-    def test_deploy_catalog_with_env_overrides(self) -> None:
+    def test_deploy_catalog_with_env_overrides_applied_to_server(self) -> None:
+        """Env overrides in the request body must land on the deployed MCPServer.
+
+        If the route silently drops overrides, deployed servers would run with
+        only defaults, which would be invisible without this check.
+        """
         deployer = FakeMCPDeployer()
         container = _MinimalContainer(mcp_deployer=deployer)
         app = _make_app(container)
@@ -297,6 +302,13 @@ class TestDeployFromCatalog:
                 headers=AUTH,
             )
         assert resp.status_code == 201
+        # The deployer must have received a server whose spec.env contains the override.
+        assert "github" in deployer.deployed, "server not deployed"
+        deployed_server = deployer.deployed["github"]
+        env = dict(deployed_server.spec.env or {})
+        assert env.get("CUSTOM_VAR") == "value", (
+            f"env override dropped; deployer saw env={env!r}"
+        )
 
     def test_unauthenticated(self) -> None:
         app = _make_app()
@@ -348,7 +360,9 @@ class TestDeployCustomImage:
         assert resp.status_code == 400
         assert "lowercase alphanumeric" in resp.json()["detail"]
 
-    def test_name_too_short(self) -> None:
+    def test_name_too_short_returns_400_with_reason(self) -> None:
+        """Single-char name must be rejected and the error must name the length
+        rule (so operators can see what to fix)."""
         container = _MinimalContainer()
         app = _make_app(container)
         with TestClient(app) as client:
@@ -361,6 +375,11 @@ class TestDeployCustomImage:
                 headers=AUTH,
             )
         assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        # Must mention either the length constraint or the alphanumeric rule.
+        assert any(k in detail for k in ("length", "short", "lowercase alphanumeric", "at least")), (
+            f"name-too-short 400 detail unhelpful: {detail!r}"
+        )
 
     def test_disallowed_image_registry(self) -> None:
         container = _MinimalContainer()
@@ -490,25 +509,31 @@ class TestDeployCustomImage:
         assert resp.status_code == 201
         assert len(resp.json()["server"]["description"]) <= 200
 
-    def test_allowed_registries(self) -> None:
-        """All three allowed registries should be accepted."""
+    @pytest.mark.parametrize("image", [
+        "ghcr.io/modelcontextprotocol/server-test:latest",
+        "ghcr.io/anthropics/server-test:latest",
+        "docker.io/library/server-test:latest",
+    ])
+    def test_allowed_registries_accepted_and_image_preserved(self, image: str) -> None:
+        """All three allowed registries accept the deployment AND the image
+        string is stored verbatim on the server spec — no silent rewriting."""
         deployer = FakeMCPDeployer()
         container = _MinimalContainer(mcp_deployer=deployer)
         app = _make_app(container)
-
-        registries = [
-            "ghcr.io/modelcontextprotocol/server-test:latest",
-            "ghcr.io/anthropics/server-test:latest",
-            "docker.io/library/server-test:latest",
-        ]
-        for i, image in enumerate(registries):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/v1/stronghold/mcp/servers",
-                    json={"name": f"server-{i:02d}", "image": image},
-                    headers=AUTH,
-                )
-            assert resp.status_code == 201, f"Failed for {image}"
+        # Unique name per parameter.
+        name = "server-" + image.split("/")[0].replace(".", "-")
+        with TestClient(app) as client:
+            resp = client.post(
+                "/v1/stronghold/mcp/servers",
+                json={"name": name, "image": image},
+                headers=AUTH,
+            )
+        assert resp.status_code == 201, f"Failed for {image}: {resp.text}"
+        data = resp.json()["server"]
+        assert data["name"] == name
+        # The image the user supplied must flow through; silent rewriting would
+        # be a supply-chain hazard.
+        assert image in str(data), f"image dropped from response: {data!r}"
 
 
 # ── POST /v1/stronghold/mcp/servers (repo_url) ───────────────────────
@@ -611,7 +636,12 @@ class TestStartServer:
             resp = client.post("/v1/stronghold/mcp/servers/nonexistent/start", headers=AUTH)
         assert resp.status_code == 404
 
-    def test_start_without_deployer(self) -> None:
+    def test_start_without_deployer_preserves_pending_status(self) -> None:
+        """With no deployer configured, /start must not flip status to 'running'.
+
+        It should leave the server in its prior (pending) state — running is a
+        lie when no real K8s deploy happened.
+        """
         registry = MCPRegistry()
         registry.register_from_catalog("github", org_id="__system__")
         container = _MinimalContainer(mcp_registry=registry, mcp_deployer=None)
@@ -619,6 +649,12 @@ class TestStartServer:
         with TestClient(app) as client:
             resp = client.post("/v1/stronghold/mcp/servers/github/start", headers=AUTH)
         assert resp.status_code == 200
+        server_status = resp.json()["server"]["status"]
+        assert server_status != "running", (
+            f"/start without a deployer wrongly reports running: {server_status!r}"
+        )
+        # pending is the expected initial state; anything else would also be suspicious.
+        assert server_status == "pending"
 
     def test_start_unauthenticated(self) -> None:
         app = _make_app()

@@ -301,12 +301,21 @@ class TestUpdateProfile:
             assert resp.status_code == 400
             assert "No valid fields" in resp.json()["detail"]
 
-    def test_non_string_field_ignored(self) -> None:
+    def test_non_string_field_rejected_without_db_write(self) -> None:
+        """A non-string bio value must be treated as 'no valid field' (400) AND
+        NOT result in any UPDATE being issued to the DB — protects against a
+        regression where bad types silently cast (e.g. bio=42 → '42')."""
         conn = FakeConnection()
         app = _make_app(db_pool=FakePool(conn))
         with TestClient(app) as client:
             resp = client.put("/v1/stronghold/profile", json={"bio": 42}, headers=AUTH)
-            assert resp.status_code == 400  # no valid fields
+            assert resp.status_code == 400
+            assert "No valid fields" in resp.json()["detail"]
+        # Side-effect check: no UPDATE statement should have been issued.
+        update_stmts = [s for s in conn.executed if "UPDATE" in s.upper()]
+        assert not update_stmts, (
+            f"non-string field triggered an UPDATE: {update_stmts!r}"
+        )
 
     def test_avatar_too_large_returns_400(self) -> None:
         conn = FakeConnection()
@@ -438,11 +447,29 @@ class TestLeaderboard:
             assert entry["avatar_data"] == "av"
             assert entry["team_id"] == "eng"
 
-    def test_leaderboard_days_param(self) -> None:
-        app = _make_app()
+    def test_leaderboard_days_param_flows_to_outcome_store(self) -> None:
+        """?days=7 must both be echoed AND drive the outcome store query window.
+
+        If a regression echoes the param but queries a fixed window, this fails.
+        """
+        seen_kwargs: list[dict[str, Any]] = []
+
+        class RecordingOutcomeStore(FakeOutcomeStore):
+            async def get_usage_breakdown(self, **kwargs: Any) -> list[dict[str, Any]]:
+                seen_kwargs.append(kwargs)
+                return []
+
+        app = _make_app(outcome_store=RecordingOutcomeStore())
         with TestClient(app) as client:
             resp = client.get("/v1/stronghold/leaderboard?days=7", headers=AUTH)
+            assert resp.status_code == 200
             assert resp.json()["days"] == 7
+        # The outcome store must have been queried at least once with days=7
+        # (the kwarg name may be 'days' or 'window_days' — accept either).
+        assert seen_kwargs, "outcome_store.get_usage_breakdown was never called"
+        last = seen_kwargs[-1]
+        day_values = [v for v in last.values() if v == 7]
+        assert day_values, f"days=7 was not passed to outcome store: {last!r}"
 
     def test_leaderboard_zero_requests_zero_success_rate(self) -> None:
         outcome = FakeOutcomeStore(breakdown=[
@@ -453,16 +480,25 @@ class TestLeaderboard:
             resp = client.get("/v1/stronghold/leaderboard", headers=AUTH)
             assert resp.json()["entries"][0]["success_rate"] == 0
 
-    def test_leaderboard_limit_param(self) -> None:
+    def test_leaderboard_limit_param_takes_first_n_with_dense_rank(self) -> None:
+        """?limit=3 returns exactly 3 entries, taken from the outcome-store
+        breakdown in input order, each with a dense 1-based rank."""
         entries = [
-            {"group": f"u{i}@x.com", "total_tokens": 1000 * i, "request_count": i, "success_count": i}
+            {"group": f"u{i}@x.com", "total_tokens": 1000 * (10 - i), "request_count": i + 1, "success_count": i + 1}
             for i in range(10)
         ]
         outcome = FakeOutcomeStore(breakdown=entries)
         app = _make_app(outcome_store=outcome)
         with TestClient(app) as client:
             resp = client.get("/v1/stronghold/leaderboard?limit=3", headers=AUTH)
-            assert len(resp.json()["entries"]) == 3
+            data = resp.json()
+        assert len(data["entries"]) == 3
+        # Dense 1-based rank — a regression that produces duplicate ranks or
+        # zero-based ranks would break UI assumptions.
+        ranks = [e["rank"] for e in data["entries"]]
+        assert ranks == [1, 2, 3], f"bad rank sequence: {ranks}"
+        # The store was the source of truth; the route must surface the same top users.
+        assert {e["user_id"] for e in data["entries"]} == {"u0@x.com", "u1@x.com", "u2@x.com"}
 
     def test_leaderboard_no_db_uses_email_prefix(self) -> None:
         outcome = FakeOutcomeStore(breakdown=[

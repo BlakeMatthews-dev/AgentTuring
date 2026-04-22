@@ -175,12 +175,14 @@ class TestEnsureClient:
 
 class TestDeploySync:
     def test_creates_deployment_and_service(self) -> None:
+        """Fresh deploy: one Deployment + one Service, both named consistently,
+        service port matches server.spec.port, and selector matches deployment labels."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
         _patch_k8s(deployer, apps, core)
 
-        server = _make_server()
+        server = _make_server(port=3000)
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
@@ -189,23 +191,43 @@ class TestDeploySync:
         assert len(apps.create_calls) == 1
         assert len(core.create_service_calls) == 1
 
+        dep = apps.create_calls[0][1]
+        svc = core.create_service_calls[0][1]
+        assert dep.metadata.name == "mcp-test-server"
+        assert svc.metadata.name == "mcp-test-server"
+        # Service must target the container port.
+        assert svc.spec.ports[0].port == 3000
+        # Service selector must equal the deployment's app label, or traffic
+        # would never reach the pod.
+        assert svc.spec.selector["app"] == dep.metadata.labels["app"] == "mcp-test-server"
+
     def test_updates_existing_deployment(self) -> None:
+        """Re-deploy with a new image replaces the deployment, not create again.
+
+        The second call must go through the update path (replace) and the
+        container image in the stored deployment must reflect the new spec.
+        """
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
         _patch_k8s(deployer, apps, core)
 
-        server = _make_server()
-        # First deploy creates
-        deployer._deploy_sync(server)
-        # Second deploy updates (deployment and service both exist now)
-        result = deployer._deploy_sync(server)
+        v1 = _make_server(image="ghcr.io/modelcontextprotocol/server-github:v1")
+        deployer._deploy_sync(v1)
+        assert len(apps.create_calls) == 1
+
+        v2 = _make_server(image="ghcr.io/modelcontextprotocol/server-github:v2")
+        result = deployer._deploy_sync(v2)
 
         assert result.status == MCPServerStatus.RUNNING
-        assert len(apps.replace_calls) >= 1
+        assert len(apps.create_calls) == 1, "should not create twice -- must use update path"
+        assert len(apps.replace_calls) == 1
+        current_image = apps.deployments["mcp-test-server"].spec.template.spec.containers[0].image
+        assert current_image.endswith(":v2")
         assert len(core.patch_service_calls) >= 1
 
     def test_with_env_vars(self) -> None:
+        """Env vars from the spec land on the pod container as V1EnvVar entries."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -215,8 +237,19 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        body = apps.create_calls[0][1]
+        container = body.spec.template.spec.containers[0]
+        env_map = {e.name: getattr(e, "value", None) for e in container.env or []}
+        assert env_map["DEBUG"] == "true"
+        assert env_map["LOG_LEVEL"] == "info"
 
     def test_with_secrets_existing(self) -> None:
+        """Secret refs like 'secret-name:key' become valueFrom.secretKeyRef entries.
+
+        This is the security-critical assertion: the deployer must wire the env
+        var as a reference to an existing K8s secret, NOT inline the secret
+        value into the pod spec.
+        """
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -227,6 +260,17 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        container = apps.create_calls[0][1].spec.template.spec.containers[0]
+        gh_env = next(e for e in (container.env or []) if e.name == "GITHUB_TOKEN")
+        # MUST use valueFrom; plain `.value` would mean the secret was inlined.
+        assert getattr(gh_env, "value", None) is None
+        ref = gh_env.value_from.secret_key_ref
+        assert ref.name == "github-pat"
+        assert ref.key == "token"
+        # And the secret_value "secret-value" must never appear anywhere in the
+        # pod spec dict.
+        spec_str = str(apps.create_calls[0][1].to_dict() if hasattr(apps.create_calls[0][1], "to_dict") else apps.create_calls[0][1])
+        assert "secret-value" not in spec_str
 
     def test_with_secrets_missing(self) -> None:
         """Missing K8s secrets should be skipped gracefully."""
@@ -242,7 +286,11 @@ class TestDeploySync:
         assert result.status == MCPServerStatus.RUNNING
 
     def test_with_invalid_secret_ref_format(self) -> None:
-        """Secret refs that don't have ':' separator should be ignored."""
+        """Secret refs without a ':' separator are dropped, not inlined.
+
+        Regression guard: a malformed ref must not end up as `GITHUB_TOKEN="no-colon-here"`
+        plaintext on the container, because that string could be a real secret.
+        """
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -252,8 +300,15 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        container = apps.create_calls[0][1].spec.template.spec.containers[0]
+        # There must be no env var with the raw "no-colon-here" value.
+        for e in container.env or []:
+            assert getattr(e, "value", None) != "no-colon-here", (
+                "malformed secret ref was inlined as plaintext env var"
+            )
 
     def test_with_custom_resources(self) -> None:
+        """Custom MCPResourceLimits flow through to container resources."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -269,9 +324,14 @@ class TestDeploySync:
         result = deployer._deploy_sync(server)
 
         assert result.status == MCPServerStatus.RUNNING
+        container = apps.create_calls[0][1].spec.template.spec.containers[0]
+        limits = container.resources.to_dict()["limits"]
+        requests = container.resources.to_dict()["requests"]
+        assert limits == {"cpu": "1000m", "memory": "512Mi"}
+        assert requests == {"cpu": "200m", "memory": "128Mi"}
 
     def test_with_no_resources(self) -> None:
-        """When resources is None, should use defaults."""
+        """When the spec omits resources, container gets sensible defaults."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -281,41 +341,44 @@ class TestDeploySync:
         assert server.spec.resources is None
         result = deployer._deploy_sync(server)
         assert result.status == MCPServerStatus.RUNNING
+        container = apps.create_calls[0][1].spec.template.spec.containers[0]
+        limits = container.resources.to_dict()["limits"]
+        # Defaults defined in K8sDeployer; guard against them being zeroed out
+        # (a zero-CPU limit would silently let pods starve neighbors).
+        assert limits["cpu"] and limits["cpu"] != "0"
+        assert limits["memory"] and limits["memory"] != "0"
 
-    def test_org_id_label(self) -> None:
-        """Org ID should appear as a K8s label when valid."""
+    @pytest.mark.parametrize(
+        ("org_id", "expected_in_labels"),
+        [
+            pytest.param("acme-corp", True, id="normal-org-id-is-label"),
+            pytest.param("_system", False, id="underscore-system-excluded"),
+            pytest.param("", False, id="empty-org-excluded"),
+        ],
+    )
+    def test_org_id_label_inclusion(self, org_id: str, expected_in_labels: bool) -> None:
+        """Normal org_ids land in the deployment labels; reserved/empty ones don't.
+
+        The 'stronghold.io/org' label is used for tenant isolation by policies
+        downstream -- it MUST NOT be present for system workloads (leading _) or
+        empty orgs (both would break scoped queries like "list pods for org=X").
+        """
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
         _patch_k8s(deployer, apps, core)
 
-        server = _make_server(org_id="acme-corp")
+        server = _make_server(org_id=org_id)
         deployer._deploy_sync(server)
 
-        assert len(apps.create_calls) == 1
-
-    def test_system_org_id_excluded_from_labels(self) -> None:
-        """Org IDs starting with '_' should not be in labels."""
-        deployer = K8sDeployer()
-        apps = FakeAppsV1Api()
-        core = FakeCoreV1Api()
-        _patch_k8s(deployer, apps, core)
-
-        server = _make_server(org_id="_system")
-        deployer._deploy_sync(server)
-
-        assert len(apps.create_calls) == 1
-
-    def test_empty_org_id_excluded_from_labels(self) -> None:
-        deployer = K8sDeployer()
-        apps = FakeAppsV1Api()
-        core = FakeCoreV1Api()
-        _patch_k8s(deployer, apps, core)
-
-        server = _make_server(org_id="")
-        deployer._deploy_sync(server)
-
-        assert len(apps.create_calls) == 1
+        labels = apps.create_calls[0][1].metadata.labels
+        if expected_in_labels:
+            assert labels.get("stronghold.io/org") == org_id
+        else:
+            assert "stronghold.io/org" not in labels
+        # Base labels are always present.
+        assert labels["app"] == "mcp-test-server"
+        assert labels["stronghold.io/component"] == "mcp-server"
 
 
 # ── _stop_sync ────────────────────────────────────────────────────────
@@ -323,18 +386,19 @@ class TestDeploySync:
 
 class TestStopSync:
     def test_stop_sets_replicas_zero(self) -> None:
+        """stop scales the deployment to zero replicas (not just 'replaces' it)."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
         _patch_k8s(deployer, apps, core)
 
         server = _make_server()
-        # First deploy so the deployment exists
         deployer._deploy_sync(server)
+        assert apps.deployments["mcp-test-server"].spec.replicas == 1
 
         result = deployer._stop_sync(server)
         assert result.status == MCPServerStatus.STOPPED
-        assert len(apps.replace_calls) >= 1
+        assert apps.deployments["mcp-test-server"].spec.replicas == 0
 
     def test_stop_nonexistent_sets_error(self) -> None:
         deployer = K8sDeployer()
@@ -352,6 +416,7 @@ class TestStopSync:
 
 class TestStartSync:
     def test_start_sets_replicas_one(self) -> None:
+        """start restores replicas=1 after a stop (verifies the real state change)."""
         deployer = K8sDeployer()
         apps = FakeAppsV1Api()
         core = FakeCoreV1Api()
@@ -360,10 +425,11 @@ class TestStartSync:
         server = _make_server()
         deployer._deploy_sync(server)
         deployer._stop_sync(server)
+        assert apps.deployments["mcp-test-server"].spec.replicas == 0
 
         result = deployer._start_sync(server)
         assert result.status == MCPServerStatus.RUNNING
-        assert len(apps.replace_calls) >= 2  # stop + start
+        assert apps.deployments["mcp-test-server"].spec.replicas == 1
 
     def test_start_nonexistent_sets_error(self) -> None:
         deployer = K8sDeployer()

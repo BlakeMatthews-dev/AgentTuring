@@ -1,0 +1,56 @@
+# Spec: Quartermaster Spec Emission
+# Issue: Quartermaster emits machine-checkable Spec objects from issue metadata
+
+issue_number: 1003
+title: "Quartermaster emits Spec from issue decomposition"
+status: active
+complexity: M
+
+protocols_touched:
+  - SpecStore
+  - BuilderPipeline
+
+files_touched:
+  - src/stronghold/builders/spec_emitter.py
+  - src/stronghold/orchestrator/pipeline.py
+  - tests/builders/test_spec_emitter.py
+
+acceptance_criteria:
+  - "emit_spec() produces a valid Spec from issue title, body, and complexity"
+  - "Acceptance criteria are extracted from issue body bullet points"
+  - "Protocols touched are inferred from file paths (src/stronghold/protocols/*.py)"
+  - "Invariants are derived from acceptance criteria (one per criterion)"
+  - "Complexity maps from classifier output to Spec complexity (S/M/L)"
+  - "Empty/minimal issues produce a valid Spec with empty invariants"
+  - "Spec status is ACTIVE after emission"
+
+invariants:
+  - name: spec_always_valid
+    description: "emit_spec() always returns a Spec with correct issue_number and title"
+    kind: postcondition
+    expression: "spec.issue_number == issue_number and spec.title == title"
+    severity: critical
+
+  - name: criteria_from_body
+    description: "Each bullet point in the issue body becomes an acceptance criterion"
+    kind: postcondition
+    expression: "all(line.lstrip('- ') in spec.acceptance_criteria for line in bullets)"
+    severity: high
+
+  - name: complexity_mapped
+    description: "Classifier complexity maps to Spec complexity (simple→S, moderate→M, complex→L)"
+    kind: postcondition
+    expression: "COMPLEXITY_MAP[classifier_complexity] == spec.complexity"
+    severity: high
+
+  - name: invariant_per_criterion
+    description: "Each acceptance criterion generates exactly one invariant"
+    kind: postcondition
+    expression: "len(spec.invariants) == len(spec.acceptance_criteria)"
+    severity: high
+
+  - name: status_active
+    description: "Emitted spec always has ACTIVE status"
+    kind: postcondition
+    expression: "spec.status == SpecStatus.ACTIVE"
+    severity: critical

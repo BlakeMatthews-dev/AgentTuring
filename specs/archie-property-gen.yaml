@@ -1,0 +1,47 @@
+# Spec: Archie Property-Test Generator
+# Issue: Archie generates Hypothesis property tests from Spec invariants
+
+issue_number: 1004
+title: "Archie generates property tests from Spec invariants"
+status: active
+complexity: M
+
+protocols_touched:
+  - SpecStore
+
+files_touched:
+  - src/stronghold/builders/property_gen.py
+  - tests/builders/test_property_gen.py
+
+acceptance_criteria:
+  - "generate_property_tests() produces a PropertyTest for each Invariant"
+  - "Generated test names follow test_{invariant_name} convention"
+  - "Strategy code is derived from invariant kind and protocol"
+  - "Module path follows tests/{module}/test_{proto}_properties.py convention"
+  - "Spec is updated with property_tests populated and uncovered_invariants == ()"
+  - "Empty invariants produce empty property_tests"
+
+invariants:
+  - name: one_test_per_invariant
+    description: "Every invariant gets exactly one property test"
+    kind: postcondition
+    expression: "len(property_tests) == len(invariants)"
+    severity: critical
+
+  - name: test_names_match
+    description: "Each property test references the correct invariant"
+    kind: postcondition
+    expression: "all(pt.invariant_name == inv.name for pt, inv in zip(tests, invariants))"
+    severity: high
+
+  - name: all_covered
+    description: "After generation, spec.uncovered_invariants is empty"
+    kind: postcondition
+    expression: "updated_spec.uncovered_invariants == ()"
+    severity: critical
+
+  - name: module_path_convention
+    description: "Module paths follow the tests/ directory convention"
+    kind: data_invariant
+    expression: "all(pt.module_path.startswith('tests/') for pt in tests if pt.module_path)"
+    severity: medium

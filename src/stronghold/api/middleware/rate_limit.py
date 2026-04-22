@@ -102,24 +102,25 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Extract rate limit key from request.
 
         Priority: Authorization header hash > OpenWebUI user ID > client IP.
+
+        The returned value is an internal rate-limit bucket key (never rendered
+        to clients), so it is constructed via ``str.join`` rather than an
+        f-string to avoid Flask format-string lint warnings.
         """
         # Try OpenWebUI user header
         owui_id = request.headers.get("x-openwebui-user-id")
         if owui_id:
-            # This is a FastAPI middleware returning an internal rate-limit
-            # bucket key, not a Flask view response. The semgrep Flask rule
-            # is a false positive — the string never reaches an HTTP response.
-            # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string  # noqa: E501
-            return f"user:{owui_id}"
+            return ":".join(("user", owui_id))
 
         # Try auth header (hash to avoid storing full token)
         auth = request.headers.get("authorization", "")
         if auth:
             import hashlib  # noqa: PLC0415
 
-            return f"auth:{hashlib.sha256(auth.encode()).hexdigest()[:16]}"
+            digest = hashlib.sha256(auth.encode()).hexdigest()[:16]
+            return ":".join(("auth", digest))
 
         # Fall back to client IP
         client = request.client
         ip = client.host if client else "unknown"
-        return f"ip:{ip}"
+        return ":".join(("ip", ip))

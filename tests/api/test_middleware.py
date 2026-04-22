@@ -458,33 +458,3 @@ class TestAuthInvalid:
             )
             assert resp.status_code == 401
             assert "Invalid" in resp.json()["detail"]
-
-
-# ── TracingMiddleware ─────────────────────────────────────────────────
-# tracing.py is a 1-line stub: 'Tracing middleware: create trace per request.'
-# Verify the module loads and has no middleware class to test.
-
-
-class TestTracingMiddlewareStub:
-    """tracing.py is a placeholder module with no middleware class."""
-
-    def test_tracing_module_is_importable(self) -> None:
-        """The module imports without error."""
-        import stronghold.api.middleware.tracing as tracing_mod
-
-        # Verify it has no middleware class (it's a stub docstring-only file)
-        classes = [
-            name for name in dir(tracing_mod)
-            if isinstance(getattr(tracing_mod, name, None), type)
-        ]
-        # No classes defined in the stub
-        assert len(classes) == 0, (
-            f"Expected tracing.py to be a stub, but found classes: {classes}"
-        )
-
-    def test_tracing_module_docstring(self) -> None:
-        """The stub has a docstring indicating its purpose."""
-        import stronghold.api.middleware.tracing as tracing_mod
-
-        assert tracing_mod.__doc__ is not None
-        assert "trace" in tracing_mod.__doc__.lower() or "tracing" in tracing_mod.__doc__.lower()

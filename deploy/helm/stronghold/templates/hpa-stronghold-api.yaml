@@ -1,0 +1,52 @@
+{{- if .Values.autoscaling.strongholdApi.enabled }}
+# HorizontalPodAutoscaler for the stronghold-api Deployment.
+#
+# When enabled, the HPA takes ownership of the replica count; the static
+# .Values.strongholdApi.replicas is only the initial seed before the first
+# HPA reconciliation (typically < 15s). Scale-up and scale-down behavior
+# are configurable to trade responsiveness vs. cost.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "stronghold.fullname" . }}-api
+  namespace: {{ include "stronghold.namespace" . }}
+  labels:
+    {{- include "stronghold.labels" . | nindent 4 }}
+    app.kubernetes.io/component: stronghold-api
+    stronghold.io/priority-tier: P0
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "stronghold.fullname" . }}-api
+  minReplicas: {{ .Values.autoscaling.strongholdApi.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.strongholdApi.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.strongholdApi.targetCPUUtilization }}
+    {{- if .Values.autoscaling.strongholdApi.targetMemoryUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.strongholdApi.targetMemoryUtilization }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.strongholdApi.scaleUpStabilization | default 30 }}
+      policies:
+        - type: Pods
+          value: {{ .Values.autoscaling.strongholdApi.scaleUpMaxPods | default 2 }}
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.strongholdApi.scaleDownStabilization | default 300 }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

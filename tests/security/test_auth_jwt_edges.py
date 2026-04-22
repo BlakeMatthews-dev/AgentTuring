@@ -77,15 +77,13 @@ class TestAuthHeaderValidation:
 
 class TestClaimExtraction:
     async def test_basic_user_extraction(self) -> None:
-        provider = _make_provider(
-            {
-                "sub": "user-42",
-                "preferred_username": "bob",
-                "realm_access": {"roles": ["admin", "viewer"]},
-                "organization_id": "org-1",
-                "team_id": "team-a",
-            }
-        )
+        provider = _make_provider({
+            "sub": "user-42",
+            "preferred_username": "bob",
+            "realm_access": {"roles": ["admin", "viewer"]},
+            "organization_id": "org-1",
+            "team_id": "team-a",
+        })
         ctx = await provider.authenticate("Bearer fake-token")
         assert ctx.user_id == "user-42"
         assert ctx.username == "bob"
@@ -100,12 +98,10 @@ class TestClaimExtraction:
             await provider.authenticate("Bearer fake-token")
 
     async def test_fallback_to_name_when_no_preferred_username(self) -> None:
-        provider = _make_provider(
-            {
-                "sub": "user-1",
-                "name": "Charlie",
-            }
-        )
+        provider = _make_provider({
+            "sub": "user-1",
+            "name": "Charlie",
+        })
         ctx = await provider.authenticate("Bearer fake-token")
         assert ctx.username == "Charlie"
 
@@ -132,34 +128,28 @@ class TestOrgRequirement:
 
 class TestServiceAccountKind:
     async def test_service_account_detected(self) -> None:
-        provider = _make_provider(
-            {
-                "sub": "sa-bot",
-                "kind": "service_account",
-            }
-        )
+        provider = _make_provider({
+            "sub": "sa-bot",
+            "kind": "service_account",
+        })
         ctx = await provider.authenticate("Bearer fake-token")
         assert ctx.kind == IdentityKind.SERVICE_ACCOUNT
 
     async def test_unknown_kind_defaults_to_user(self) -> None:
-        provider = _make_provider(
-            {
-                "sub": "user-1",
-                "kind": "unknown_type",
-            }
-        )
+        provider = _make_provider({
+            "sub": "user-1",
+            "kind": "unknown_type",
+        })
         ctx = await provider.authenticate("Bearer fake-token")
         assert ctx.kind == IdentityKind.USER
 
 
 class TestRoleExtraction:
     async def test_nested_roles_extracted(self) -> None:
-        provider = _make_provider(
-            {
-                "sub": "user-1",
-                "realm_access": {"roles": ["admin", "operator"]},
-            }
-        )
+        provider = _make_provider({
+            "sub": "user-1",
+            "realm_access": {"roles": ["admin", "operator"]},
+        })
         ctx = await provider.authenticate("Bearer fake-token")
         assert ctx.roles == frozenset({"admin", "operator"})
 

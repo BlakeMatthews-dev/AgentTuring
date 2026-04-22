@@ -82,6 +82,7 @@ class RateLimitConfig(BaseModel):
 class AuthConfig(BaseModel):
     """Authentication provider configuration."""
 
+    jwt_secret: str = ""  # HS256 signing key for JWT tokens (separate from API key)
     jwks_url: str = ""
     issuer: str = ""
     audience: str = ""

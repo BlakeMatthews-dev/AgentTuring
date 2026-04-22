@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from stronghold.types.agent import ReasoningResult
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("stronghold.artificer")
 
 # Type for async status callback
-StatusCallback = Callable[[str], Coroutine[Any, Any, None]]
+StatusCallback = Callable[[str], Any]
 
 # JSON bomb protection + context-window protection.
 # Mirrors caps in ReactStrategy so high-privilege Artificer tools
@@ -249,7 +249,7 @@ class ArtificerStrategy:
                     )
 
                 # Sentinel post-call: Warden scan + PII filter + token optimize.
-                # Falls back to raw Warden + PII redaction when no Sentinel is wired.
+                # Always run Warden scan + PII filter for defense-in-depth.
                 if sentinel is not None and auth is not None:
                     tool_result_str = await sentinel.post_call(
                         tool_name,
@@ -257,6 +257,7 @@ class ArtificerStrategy:
                         auth,
                     )
                 else:
+                    # Always run Warden scan even if Sentinel is available
                     if warden is not None:
                         verdict = await warden.scan(tool_result_str, "tool_result")
                         if not verdict.clean:

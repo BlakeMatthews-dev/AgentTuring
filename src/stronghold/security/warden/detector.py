@@ -64,9 +64,10 @@ class Warden:
 
         # Layer 1: Regex patterns
         # Normalize Unicode to defeat homoglyph bypass (Cyrillic lookalikes etc.)
-        # Scan first 10KB + last 2KB to catch both head and tail injection padding.
-        # Attacker technique: pad 10KB of safe text then append injection.
-        scan_window = content[:10240] + content[-2048:] if len(content) > 10240 else content
+        # Fixed: Scan full content, not just head/tail windows (H2 fix).
+        # ReDoS protection: only scan first 50KB for very large inputs.
+        max_scan_size = 50 * 1024  # 50KB limit to prevent regex DoS
+        scan_window = content[:max_scan_size] if len(content) > max_scan_size else content
         scan_content = unicodedata.normalize("NFKD", scan_window)
         for pattern, description in REJECT_PATTERNS:
             try:

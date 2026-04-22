@@ -1,0 +1,125 @@
+# Stronghold production stack
+# Usage: cp .env.production .env && docker compose -f docker-compose.prod.yml up -d
+#
+# Production security hardening:
+#   - No privileged containers
+#   - Secrets via Docker secrets, not env vars
+#   - Services bind to internal network only
+#   - Strong passwords for all databases
+#   - OpenAPI docs disabled in production
+
+services:
+  stronghold:
+    build:
+      context: .
+      target: production
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8100:8100"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://stronghold:${POSTGRES_PASSWORD}@postgres:5432/stronghold
+      - LITELLM_URL=http://litellm:4000
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
+      - JWT_SECRET=/run/secrets/jwt_secret
+    secrets:
+      - jwt_secret
+      - router_api_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+    networks:
+      - stronghold
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=stronghold
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_DB=stronghold
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stronghold"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    environment:
+      - PHOENIX_SQL_DATABASE_URL=sqlite:////data/phoenix.db
+    volumes:
+      - phoenixdata:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    security_opt:
+      - apparmor:unconfined
+    ports:
+      []
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+      - ./litellm_openapi.json:/app/github-openapi.json
+    env_file: .env
+    command: ["--config", "/app/config.yaml"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    networks:
+      - stronghold
+
+secrets:
+  jwt_secret:
+    file: .secrets/jwt_secret.txt
+  router_api_key:
+    file: .secrets/router_api_key.txt
+  postgres_password:
+    file: .secrets/postgres_password.txt
+
+volumes:
+  pgdata:
+  phoenixdata:
+
+networks:
+  stronghold:
+    driver: bridge

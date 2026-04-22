@@ -337,7 +337,7 @@ async def demo_login(
 
     container = request.app.state.container
     auth_cfg = container.config.auth
-    signing_key = container.config.router_api_key
+    signing_key = container.config.auth.jwt_secret
 
     if not body.email:
         raise HTTPException(status_code=400, detail="email is required")

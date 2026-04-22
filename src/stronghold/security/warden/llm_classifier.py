@@ -164,5 +164,12 @@ async def classify_tool_result(
 
         return {"label": label, "model": model, "tokens": tokens}
     except Exception:
-        logger.warning("L3 classification failed, defaulting to safe", exc_info=True)
-        return {"label": "safe", "model": model, "tokens": 0, "error": "classification_failed"}
+        logger.warning(
+            "L3 classification failed, defaulting to inconclusive (H3 fix)", exc_info=True
+        )
+        return {
+            "label": "inconclusive",
+            "model": model,
+            "tokens": 0,
+            "error": "classification_failed",
+        }

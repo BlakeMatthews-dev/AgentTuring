@@ -31,7 +31,7 @@ from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.types.agent import AgentIdentity
-from stronghold.types.auth import AuthContext, PermissionTable
+from stronghold.types.auth import AuthContext, IdentityKind, PermissionTable
 from stronghold.types.config import StrongholdConfig, TaskTypeConfig
 from stronghold.types.memory import Learning
 from tests.fakes import FakeAuthProvider, FakeLLMClient

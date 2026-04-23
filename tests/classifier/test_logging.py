@@ -49,10 +49,13 @@ class TestAuditToggle:
 
 class TestGetDecisions:
     def test_filter_by_since(self) -> None:
+        import time
+
         cl = ClassifierLogger()
         cl.log_decision("old", None, "chat", 0.9, "simple", "arbiter")
-        old_ts = cl.get_decisions()[0].timestamp
-        cutoff = old_ts + timedelta(milliseconds=1)
+        time.sleep(0.01)
+        cutoff = datetime.now(UTC)
+        time.sleep(0.01)
         cl.log_decision("new", None, "code", 0.8, "complex", "mason")
         decisions = cl.get_decisions(since=cutoff)
         assert len(decisions) == 1

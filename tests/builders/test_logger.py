@@ -47,10 +47,13 @@ class TestGetActions:
         assert actions[0].builder_name == "mason"
 
     def test_filter_by_since(self) -> None:
+        import time
+
         log = BuildersLogger()
         log.log_builder_action("mason", "build", "old")
-        old_ts = log.get_actions()[0].timestamp
-        cutoff = old_ts + timedelta(milliseconds=1)
+        time.sleep(0.01)
+        cutoff = datetime.now(UTC)
+        time.sleep(0.01)
         log.log_builder_action("mason", "build", "new")
         actions = log.get_actions(since=cutoff)
         assert len(actions) == 1
@@ -74,10 +77,13 @@ class TestGetLearningEvents:
         assert events[0].confidence == 0.9
 
     def test_filter_by_since(self) -> None:
+        import time
+
         log = BuildersLogger()
         log.log_learning_promotion("l1", "a", "b", "r", 0.5)
-        old_ts = log.get_learning_events()[0].timestamp
-        cutoff = old_ts + timedelta(milliseconds=1)
+        time.sleep(0.01)
+        cutoff = datetime.now(UTC)
+        time.sleep(0.01)
         log.log_learning_promotion("l2", "a", "b", "r", 0.7)
         events = log.get_learning_events(since=cutoff)
         assert len(events) == 1

@@ -132,7 +132,7 @@ def _wire_auth(
     from stronghold.security.auth_composite import CompositeAuthProvider  # noqa: PLC0415
     from stronghold.security.auth_demo_cookie import DemoCookieAuthProvider  # noqa: PLC0415
 
-    static_auth = StaticKeyAuthProvider(api_key=config.router_api_key, read_only=False)
+    static_auth = StaticKeyAuthProvider(api_key=config.router_api_key)
     demo_cookie_auth = DemoCookieAuthProvider(
         api_key=config.router_api_key,
         cookie_name=config.auth.session_cookie_name,
@@ -222,8 +222,8 @@ async def create_container(config: StrongholdConfig) -> Container:
         )
         raise ConfigError(msg)
 
-    if not config.auth.jwt_secret:
-        config.auth.jwt_secret = config.router_api_key
+    if not config.jwt_secret:
+        config.jwt_secret = config.router_api_key
 
     # ── Auth ──
     auth_provider, permission_table = _wire_auth(config)

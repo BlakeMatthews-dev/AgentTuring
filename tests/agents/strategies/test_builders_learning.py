@@ -17,8 +17,6 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Any
 
-from datetime import UTC
-
 import pytest
 
 from stronghold.agents.strategies.builders_learning import BuildersLearningStrategy

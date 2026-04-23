@@ -22,10 +22,6 @@ v1.0  Production release                  ← Phase 10 + Security Gate
 v1.1  Closed-loop feedback (phase 1-3)
 v1.2  Tournaments + Forge + advanced memory
 v1.3  Multi-tenant + adaptive tools
-v1.4  Review queue + Session Trust Floor + trust ledger  ← CFM-1, CFM-2
-v1.5  Recipe + variant evolution + APM                   ← CFM-3, CFM-4
-v1.6  Intel dashboard + structured evolution timeline    ← CFM-5
-v1.7  Trust economy surface + currency exchange
 v2.0  Full personalized intelligence
 ```
 
@@ -671,95 +667,6 @@ stronghold/
 - [ ] Agent marketplace (registry for importing/sharing agents across tenants)
 - [ ] Custom agent containers (Dockerfile + A2A endpoint)
 - [ ] RASO Phase 2: Meta-agent that can modify graph structure (add/remove/reorder nodes, adjust strategy selection, tune scoring weights). Learns parameter sensitivity — which knobs to turn by inches, which to turn by leaps.
-
-## v1.4: Review Queue + Session Trust Floor + Trust Ledger
-
-**Theme:** Governance becomes a first-class runtime subsystem. Every promotion, every tier crossing, every potentially-poisoning input is a queued decision with a reviewer.
-
-### Review Queue Engine (CFM-1 — foundation)
-- [ ] `src/stronghold/review/` beside `orchestrator/` — reviews are HITL-often; latency, failure modes, and scaling differ from execution `WorkItem`s
-- [ ] Typed `ReviewItem` kinds: `forge_skill`, `forge_node_kind`, `recipe_variant_promote`, `apm_change`, `user_tier_promote`, `stf_ratchet_decision`, `learning_promote`, `agent_import`
-- [ ] Priority calculator = `f(stakes_impact, −origin_stf, plan_tier_sla, age_bonus, blast_radius, backlog_pressure)`
-- [ ] Reviewer classes: `human_only` / `ai_allowed` / `ai_only`. Auditor agent consumes AI-eligible items; maps to existing Herald→QM→Archie→Mason→Auditor→Gatekeeper→Master-at-Arms pipeline
-- [ ] `/dashboard/reviews.html` inbox; reactor-driven enqueue on forge/promote/change events; SLA + escalation + auto-expire
-- [ ] Shared with orchestrator only via `types/priority.py` and `types/review.py`
-
-### Session Trust Floor (CFM-2)
-- [ ] `src/stronghold/trust/` — `reducer.py`, `signals.py`, `ledger.py`, `thresholds.py`, `policy.py`, `exchange.py`
-- [ ] STF = `min()` over all contributors (agent, recipe, node, tool, input source, user trust score tier, Warden safety confidence tier, …)
-- [ ] Monotonically non-increasing within a session — redaction/compaction/summarization do not heal. New session required to reset
-- [ ] Forks and sub-flows inherit parent STF
-- [ ] `TrustSignal { source, tier, confidence, rationale, trace_ref }` contract; unknown sources default to `☠️ Skull`
-- [ ] Warden verdict gains `confidence ∈ [0,1]` — low confidence floors input's effective contribution
-- [ ] HITL surface: pending-input dialog (accept-and-ratchet or reject), blocked-action dialog, passive trust indicator with descent timeline
-
-### Trust Ledger
-- [ ] User trust accrual: `Δ = plan_multiplier × copper_value × session_T_score` on each completed action
-- [ ] `plan_multiplier`: free=0, paid=1, team_plan=2, team_admin=5, org_admin=10, super_admin=100
-- [ ] `session_T_score`: T1=+2, T2=+1, T3=0, ☠️Skull=−10 (clamps to 0 for team_admin+)
-- [ ] Exponential tier thresholds — narrow T2 band, wide T1/T3, unbounded T0/Skull; origin centered slightly positive into T2 for new paid users
-- [ ] Copper = `tokens_used × token_value`; conversion from other currencies via `trust/exchange.py`
-- [ ] Thresholds hot-reloadable via `trust/thresholds.yaml`
-- [ ] Dispatch refuses execution when `STF < recipe.required_tier` — emits event to review engine, doesn't raise
-
-### Reactor Enhancements (land with CFM-1)
-- [ ] Density-aware jitter for shared firing times — `max_jitter_secs = min(ceiling, base + k × log2(density))`
-- [ ] Coalescence / timer-slack — `leeway: "±Nmin"` lets reactor snap low-density triggers together for batch efficiency
-- [ ] Extend `TriggerSpec` jitter to `TIME` mode (not just `INTERVAL`); add `leeway` field
-- [ ] Log bucketing decisions in trigger audit
-
-## v1.5: Recipe + Variant Evolution + APM
-
-**Theme:** Agent structure becomes a declarative spec. Tournaments have a real selection backbone. Agent personality is a first-class, reviewable, round-trippable artifact.
-
-### Recipe + Variant Engine (CFM-3)
-- [ ] `src/stronghold/types/recipe.py` — `RecipeSpec` with `FlowSpec` body. Pure data, YAML-serializable, no Python callables
-- [ ] Single envelope for all agent shapes — strategy agents are degenerate graphs (one node, no edges); graph/workflow agents share the same envelope
-- [ ] `src/stronghold/evaluation/` — spec CRUD, Thompson sampling over `Beta(successes, failures)` posteriors per `(recipe_id, variant_id, intent)`, outcome recording, promotion logic, validator (reachability + schema + no-orphan edges + no-undeclared-state-refs)
-- [ ] `src/stronghold/execution/` — `graph_runner.py` + `node_handlers.py` + `state.py`. Spec/engine separation means the same spec can be run by multiple executors (today's tool-loop, tomorrow's streaming, a replay engine for RCA)
-- [ ] `NodeSpec.kind` is an OPEN registry. Built-in kinds reserved: `reason`, `tool`, `branch`, `recipe`, `collect` (ship at T0). Unknown kinds default to `☠️ Skull` — execution gated, specs harmless
-- [ ] Per-kind `param_schema` required at registration; `declared_side_effects` enforced by Sentinel (kind claiming `["network"]` can't open filesystem)
-- [ ] `effective_tier = min(recipe.tier, min(node.kind.tier for node in flow.nodes))`
-- [ ] Variants carry spec diffs, not runtime objects; Thompson sampling operates on spec hashes
-- [ ] Variant promotion → review queue (not immediate) with policy-driven auto-approve thresholds
-- [ ] Round-trips through GitAgent export/import as YAML
-- [ ] `migrations/00XX_recipes.sql` — `recipes`, `variants`, `variant_outcomes`, `node_kinds`
-
-### APM — Agent Personality Manifest (CFM-4)
-- [ ] `src/stronghold/types/apm.py` — Pydantic model with seven sections: `identity`, `core_values`, `communication_style`, `expertise`, `boundaries`, `tools_and_methods`, `memory_anchors`
-- [ ] Every agent resolves exactly one APM at load (merged from trust-tier baseline if none declared)
-- [ ] `PUT /v1/stronghold/agents/{id}/apm` — Warden-scanned (APM is an agent prompt; this is a high-trust boundary)
-- [ ] Changes enqueue review — `human_only` by default; policy-driven downgrade to `ai_allowed` later
-- [ ] Rendered into system prompt by every strategy via `prompts/apm_renderer.py` — strategy-agnostic wiring
-- [ ] Included in GitAgent export bundle; re-hydrates on import
-- [ ] Audit entry per change: actor, old_hash, new_hash, trace_id
-- [ ] `/dashboard/agents/{id}/apm` — diff preview and "request review" flow
-
-## v1.6: Intel Dashboard + Structured Evolution Timeline
-
-**Theme:** Memory, traces, and mutations become an inspectable, annotable audit trail.
-
-### Intel Dashboard (CFM-5)
-- [ ] `src/stronghold/intel/` — `traces.py` + `rca.py` + `evolution.py`
-- [ ] Four tabs: **Traces**, **RCA**, **Evolution**, **Reviews**
-- [ ] **Traces** — paginated Langfuse browse, filter by agent/intent/verdict, click into span tree, inline score (1–5 + tags + note)
-- [ ] `POST /v1/stronghold/traces/{id}/score` — dual-writes to Langfuse + outcomes store; reviewer earns trust points
-- [ ] **RCA** — auto-generated post-mortems from failed `WorkItem`s. Reactor-triggered `rca.generate_rca` on `work_failed`; candidates feed learnings extractor at low weight until reinforced
-- [ ] **Evolution** — chronological `EvolutionEvent` stream across memory, recipes, skills, learnings, node-kind mutations. Structural diffs (RecipeSpec + FlowSpec + node graph changes) — not just prompt text
-- [ ] **Reviews** — mirrors Review Queue inbox with the same filters
-
-## v1.7: Trust Economy Surface + Currency Exchange
-
-**Theme:** Trust ledger surfaces in the UX. Soft barriers do the right thing by plan tier. Gamification makes clean behavior visible.
-
-- [ ] **Top-tier gamification** — profile badges at T0/T0+/T0++, profile-load effects (fireworks, aurora), differential AI greetings keyed off rank (T0: `"Welcome back, {name}. Ready when you are."` → T0++: `"Welcome back, Supreme Divine Ruler of the Universe. How can we be of service?"`). Skull: guarded greeting + small warning sigil
-- [ ] **Skull soft-barrier engine** — plan-aware depth response:
-  - Paid: progressive action rate-limits; auto-block past threshold
-  - Team plan: escalating admin notifications (digest → alert → real-time); progressive tool lockdown
-  - Team/org/super admin: skull T-score clamps to 0 (no accrual, no penalty) — security testing remains legitimate
-- [ ] **Currency exchange layer** — copper as canonical unit; other currencies (credits, compute-minutes) plug in via `trust/exchange.py` with configurable rates
-- [ ] **Reviewer trust accrual** — thoughtful approvals earn trust points; rubber-stamp and stale decisions flagged
-- [ ] **Trust timeline widget** — per-session descent visualization with cause annotations
 
 ## v2.0: Personalized Intelligence
 

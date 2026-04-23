@@ -166,7 +166,7 @@ def _file_suffix(nodeid: str) -> str:
     parts = nodeid.split("::")
     filepath = parts[0]  # "tests/security/test_gate.py"
     if filepath.startswith("tests/"):
-        return filepath[len("tests/"):]
+        return filepath[len("tests/") :]
     return filepath
 
 
@@ -270,6 +270,7 @@ def fake_config() -> StrongholdConfig:
             "viewer": ["web_search"],
         },
         router_api_key="sk-test-key",
+        jwt_secret="sk-test-jwt-secret-key-for-testing",
     )
 
 

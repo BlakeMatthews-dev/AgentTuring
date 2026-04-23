@@ -275,32 +275,6 @@ jobs:
             exit 1
           fi
 
-      - name: Start CI postgres
-        run: |
-          docker rm -f ci-postgres 2>/dev/null || true
-          docker run -d --name ci-postgres \
-            -e POSTGRES_USER=stronghold \
-            -e POSTGRES_PASSWORD=stronghold \
-            -e POSTGRES_DB=stronghold \
-            -p 5433:5432 \
-            --security-opt apparmor=unconfined \
-            pgvector/pgvector:pg17
-          echo "Waiting for postgres to be ready..."
-          READY=false
-          for i in $(seq 1 30); do
-            if pg_isready -h localhost -p 5433 -U stronghold 2>/dev/null; then
-              echo "Postgres ready after ${i}s"
-              READY=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "$READY" != "true" ]; then
-            echo "::error::Postgres failed to start within 30s"
-            docker logs ci-postgres 2>&1 | tail -20
-            exit 1
-          fi
-
       - name: Run all migrations
         env:
           DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold

@@ -115,9 +115,7 @@ def _validate_webhook_auth(request: Request, config_secret: str) -> str:
     if expected_org:
         if org_id != expected_org:
             logger.warning(
-                "Webhook org mismatch: header=%r expected=%r (rejecting)",
-                org_id,
-                expected_org,
+                "Webhook org mismatch: header=<redacted> expected=<redacted> (rejecting)"
             )
             raise HTTPException(
                 status_code=403,
@@ -126,9 +124,8 @@ def _validate_webhook_auth(request: Request, config_secret: str) -> str:
     else:
         # No pinned org configured -- log for audit visibility
         logger.warning(
-            "No webhook_org_id configured; accepting X-Webhook-Org=%r at face value. "
-            "Set STRONGHOLD_WEBHOOK_ORG_ID to pin the expected org.",
-            org_id,
+            "No webhook_org_id configured; accepting X-Webhook-Org=<redacted> at face value. "
+            "Set STRONGHOLD_WEBHOOK_ORG_ID to pin the expected org."
         )
 
     return org_id

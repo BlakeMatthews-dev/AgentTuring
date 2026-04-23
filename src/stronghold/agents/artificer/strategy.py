@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from stronghold.types.agent import ReasoningResult
@@ -20,33 +20,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger("stronghold.artificer")
 
 # Type for async status callback
-StatusCallback = Callable[[str], Any]
-
-# JSON bomb protection + context-window protection.
-# Mirrors caps in ReactStrategy so high-privilege Artificer tools
-# (shell, run_pytest, write_file, git_commit) can't be used to blow up
-# memory or context via oversized LLM-generated arguments or results.
-_TOOL_ARGS_MAX_BYTES = 32 * 1024
-_TOOL_RESULT_MAX_BYTES = 16 * 1024
+StatusCallback = Callable[[str], Coroutine[Any, Any, None]]
 
 
 async def _noop_status(msg: str) -> None:
     pass
 
 
-def _find_tool_schema(
-    tools: list[dict[str, Any]] | None,
-    tool_name: str,
-) -> dict[str, Any]:
-    """Find the parameter schema for a tool by name."""
-    if not tools:
-        return {}
-    for tool in tools:
-        fn = tool.get("function", {})
-        if fn.get("name") == tool_name:
-            params: dict[str, Any] = fn.get("parameters", {})
-            return params
-    return {}
+_MAX_ARG_BYTES = 32_768
+_MAX_RESULT_BYTES = 16_384
 
 
 class ArtificerStrategy:
@@ -163,44 +145,53 @@ class ArtificerStrategy:
             # Execute tool calls — each traced
             current_messages.append(message)
 
-            sentinel = kwargs.get("sentinel")
-            auth = kwargs.get("auth")
-            warden = kwargs.get("warden")
-
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 tool_name = fn.get("name", "")
-                raw_args = fn.get("arguments", "{}")
+                try:
+                    tool_args = json.loads(fn.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Malformed tool arguments for %s: %s",
+                        tool_name,
+                        fn.get("arguments", "")[:200],
+                    )
+                    tool_args = {}
 
+                # Arg size check: reject oversized tool arguments (JSON bomb)
+                raw_arg_bytes = len(fn.get("arguments", "{}").encode("utf-8"))
+                if raw_arg_bytes > _MAX_ARG_BYTES:
+                    logger.warning(
+                        "Tool %s arg size %d exceeds %d limit",
+                        tool_name,
+                        raw_arg_bytes,
+                        _MAX_ARG_BYTES,
+                    )
+                    tool_result = f"Error: tool arguments exceed {_MAX_ARG_BYTES} byte limit"
+                    result_str = tool_result
+                    tool_history.append(
+                        {
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "result": tool_result,
+                            "round": round_num,
+                        }
+                    )
+                    current_messages.append(
+                        {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_str}
+                    )
+                    continue
+
+                # Sentinel pre_call: permission check + schema validation
+                sentinel = kwargs.get("sentinel")
+                auth = kwargs.get("auth")
                 tool_blocked = False
-                tool_result: Any = None
-
-                # JSON bomb protection: reject args over _TOOL_ARGS_MAX_BYTES
-                # BEFORE json.loads so we don't parse attacker-controlled blobs.
-                if len(raw_args) > _TOOL_ARGS_MAX_BYTES:
-                    logger.warning("Tool args too large for %s: %d bytes", tool_name, len(raw_args))
-                    tool_args: dict[str, Any] = {}
-                    tool_result = f"Error: Tool arguments too large ({len(raw_args)} bytes)"
-                    tool_blocked = True
-                else:
-                    try:
-                        tool_args = json.loads(raw_args)
-                    except json.JSONDecodeError:
-                        logger.warning(
-                            "Malformed tool arguments for %s: %s",
-                            tool_name,
-                            raw_args[:200],
-                        )
-                        tool_args = {}
-
-                # Sentinel pre-call: validate + repair tool arguments.
-                if not tool_blocked and sentinel is not None and auth is not None:
-                    tool_schema = _find_tool_schema(tools, tool_name)
+                if sentinel is not None and auth is not None:
                     sentinel_verdict = await sentinel.pre_call(
                         tool_name,
                         tool_args,
                         auth,
-                        tool_schema,
+                        {},
                     )
                     if not sentinel_verdict.allowed:
                         tool_result = f"Error: Permission denied for tool '{tool_name}'"
@@ -211,9 +202,8 @@ class ArtificerStrategy:
                 await status(f"Running {tool_name}...")
                 logger.info("Tool call: %s(%s)", tool_name, list(tool_args.keys()))
 
-                # Execute tool — only if not blocked by size cap or sentinel.
                 if tool_blocked:
-                    pass  # tool_result already set above
+                    pass
                 elif tool_executor and callable(tool_executor):
                     if trace:
                         with trace.span(f"tool.{tool_name}") as ts:
@@ -239,58 +229,33 @@ class ArtificerStrategy:
                 else:
                     tool_result = f"Tool '{tool_name}' not available"
 
-                # Tool result size cap: prevent context window / memory exhaustion.
-                tool_result_str = tool_result if isinstance(tool_result, str) else str(tool_result)
-                if len(tool_result_str) > _TOOL_RESULT_MAX_BYTES:
-                    omitted = len(tool_result_str) - _TOOL_RESULT_MAX_BYTES
-                    tool_result_str = (
-                        tool_result_str[:_TOOL_RESULT_MAX_BYTES]
+                # Result truncation: cap tool results to prevent context window exhaustion
+                result_str = tool_result if isinstance(tool_result, str) else str(tool_result)
+                if len(result_str) > _MAX_RESULT_BYTES:
+                    omitted = len(str(tool_result)) - _MAX_RESULT_BYTES
+                    result_str = (
+                        result_str[:_MAX_RESULT_BYTES]
                         + f"\n[... truncated, {omitted} bytes omitted]"
                     )
 
-                # Sentinel post-call: Warden scan + PII filter + token optimize.
-                # Always run Warden scan + PII filter for defense-in-depth.
+                # Sentinel post_call: Warden scan + PII filter
                 if sentinel is not None and auth is not None:
-                    tool_result_str = await sentinel.post_call(
-                        tool_name,
-                        tool_result_str,
-                        auth,
-                    )
-                else:
-                    # Always run Warden scan even if Sentinel is available
-                    if warden is not None:
-                        verdict = await warden.scan(tool_result_str, "tool_result")
-                        if not verdict.clean:
-                            tool_result_str = (
-                                f"[BLOCKED: tool result contained suspicious content: "
-                                f"{', '.join(verdict.flags)}]"
-                            )
-                    # Always redact PII regardless of Sentinel presence.
-                    from stronghold.security.sentinel.pii_filter import (  # noqa: PLC0415
-                        scan_and_redact,
-                    )
+                    result_str = await sentinel.post_call(tool_name, result_str, auth)
 
-                    tool_result_str, _ = scan_and_redact(tool_result_str)
-
-                # Status signalling reads from the FINAL (post-Sentinel) result
-                # so blocked/redacted outcomes are visible to operators.
-                status_preview = tool_result_str[:200]
-                if status_preview.startswith("[BLOCKED:") or status_preview.startswith(
-                    "Error: Permission denied"
-                ):
-                    await status(f"{tool_name}: blocked")
-                elif '"passed": true' in status_preview or '"status": "ok"' in status_preview:
+                # Log result summary
+                result_preview = result_str[:200]
+                if '"passed": true' in result_preview or '"status": "ok"' in result_preview:
                     await status(f"{tool_name}: OK")
-                elif '"passed": false' in status_preview:
+                elif '"passed": false' in result_preview:
                     await status(f"{tool_name}: FAILED — fixing...")
-                elif '"error":' in status_preview and '"status": "failed"' in status_preview:
+                elif '"error":' in result_preview and '"status": "failed"' in result_preview:
                     await status(f"{tool_name}: error — retrying...")
 
                 tool_history.append(
                     {
                         "tool_name": tool_name,
                         "arguments": tool_args,
-                        "result": tool_result_str,
+                        "result": tool_result,
                         "round": round_num,
                     }
                 )
@@ -299,7 +264,7 @@ class ArtificerStrategy:
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
-                        "content": tool_result_str,
+                        "content": result_str,
                     }
                 )
 

@@ -58,8 +58,8 @@ How Stronghold compares to other agent frameworks and platforms. Stronghold is a
 | Feature | Stronghold | Closest Competitor | Gap |
 |---|:---:|---|---|
 | **Architecture & Deployment** | | | |
-| Open source (Apache 2.0) | ✅ | Most frameworks (MIT) | Archestra is AGPL-3.0; Hyperagents CC BY-NC-SA |
-| Self-hosted + K8s native | ✅ | MS Agent Framework, Archestra | Both also ship Helm charts; most others are library-only |
+| Open source (Apache 2.0) | ✅ | Most frameworks (MIT) | Framework X is AGPL-3.0; Hyperagents CC BY-NC-SA |
+| Self-hosted + K8s native | ✅ | MS Agent Framework, Framework X | Both also ship Helm charts; most others are library-only |
 | Protocol-driven DI (20 protocols) | ✅ | MS Agent Framework | Only other framework with pluggable protocol interfaces |
 | **Multi-Agent Orchestration** | | | |
 | Shipped agent roster (6 agents) | ✅ | ❌ | No framework ships production-ready specialist agents |
@@ -71,16 +71,16 @@ How Stronghold compares to other agent frameworks and platforms. Stronghold is a
 | Proactive behavior (Reactor) | ✅ | OpenClaw 🟡 | OpenClaw has basic cron; no framework has a 1000Hz event-driven reactor |
 | GitAgent import/export | ✅ | ❌ | Unique to Stronghold |
 | **Security & Governance** | | | |
-| Input scanning (Warden) | ✅ | OpenAI Agents SDK, MS Agent Framework, Archestra | All four scan user input; approaches differ (regex+LLM vs guardrails vs dual-LLM) |
-| Tool result scanning (Warden) | ✅ | OpenAI Agents SDK, MS Agent Framework, Archestra | Stronghold + these three are the only ones scanning tool results |
-| Output scanning (Sentinel) | ✅ | OpenAI Agents SDK, MS Agent Framework, Archestra, Claude Code | Claude Code uses OS-level sandboxing rather than content scanning |
+| Input scanning (Warden) | ✅ | OpenAI Agents SDK, MS Agent Framework, Framework X | All four scan user input; approaches differ (regex+LLM vs guardrails vs dual-LLM) |
+| Tool result scanning (Warden) | ✅ | OpenAI Agents SDK, MS Agent Framework, Framework X | Stronghold + these three are the only ones scanning tool results |
+| Output scanning (Sentinel) | ✅ | OpenAI Agents SDK, MS Agent Framework, Framework X, Claude Code | Claude Code uses OS-level sandboxing rather than content scanning |
 | Trust tiers (☠️→T0) | ✅ | MS Agent Framework | 5 tiers with tier-based access control. Auto-promotion gates roadmapped (v1.1); currently manual. |
 | Schema validation & repair | ✅ | OpenAI Agents SDK | OpenAI uses Pydantic validation; Stronghold adds fuzzy repair of hallucinated args |
-| PII filtering | ✅ | MS Agent Framework, Archestra | All three scan outbound responses |
-| Config-driven RBAC | ✅ | MS Agent Framework, Archestra | MS uses Entra ID; Archestra uses org/team scoping; Stronghold supports both Keycloak + Entra |
-| Per-agent tool permissions | ✅ | MS Agent Framework, Archestra, CrewAI | Stronghold enforces via LiteLLM per-key config |
-| Rate limiting | ✅ | MS Agent Framework, Archestra | All three enforce at the gateway level |
-| Zero-trust architecture | ✅ | MS Agent Framework 🟡, Archestra 🟡 | Stronghold scans all three boundaries (input, tool-result, output); MS and Archestra have partial zero-trust |
+| PII filtering | ✅ | MS Agent Framework, Framework X | All three scan outbound responses |
+| Config-driven RBAC | ✅ | MS Agent Framework, Framework X | MS uses Entra ID; Framework X uses org/team scoping; Stronghold supports both Keycloak + Entra |
+| Per-agent tool permissions | ✅ | MS Agent Framework, Framework X, CrewAI | Stronghold enforces via LiteLLM per-key config |
+| Rate limiting | ✅ | MS Agent Framework, Framework X | All three enforce at the gateway level |
+| Zero-trust architecture | ✅ | MS Agent Framework 🟡, Framework X 🟡 | Stronghold scans all three boundaries (input, tool-result, output); MS and Framework X have partial zero-trust |
 | **Memory & Learning** | | | |
 | 7-tier episodic memory | ✅ | ❌ | Unique to Stronghold — regrets (≥0.6) structurally unforgettable |
 | Self-improving learnings (fail→succeed) | ✅ | Hyperagents ✅, Claude Code 🟡 | Hyperagents: research-only metacognitive loop; Claude Code: static auto-memory |
@@ -90,24 +90,24 @@ How Stronghold compares to other agent frameworks and platforms. Stronghold is a
 | Knowledge/RAG (pgvector) | ✅ | MS Agent Framework | Both have built-in vector retrieval |
 | RASO (self-modifying agent graph) | 🗺️ v1.2–1.3 | Hyperagents (research) | Inner feedback loop shipped. Meta-agent roadmapped v1.2 (Phase 1) → v1.3 (Phase 2). |
 | **Model Routing** | | | |
-| Intelligent cost/quality routing | ✅ | Archestra | Archestra uses a dynamic optimizer (up to 96% cost reduction); Stronghold uses scarcity-based scoring |
-| Automatic fallback (429/5xx) | ✅ | MS Agent Framework, Archestra, Pi | All four handle provider failures with automatic model fallback |
+| Intelligent cost/quality routing | ✅ | Framework X | Framework X uses a dynamic optimizer (up to 96% cost reduction); Stronghold uses scarcity-based scoring |
+| Automatic fallback (429/5xx) | ✅ | MS Agent Framework, Framework X, Pi | All four handle provider failures with automatic model fallback |
 | Task-type speed bonuses | ✅ | ❌ | Unique to Stronghold — voice gets speed weight, code gets quality weight |
-| Token budget enforcement | ✅ | MS Agent Framework, Archestra, Pi | All four enforce per-request token budgets |
+| Token budget enforcement | ✅ | MS Agent Framework, Framework X, Pi | All four enforce per-request token budgets |
 | **Tool Ecosystem** | | | |
-| MCP support | ✅ | Claude Code, OpenAI Agents SDK, MS Agent Framework, Archestra | Stronghold via LiteLLM gateway; Archestra has 858+ server registry |
+| MCP support | ✅ | Claude Code, OpenAI Agents SDK, MS Agent Framework, Framework X | Stronghold via LiteLLM gateway; Framework X has 858+ server registry |
 | AI tool/agent creation (Forge) | 🟡 | ❌ | Generate → security scan → save implemented. Test→iterate loop roadmapped (v1.2). |
 | OpenAPI auto-conversion | ✅ | MS Agent Framework | Both auto-convert OpenAPI specs to callable tools |
-| Skill marketplace | ✅ | Archestra, MS Agent Framework, OpenClaw | Archestra has largest catalog (858+ servers) |
+| Skill marketplace | ✅ | Framework X, MS Agent Framework, OpenClaw | Framework X has largest catalog (858+ servers) |
 | **Observability** | | | |
 | OTEL tracing | ✅ | MS Agent Framework, OpenAI Agents SDK, LangGraph | All use OTEL; Stronghold routes to Arize Phoenix |
 | Prompt management (PostgreSQL) | ✅ | LangGraph 🟡 | LangGraph uses LangSmith (SaaS); Stronghold uses self-hosted PostgreSQL |
-| Cost tracking | ✅ | MS Agent Framework, Archestra, Pi | All four track per-request costs |
+| Cost tracking | ✅ | MS Agent Framework, Framework X, Pi | All four track per-request costs |
 | **Enterprise & Multi-Tenant** | | | |
 | SSO / OIDC | ✅ | MS Agent Framework, LangGraph Platform | Stronghold supports both Keycloak and Entra ID |
-| Multi-tenant isolation | 🗺️ v1.3 | MS Agent Framework, Archestra, LangGraph Platform | All three have production multi-tenancy today |
-| Namespace-scoped secrets | 🗺️ v1.3 | MS Agent Framework, Archestra | Both have per-tenant secret management |
-| Agent marketplace | 🗺️ v1.3 | MS Agent Framework, Archestra | Both have agent/tool registries |
+| Multi-tenant isolation | 🗺️ v1.3 | MS Agent Framework, Framework X, LangGraph Platform | All three have production multi-tenancy today |
+| Namespace-scoped secrets | 🗺️ v1.3 | MS Agent Framework, Framework X | Both have per-tenant secret management |
+| Agent marketplace | 🗺️ v1.3 | MS Agent Framework, Framework X | Both have agent/tool registries |
 | **CI & Quality Gates** | | | |
 | Security gates (Bandit + Semgrep + pip-audit + Gitleaks + Hadolint + CodeQL) | ✅ all blocking | Most ship dependabot + 1-2 SAST | Full 5+1 blocking is uncommon in OSS; matches OWASP ASVS L2 baseline |
 | Code quality gates (Ruff + Mypy-strict + Xenon + Vulture) | ✅ blocking | Ruff + Mypy typical | Xenon (complexity) and Vulture (dead code) rare in OSS; typical only in regulated sectors |
@@ -122,7 +122,7 @@ Most agent frameworks give you **building blocks** (LangGraph, OpenAI Agents SDK
 - **Three-boundary security scanning** — Warden scans both user input *and* tool results before they enter LLM context. Sentinel scans output before it reaches the user. Most frameworks scan input only; Stronghold scans all three trust boundaries.
 - **7-tier episodic memory with structural weight floors** — Regrets (≥0.6) are structurally unforgettable. Wisdom (≥0.9) is near-permanent. Originated in CoinSwarm (a trading swarm where forgetting catastrophic losses is prohibited). No other framework has tiered memory with enforced decay bounds.
 - **Self-improving learnings with auto-promotion** — Extracts fail→succeed corrections from tool-call history, stores with trigger keywords, auto-promotes to permanent prompt after N successful injections, bridges to episodic memory. No other framework combines extraction + promotion + episodic bridge.
-- **Scarcity-based model routing** — `cost = 1/ln(remaining_daily_tokens)`. Cost rises smoothly as provider token pools deplete. No comparable formula found in frameworks or in our literature review. Archestra has a dynamic optimizer but uses a different approach.
+- **Scarcity-based model routing** — `cost = 1/ln(remaining_daily_tokens)`. Cost rises smoothly as provider token pools deplete. No comparable formula found in frameworks or in our literature review. Framework X has a dynamic optimizer but uses a different approach.
 - **Tournament-based agent evolution** — Elo scoring and battle recording implemented (production wiring in v1.1). Pattern originated in CoinSwarm (January 2026, 3 weeks before EvoMAS). No other framework has this.
 - **1000Hz Reactor** — Deterministic tick loop (inspired by game loop architecture) that unifies all proactive behavior into one evaluation cycle. The design choice is driven by security: in async fire-and-forget, a hanging thread or a missing callback can silently become a positive result — an agent proceeds because it didn't hear "no." In agent security, no answer must be a failure mode, not a pass. A deterministic loop guarantees consistent evaluation ordering, no race conditions, and no silent timeouts that an agent misinterprets as approval. The broader design principle: maximize determinism everywhere between LLM calls. The LLM is the minimally required non-deterministic element — everything else (routing, scanning, policy enforcement, trigger evaluation) is deterministic by design. Four typed trigger modes (event, interval, time, state), per-trigger circuit breakers, blocking gates (≤1ms). The starting design comp was OpenClaw, where the agent brain evaluates on a 15-minute heartbeat. The Reactor evaluates at 1000Hz — a 900,000x improvement in evaluation frequency for 0.46% of one logical core on a 4-generation-old 13th gen Intel. Not because agents need to act 1,000 times per second, but because the system should never be waiting 15 minutes to discover that something needs attention. No comparable system found in frameworks or in our literature review.
 

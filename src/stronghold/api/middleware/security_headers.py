@@ -10,8 +10,9 @@ Adds production security headers to all responses:
 
 from __future__ import annotations
 
-from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

@@ -144,11 +144,25 @@ class TestCriticalPgAgentRegistryOrgGaps:
         try:
             reg = pg_agents.PgAgentRegistry(engine=None)
             rec = AgentRecord(
-                name="x", version="1.0.0", description="", soul="", rules="",
-                reasoning_strategy="direct", model="auto", model_fallbacks=[],
-                model_constraints={}, tools=[], skills=[], max_tool_rounds=3,
-                memory_config={}, trust_tier="t4", provenance="user",
-                org_id="org-a", preamble="", active=True, config={},
+                name="x",
+                version="1.0.0",
+                description="",
+                soul="",
+                rules="",
+                reasoning_strategy="direct",
+                model="auto",
+                model_fallbacks=[],
+                model_constraints={},
+                tools=[],
+                skills=[],
+                max_tool_rounds=3,
+                memory_config={},
+                trust_tier="t4",
+                provenance="user",
+                org_id="org-a",
+                preamble="",
+                active=True,
+                config={},
             )
             await reg.upsert(rec)
         finally:
@@ -366,9 +380,7 @@ class TestHighAgentStoreOrgGaps:
         # Cross-org caller: filter DOES block non-empty other-org callers
         # (this branch works today — only the empty-org hole is open).
         denied = await store.get("secret-agent", org_id="org-beta")
-        assert denied is None, (
-            "Cross-org isolation broke — org-beta must not see org-alpha agent"
-        )
+        assert denied is None, "Cross-org isolation broke — org-beta must not see org-alpha agent"
 
 
 # =====================================================================
@@ -433,15 +445,13 @@ class TestHighWardenScanWindowGap:
         assert not short.clean, "Sanity: injection must be detected in short content"
 
         # Place injection in the gap
-        head_padding = "A" * 10300    # past 10240 head window
-        tail_padding = "B" * 2100     # past 2048 tail window
+        head_padding = "A" * 10300  # past 10240 head window
+        tail_padding = "B" * 2100  # past 2048 tail window
         gapped = head_padding + " " + injection + " " + tail_padding
 
         verdict = await warden.scan(gapped, "user_input")
-        # BUG: injection in the gap is not scanned
-        assert verdict.clean is True, (
-            "BUG CONFIRMED: injection in scan window gap evades detection. "
-            "Fix: scan full content or use overlapping windows."
+        assert not verdict.clean, (
+            "Injection in middle of content must be detected — full-content scan should catch it."
         )
 
     async def test_h3_head_detected(self) -> None:
@@ -482,10 +492,10 @@ class TestHighWardenL3FailOpen:
             failing_llm,
             "test-model",
         )
-        # BUG: returns "safe" on error
-        assert result["label"] == "safe", (
-            "BUG CONFIRMED: L3 returns 'safe' on failure. "
-            "Fix: return 'inconclusive' and propagate as elevated risk."
+        # Fixed: L3 now returns 'inconclusive' on error (elevated risk, not false safe)
+        assert result["label"] == "inconclusive", (
+            "L3 must return 'inconclusive' on failure, not 'safe'. "
+            "Returning 'safe' is a fail-open vulnerability."
         )
         assert "error" in result
 
@@ -533,20 +543,37 @@ class TestHighArtificerMissingSecurity:
         llm = FakeLLMClient()
         # Round 1: plan step (no tools). Round 2: one tool call. Round 3: done.
         llm.set_responses(
-            {"id": "1", "choices": [{"message":
-                {"role": "assistant", "content": "Plan: do x"}}],
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
-            {"id": "2", "choices": [{"message": {
-                "role": "assistant", "content": "",
-                "tool_calls": [{
-                    "id": "t1",
-                    "function": {"name": "run_shell",
-                                 "arguments": json.dumps(tool_args)},
-                }],
-            }}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
-            {"id": "3", "choices": [{"message":
-                {"role": "assistant", "content": "done"}}],
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            {
+                "id": "1",
+                "choices": [{"message": {"role": "assistant", "content": "Plan: do x"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+            {
+                "id": "2",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "t1",
+                                    "function": {
+                                        "name": "run_shell",
+                                        "arguments": json.dumps(tool_args),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+            {
+                "id": "3",
+                "choices": [{"message": {"role": "assistant", "content": "done"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
         )
 
         executor_log: list[tuple[str, object]] = []
@@ -558,7 +585,8 @@ class TestHighArtificerMissingSecurity:
         strategy = ArtificerStrategy(max_phases=1)
         await strategy.reason(
             [{"role": "user", "content": "do thing"}],
-            "m", llm,
+            "m",
+            llm,
             tools=[{"function": {"name": "run_shell", "parameters": {}}}],
             tool_executor=tool_executor,
             sentinel=sentinel,
@@ -571,6 +599,7 @@ class TestHighArtificerMissingSecurity:
 
         Regression: if Artificer gains a pre_call hook, this test flips.
         """
+
         class _RecordingSentinel:
             def __init__(self) -> None:
                 self.pre_calls: list[object] = []
@@ -592,13 +621,13 @@ class TestHighArtificerMissingSecurity:
 
         sentinel = _RecordingSentinel()
         await self._run_artificer_once(sentinel=sentinel)
-        assert not sentinel.pre_calls, (
-            "BUG FIXED: Artificer now invokes sentinel.pre_call — "
-            "flip this regression to a positive permission-check test."
+        assert sentinel.pre_calls, (
+            "ArtificerStrategy must invoke sentinel.pre_call for tool permission checks."
         )
 
     async def test_h5_no_sentinel_post_call(self) -> None:
         """Behavioral: no sentinel.post_call fires after tool execution."""
+
         class _RecordingSentinel:
             def __init__(self) -> None:
                 self.pre_calls: list[object] = []
@@ -618,20 +647,19 @@ class TestHighArtificerMissingSecurity:
 
         sentinel = _RecordingSentinel()
         await self._run_artificer_once(sentinel=sentinel)
-        assert not sentinel.post_calls, (
-            "BUG FIXED: Artificer now invokes sentinel.post_call — "
-            "flip this regression to a positive result-scan test."
+        assert sentinel.post_calls, (
+            "ArtificerStrategy must invoke sentinel.post_call for Warden scan + PII filter."
         )
 
     async def test_h5_no_arg_size_limit(self) -> None:
-        """Behavioral: no 32KB tool-argument size guard in Artificer.
+        """Behavioral: 32KB tool-argument size guard in Artificer.
 
-        Pass a 50KB tool-args JSON and confirm the executor still received
-        it (i.e. no oversize rejection fired).
+        Pass a 50KB tool-args JSON and confirm the executor was NOT called
+        (i.e. oversize rejection fired).
         """
         huge_args = {"payload": "A" * (50 * 1024)}
         log = await self._run_artificer_once(tool_args=huge_args)
-        assert log, "tool_executor was never called"
+        assert not log, "tool_executor must NOT be called for oversized args (>32KB)"
         name, received = log[0]
         assert name == "run_shell"
         # ``received.get(...)`` on a non-Mapping raises AttributeError —
@@ -643,10 +671,10 @@ class TestHighArtificerMissingSecurity:
         )
 
     async def test_h5_no_result_truncation(self) -> None:
-        """Behavioral: no 16KB tool-result truncation in Artificer.
+        """Behavioral: 16KB tool-result truncation in Artificer.
 
-        Return a 40KB tool result and confirm the strategy forwards it
-        unchanged into subsequent messages (via the llm call log).
+        Return a 40KB tool result and confirm the strategy truncates it
+        before passing to subsequent LLM calls.
         """
         import json
 
@@ -657,19 +685,34 @@ class TestHighArtificerMissingSecurity:
         huge_result = "X" * (40 * 1024)
         llm = FakeLLMClient()
         llm.set_responses(
-            {"id": "1", "choices": [{"message":
-                {"role": "assistant", "content": "Plan"}}],
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
-            {"id": "2", "choices": [{"message": {
-                "role": "assistant", "content": "",
-                "tool_calls": [{
-                    "id": "t1",
-                    "function": {"name": "grab", "arguments": "{}"},
-                }],
-            }}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
-            {"id": "3", "choices": [{"message":
-                {"role": "assistant", "content": "done"}}],
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            {
+                "id": "1",
+                "choices": [{"message": {"role": "assistant", "content": "Plan"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+            {
+                "id": "2",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "t1",
+                                    "function": {"name": "grab", "arguments": "{}"},
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+            {
+                "id": "3",
+                "choices": [{"message": {"role": "assistant", "content": "done"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
         )
 
         async def tool_executor(name, args):
@@ -678,23 +721,21 @@ class TestHighArtificerMissingSecurity:
         strategy = ArtificerStrategy(max_phases=1)
         await strategy.reason(
             [{"role": "user", "content": "do"}],
-            "m", llm,
+            "m",
+            llm,
             tools=[{"function": {"name": "grab", "parameters": {}}}],
             tool_executor=tool_executor,
         )
-        # Inspect the 3rd LLM call: the tool message content should still
-        # be ~40KB. If truncation were active it would be ≤16KB.
+        # Inspect the 3rd LLM call: the tool message content should be
+        # truncated to <=16KB. If truncation is active, content <=16KB + overhead.
         assert len(llm.calls) >= 3
-        tool_msgs = [
-            m for m in llm.calls[-1]["messages"] if m.get("role") == "tool"
-        ]
+        tool_msgs = [m for m in llm.calls[-1]["messages"] if m.get("role") == "tool"]
         assert tool_msgs, "tool message missing from conversation"
         content = tool_msgs[-1].get("content", "")
         if isinstance(content, list):
             content = json.dumps(content)
-        assert len(content) >= 30 * 1024, (
-            "BUG FIXED: tool result was truncated below 30KB — "
-            "flip this regression to a positive truncation-enforcement test."
+        assert len(content) <= 17_000, (
+            "Tool result must be truncated to ~16KB. Got %d bytes." % len(content)
         )
 
 
@@ -730,12 +771,7 @@ class TestHighSemanticCodeSyntaxBypass:
 
     def test_h6_real_code_not_flagged(self) -> None:
         """Positive: legitimate code must not trigger false positives."""
-        code = (
-            "import hashlib\n"
-            "def disable_cache():\n"
-            "    cache.clear()\n"
-            "    return True\n"
-        )
+        code = "import hashlib\ndef disable_cache():\n    cache.clear()\n    return True\n"
         suspicious, _ = semantic_tool_poisoning_scan(code)
         assert not suspicious
 
@@ -776,15 +812,22 @@ class TestHighJWTKeyReuse:
         # Hash the password the way the production code does
         pw = "correcthorse"
         user_row = {
-            "id": 1, "email": "u@acme.com", "display_name": "u",
-            "org_id": "acme", "team_id": "t1",
-            "roles": '["user"]', "status": "approved",
+            "id": 1,
+            "email": "u@acme.com",
+            "display_name": "u",
+            "org_id": "acme",
+            "team_id": "t1",
+            "roles": '["user"]',
+            "status": "approved",
             "password_hash": _hash_password(pw),
         }
 
         class _Conn:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): return False
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
 
             async def fetchrow(self, sql, *args):
                 return user_row
@@ -793,11 +836,12 @@ class TestHighJWTKeyReuse:
                 return "OK"
 
         class _Pool:
-            def acquire(self): return _Conn()
+            def acquire(self):
+                return _Conn()
 
         class _Cfg:
             router_api_key = router_key
-            auth = AuthConfig()
+            auth = AuthConfig(jwt_secret=router_key)
             cookie_domain = ""
             cookie_secure = False
             cookie_samesite = "lax"
@@ -822,18 +866,24 @@ class TestHighJWTKeyReuse:
 
             # The cookie MUST verify with the router_api_key today.
             decoded = pyjwt.decode(
-                cookie, router_key, algorithms=["HS256"],
-                audience="stronghold", issuer="stronghold-demo",
+                cookie,
+                router_key,
+                algorithms=["HS256"],
+                audience="stronghold",
+                issuer="stronghold-demo",
             )
             assert decoded["sub"] in ("1", "u@acme.com", 1)
             assert decoded["organization_id"] == "acme"
             # Negative: a different key must NOT verify.
             import pytest as _pytest
+
             with _pytest.raises(pyjwt.InvalidSignatureError):
                 pyjwt.decode(
-                    cookie, "some-other-key-at-least-32-chars-xx",
+                    cookie,
+                    "some-other-key-at-least-32-chars-xx",
                     algorithms=["HS256"],
-                    audience="stronghold", issuer="stronghold-demo",
+                    audience="stronghold",
+                    issuer="stronghold-demo",
                 )
 
     def test_h7_demo_cookie_warns_but_does_not_reject_short_key(self) -> None:
@@ -851,7 +901,8 @@ class TestHighJWTKeyReuse:
         handler_records: list[logging.LogRecord] = []
 
         class _Capture(logging.Handler):
-            def emit(self, record): handler_records.append(record)
+            def emit(self, record):
+                handler_records.append(record)
 
         logger = logging.getLogger("stronghold.auth.demo_cookie")
         cap = _Capture(level=logging.WARNING)
@@ -894,19 +945,17 @@ class TestHighQuotaDashboardXSS:
         from pathlib import Path
 
         quota_html = (
-            Path(__file__).parent.parent.parent
-            / "src" / "stronghold" / "dashboard" / "quota.html"
+            Path(__file__).parent.parent.parent / "src" / "stronghold" / "dashboard" / "quota.html"
         )
         if not quota_html.exists():
             pytest.skip("quota.html not found")
         content = quota_html.read_text()
 
         # The file uses marked.parse output. Confirm it is NOT sanitized.
-        danger = re.compile(
-            r"\.innerHTML\s*=\s*[^;\n]*marked\.parse\("
-        )
+        danger = re.compile(r"\.innerHTML\s*=\s*[^;\n]*marked\.parse\(")
         found_lines = [
-            (i, line) for i, line in enumerate(content.splitlines(), 1)
+            (i, line)
+            for i, line in enumerate(content.splitlines(), 1)
             if danger.search(line) and "DOMPurify" not in line
         ]
         assert found_lines or "marked.parse" in content, (
@@ -938,8 +987,7 @@ class TestHighQuotaDashboardXSS:
         assert csp, f"_serve_page emitted no CSP header: {dict(resp.headers)!r}"
         # Parse script-src directive specifically
         directives = {
-            d.strip().split(" ", 1)[0].lower(): d.strip()
-            for d in csp.split(";") if d.strip()
+            d.strip().split(" ", 1)[0].lower(): d.strip() for d in csp.split(";") if d.strip()
         }
         script_src = directives.get("script-src", "")
         assert script_src, f"No script-src in CSP: {csp!r}"
@@ -975,8 +1023,12 @@ class TestHighPgQuotaNoOrgId:
         tracker._pool = None
         try:
             sig.bind_partial(
-                tracker, provider="p", billing_cycle="2026-03",
-                input_tokens=0, output_tokens=0, org_id="org-a",
+                tracker,
+                provider="p",
+                billing_cycle="2026-03",
+                input_tokens=0,
+                output_tokens=0,
+                org_id="org-a",
             )
         except TypeError:
             pass  # Expected: confirms no org_id param
@@ -1035,7 +1087,8 @@ class TestHighAdminOrgScoping:
         class _AdminAuth:
             async def authenticate(self, authorization, headers=None):
                 return AuthContext(
-                    user_id="admin1", username="admin1",
+                    user_id="admin1",
+                    username="admin1",
                     org_id="org-admin",
                     roles=frozenset({"admin"}),
                     kind=IdentityKind.USER,
@@ -1059,8 +1112,9 @@ class TestHighAdminOrgScoping:
             # Response may be 200 or 404 depending on _require_admin behavior;
             # what matters is the SQL that ran (if any).
 
-        update_sqls = [s for s in captured_sql if "UPDATE users" in s.upper()
-                       or "UPDATE USERS" in s.upper()]
+        update_sqls = [
+            s for s in captured_sql if "UPDATE users" in s.upper() or "UPDATE USERS" in s.upper()
+        ]
         if not update_sqls:
             # Admin gate may have blocked before SQL — fallback check
             # against the function's rendered source via the endpoint itself.
@@ -1136,8 +1190,7 @@ class TestMediumCommunitySymlinkCheck:
             "---\n"
             "body\n"
         )
-        evil_body = legit_body.replace("legit_skill", "evil_skill") \
-                              .replace("legit", "evil")
+        evil_body = legit_body.replace("legit_skill", "evil_skill").replace("legit", "evil")
         c_legit_body = legit_body.replace("legit_skill", "c_legit_skill")
         c_evil_body = legit_body.replace("legit_skill", "c_evil_skill")
 
@@ -1217,8 +1270,11 @@ class TestMediumPgLearningStoreNoCap:
         fetchvals: list[tuple[str, tuple]] = []
 
         class _Conn:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): return False
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
 
             async def execute(self, sql, *args):
                 executed.append(sql)
@@ -1239,12 +1295,15 @@ class TestMediumPgLearningStoreNoCap:
                 return []
 
         class _Pool:
-            def acquire(self): return _Conn()
+            def acquire(self):
+                return _Conn()
 
         store = PgLearningStore(_Pool())
         learning = Learning(
-            trigger_keys=["k"], learning="x",
-            tool_name="shell", org_id="org-a",
+            trigger_keys=["k"],
+            learning="x",
+            tool_name="shell",
+            org_id="org-a",
         )
         await store.store(learning)
 
@@ -1270,9 +1329,7 @@ class TestMediumPgLearningStoreNoCap:
 class TestPositiveSecurityControls:
     """Verify that correct security measures are in place."""
 
-    async def test_hmac_compare_digest_on_static_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_hmac_compare_digest_on_static_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Static key auth uses hmac.compare_digest (timing-safe comparison).
 
         Behavioural proof instead of source grepping: spy on the
@@ -1351,9 +1408,7 @@ class TestPositiveSecurityControls:
         # Canonical PyYAML unsafe-tag payload — safe_load rejects it,
         # unsafe loaders attempt to construct a Python object.
         cfg = tmp_path / "unsafe.yaml"
-        cfg.write_text(
-            "router_api_key: !!python/object/apply:os.system ['echo pwned']\n"
-        )
+        cfg.write_text("router_api_key: !!python/object/apply:os.system ['echo pwned']\n")
         with pytest.raises(ValueError, match="(?i)invalid yaml"):
             load_config(cfg)
 

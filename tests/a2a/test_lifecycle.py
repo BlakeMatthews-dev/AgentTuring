@@ -102,7 +102,7 @@ class TestWorkerPool:
         async def _test() -> None:
             pool = WorkerPool(WorkerConfig(max_workers=1))
             await pool.submit("t1", {"data": "a"})
-            with pytest.raises(RuntimeError, match="max_workers"):
+            with pytest.raises(RuntimeError, match="capacity"):
                 await pool.submit("t2", {"data": "b"})
 
         asyncio.get_event_loop().run_until_complete(_test())

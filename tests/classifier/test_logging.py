@@ -51,7 +51,8 @@ class TestGetDecisions:
     def test_filter_by_since(self) -> None:
         cl = ClassifierLogger()
         cl.log_decision("old", None, "chat", 0.9, "simple", "arbiter")
-        cutoff = datetime.now(UTC) + timedelta(seconds=1)
+        old_ts = cl.get_decisions()[0].timestamp
+        cutoff = old_ts + timedelta(milliseconds=1)
         cl.log_decision("new", None, "code", 0.8, "complex", "mason")
         decisions = cl.get_decisions(since=cutoff)
         assert len(decisions) == 1

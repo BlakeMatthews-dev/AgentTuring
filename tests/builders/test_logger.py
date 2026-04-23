@@ -49,7 +49,8 @@ class TestGetActions:
     def test_filter_by_since(self) -> None:
         log = BuildersLogger()
         log.log_builder_action("mason", "build", "old")
-        cutoff = datetime.now(UTC) + timedelta(seconds=1)
+        old_ts = log.get_actions()[0].timestamp
+        cutoff = old_ts + timedelta(milliseconds=1)
         log.log_builder_action("mason", "build", "new")
         actions = log.get_actions(since=cutoff)
         assert len(actions) == 1
@@ -75,7 +76,8 @@ class TestGetLearningEvents:
     def test_filter_by_since(self) -> None:
         log = BuildersLogger()
         log.log_learning_promotion("l1", "a", "b", "r", 0.5)
-        cutoff = datetime.now(UTC) + timedelta(seconds=1)
+        old_ts = log.get_learning_events()[0].timestamp
+        cutoff = old_ts + timedelta(milliseconds=1)
         log.log_learning_promotion("l2", "a", "b", "r", 0.7)
         events = log.get_learning_events(since=cutoff)
         assert len(events) == 1
@@ -87,14 +89,14 @@ class TestGetStats:
         log = BuildersLogger()
         stats = log.get_stats()
         assert stats["total_actions"] == 0
-        assert stats["total_xp"] == 0
+        assert stats["total_learning_events"] == 0
 
     def test_with_data(self) -> None:
         log = BuildersLogger()
         log.log_builder_action("mason", "build", "wall", xp_earned=10)
         stats = log.get_stats()
         assert stats["total_actions"] == 1
-        assert stats["total_xp"] == 10
+        assert stats["xp_totals"]["mason"] == 10
         assert "mason" in stats["actions_by_builder"]
 
 

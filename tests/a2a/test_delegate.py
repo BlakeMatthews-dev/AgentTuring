@@ -47,15 +47,19 @@ class TestRegisterCapability:
     def test_register_single_agent(self) -> None:
         svc = DelegationService()
         svc.register_agent_capability("agent-a", ["agent-b", "agent-c"])
-        tid = svc.delegate_task("agent-a", "do work", "agent-b")
+        tid = svc.delegate_task(
+            "agent-a", "do work", "agent-b", delegation_mode=DelegationMode.ALLOW_ALL
+        )
         assert isinstance(tid, str)
 
     def test_overwrite_capabilities(self) -> None:
         svc = DelegationService()
         svc.register_agent_capability("agent-a", ["agent-b"])
         svc.register_agent_capability("agent-a", ["agent-c"])
-        with pytest.raises(ValueError, match="not allowed"):
-            svc.delegate_task("agent-a", "do work", "agent-b")
+        with pytest.raises(ValueError, match="cannot delegate to"):
+            svc.delegate_task(
+                "agent-a", "do work", "agent-b", delegation_mode=DelegationMode.ALLOW_ALL
+            )
 
 
 class TestDelegateTaskValidation:
@@ -67,14 +71,14 @@ class TestDelegateTaskValidation:
 
     def test_unknown_from_agent_raises(self) -> None:
         svc = DelegationService()
-        with pytest.raises(ValueError, match="no registered"):
-            svc.delegate_task("ghost", "task", "b")
+        with pytest.raises(ValueError, match="no delegation capabilities"):
+            svc.delegate_task("ghost", "task", "b", delegation_mode=DelegationMode.ALLOW_ALL)
 
     def test_disallowed_target_raises(self) -> None:
         svc = DelegationService()
         svc.register_agent_capability("a", ["b"])
-        with pytest.raises(ValueError, match="not allowed"):
-            svc.delegate_task("a", "task", "c")
+        with pytest.raises(ValueError, match="cannot delegate to"):
+            svc.delegate_task("a", "task", "c", delegation_mode=DelegationMode.ALLOW_ALL)
 
 
 class TestDelegateTaskAutoSelect:
@@ -155,5 +159,5 @@ class TestUpdateTaskStatus:
 
     def test_unknown_task_raises(self) -> None:
         svc = DelegationService()
-        with pytest.raises(ValueError, match="Unknown task"):
+        with pytest.raises(ValueError, match="Task not found"):
             svc.update_task_status("nope", TaskStatus.RUNNING)

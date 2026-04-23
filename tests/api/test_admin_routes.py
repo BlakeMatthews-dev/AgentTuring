@@ -111,7 +111,15 @@ def admin_app() -> FastAPI:
 
         return Container(
             config=config,
-            auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
+            auth_provider=FakeAuthProvider(
+                auth_context=AuthContext(
+                    user_id="system",
+                    username="admin",
+                    roles=frozenset({"admin", "user"}),
+                    org_id="__system__",
+                    kind=IdentityKind.SYSTEM,
+                )
+            ),
             permission_table=PermissionTable.from_config({"admin": ["*"]}),
             router=RouterEngine(InMemoryQuotaTracker()),
             classifier=ClassifierEngine(),

@@ -339,7 +339,7 @@ async def demo_login(
 
     container = request.app.state.container
     auth_cfg = container.config.auth
-    signing_key = container.config.router_api_key
+    signing_key = container.config.jwt_secret
 
     if not body.email:
         raise HTTPException(status_code=400, detail="email is required")
@@ -490,8 +490,8 @@ async def get_session(request: Request) -> JSONResponse:
     if not morsel or not morsel.value:
         return JSONResponse({"authenticated": False}, status_code=401)
 
-    # Try demo token (HS256 signed with router key) first
-    signing_key = container.config.router_api_key
+    # Try demo token (HS256 signed with JWT secret) first
+    signing_key = container.config.jwt_secret
     try:
         claims = pyjwt.decode(
             morsel.value,

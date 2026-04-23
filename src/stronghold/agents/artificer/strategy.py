@@ -27,6 +27,10 @@ async def _noop_status(msg: str) -> None:
     pass
 
 
+_MAX_ARG_BYTES = 32_768
+_MAX_RESULT_BYTES = 16_384
+
+
 class ArtificerStrategy:
     """Multi-phase engineering workflow.
 
@@ -154,10 +158,53 @@ class ArtificerStrategy:
                     )
                     tool_args = {}
 
+                # Arg size check: reject oversized tool arguments (JSON bomb)
+                raw_arg_bytes = len(fn.get("arguments", "{}").encode("utf-8"))
+                if raw_arg_bytes > _MAX_ARG_BYTES:
+                    logger.warning(
+                        "Tool %s arg size %d exceeds %d limit",
+                        tool_name,
+                        raw_arg_bytes,
+                        _MAX_ARG_BYTES,
+                    )
+                    tool_result = f"Error: tool arguments exceed {_MAX_ARG_BYTES} byte limit"
+                    result_str = tool_result
+                    tool_history.append(
+                        {
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "result": tool_result,
+                            "round": round_num,
+                        }
+                    )
+                    current_messages.append(
+                        {"role": "tool", "tool_call_id": tc.get("id", ""), "content": result_str}
+                    )
+                    continue
+
+                # Sentinel pre_call: permission check + schema validation
+                sentinel = kwargs.get("sentinel")
+                auth = kwargs.get("auth")
+                tool_blocked = False
+                if sentinel is not None and auth is not None:
+                    sentinel_verdict = await sentinel.pre_call(
+                        tool_name,
+                        tool_args,
+                        auth,
+                        {},
+                    )
+                    if not sentinel_verdict.allowed:
+                        tool_result = f"Error: Permission denied for tool '{tool_name}'"
+                        tool_blocked = True
+                    elif sentinel_verdict.repaired_data:
+                        tool_args = sentinel_verdict.repaired_data
+
                 await status(f"Running {tool_name}...")
                 logger.info("Tool call: %s(%s)", tool_name, list(tool_args.keys()))
 
-                if tool_executor and callable(tool_executor):
+                if tool_blocked:
+                    pass
+                elif tool_executor and callable(tool_executor):
                     if trace:
                         with trace.span(f"tool.{tool_name}") as ts:
                             ts.set_input(tool_args)
@@ -182,8 +229,20 @@ class ArtificerStrategy:
                 else:
                     tool_result = f"Tool '{tool_name}' not available"
 
-                # Log result summary
+                # Result truncation: cap tool results to prevent context window exhaustion
                 result_str = tool_result if isinstance(tool_result, str) else str(tool_result)
+                if len(result_str) > _MAX_RESULT_BYTES:
+                    omitted = len(str(tool_result)) - _MAX_RESULT_BYTES
+                    result_str = (
+                        result_str[:_MAX_RESULT_BYTES]
+                        + f"\n[... truncated, {omitted} bytes omitted]"
+                    )
+
+                # Sentinel post_call: Warden scan + PII filter
+                if sentinel is not None and auth is not None:
+                    result_str = await sentinel.post_call(tool_name, result_str, auth)
+
+                # Log result summary
                 result_preview = result_str[:200]
                 if '"passed": true' in result_preview or '"status": "ok"' in result_preview:
                     await status(f"{tool_name}: OK")
@@ -205,7 +264,7 @@ class ArtificerStrategy:
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
-                        "content": str(tool_result),
+                        "content": result_str,
                     }
                 )
 

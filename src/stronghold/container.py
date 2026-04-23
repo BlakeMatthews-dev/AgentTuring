@@ -222,6 +222,9 @@ async def create_container(config: StrongholdConfig) -> Container:
         )
         raise ConfigError(msg)
 
+    if not config.jwt_secret:
+        config.jwt_secret = config.router_api_key
+
     # ── Auth ──
     auth_provider, permission_table = _wire_auth(config)
     learning_extractor = ToolCorrectionExtractor()

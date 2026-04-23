@@ -1,0 +1,207 @@
+global:
+  enabled: true
+
+server:
+  enabled: true
+
+  image:
+    repository: docker.io/openbao/openbao
+    tag: "2.0.0"
+
+  updateStrategyType: "RollingUpdate"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health"
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+  livenessProbe:
+    enabled: true
+    path: "/v1/sys/health"
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8200
+    targetPort: 8200
+
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: standard
+    accessMode: ReadWriteOnce
+
+  standalone:
+    enabled: true
+    config: |
+      listener "tcp" {
+        tls_disable = 1
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+      storage "raft" {
+        path = "/vault/data"
+      }
+      ui = true
+
+  auth:
+    token:
+      rootToken: "root"
+
+  extraEnvVars:
+    - name: VAULT_API_ADDR
+      value: "http://vault:8200"
+    - name: VAULT_ADDR
+      value: "http://127.0.0.1:8200"
+    - name: SKIP_SETCAP
+      value: "true"
+
+  extraVolumes:
+    - type: secret
+      name: stronghold-vault-config
+      path: /etc/vault/stronghold
+
+  annotations: {}
+
+  nodeSelector: {}
+
+  tolerations: []
+
+  affinity: {}
+
+# UI Ingress
+ui:
+  enabled: true
+  serviceType: "ClusterIP"
+  servicePort: 8200
+  externalTrafficPolicy: "Cluster"
+  activeVaultPodOnly: true
+
+  annotations: {}
+
+  ingress:
+    enabled: false
+    pathType: Prefix
+    activeService: true
+    ingressClassName: nginx
+    hosts:
+      - host: vault.stronghold.local
+        paths:
+          - /
+    tls:
+      - secretName: vault-tls
+        hosts:
+          - vault.stronghold.local
+
+# Stronghold Integration
+stronghold:
+  enabled: true
+
+  namespaces:
+    - stronghold-platform
+    - stronghold-dev
+    - stronghold-prod
+
+  policies:
+    agent-read: |
+      path "stronghold/data/agents/*" {
+        capabilities = ["read", "list"]
+      }
+      path "stronghold/metadata/agents/*" {
+        capabilities = ["read", "list"]
+      }
+
+    agent-write: |
+      path "stronghold/data/agents/*" {
+        capabilities = ["create", "update", "delete"]
+      }
+
+    secrets-read: |
+      path "stronghold/data/secrets/*" {
+        capabilities = ["read", "list"]
+      }
+
+    secrets-write: |
+      path "stronghold/data/secrets/*" {
+        capabilities = ["create", "update", "delete"]
+      }
+
+    token-issue: |
+      path "auth/token/create" {
+        capabilities = ["create", "update"]
+      }
+
+  authMethods:
+    kubernetes:
+      enabled: true
+      path: "kubernetes"
+      config:
+        kubernetes_host: "https://kubernetes.default.svc"
+        kubernetes_ca_cert: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        issuer: "https://kubernetes.default.svc.cluster.local"
+
+    jwt:
+      enabled: true
+      path: "jwt"
+      config:
+        oidc_discovery_url: "https://login.microsoftonline.com/<tenant-id>/v2.0"
+        oidc_client_id: "<client-id>"
+        oidc_client_secret: "<client-secret>"
+        default_role: "stronghold-user"
+
+  secrets:
+    - name: "agent-credentials"
+      path: "stronghold/data/agents/credentials"
+      data:
+        example-agent: |
+          username: "agent-user"
+          password: "secret-password"
+          api_key: "api-key-value"
+
+    - name: "provider-credentials"
+      path: "stronghold/data/providers/credentials"
+      data:
+        litellm: |
+          master_key: "sk-litellm-master-key"
+          api_key: "sk-litellm-api-key"
+
+        openai: |
+          api_key: "sk-openai-api-key"
+          organization: "org-id"
+
+        anthropic: |
+          api_key: "sk-ant-api-key"
+
+    - name: "database-credentials"
+      path: "stronghold/data/database/credentials"
+      data:
+        postgresql: |
+          username: "stronghold-db-user"
+          password: "secure-db-password"
+          host: "postgres.stronghold-platform.svc.cluster.local"
+          port: "5432"
+          database: "stronghold"
+
+    - name: "storage-credentials"
+      path: "stronghold/data/storage/credentials"
+      data:
+        s3: |
+          access_key: "aws-access-key"
+          secret_key: "aws-secret-key"
+          region: "us-east-1"
+          bucket: "stronghold-data"
+
+        azure: |
+          storage_account: "strongholdstorage"
+          access_key: "azure-storage-key"
+          container: "stronghold-data"

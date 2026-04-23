@@ -196,6 +196,7 @@ class _FakeContainer:
             auth=AuthConfig(session_cookie_name=cookie_name),
         )
         self.config.router_api_key = api_key
+        self.config.jwt_secret = api_key
 
 
 def _demo_cookie_app(
@@ -395,9 +396,7 @@ def _auth_app() -> FastAPI:
             ctx = await auth_provider.authenticate(auth_header)
         except ValueError as e:
             return JSONResponse(status_code=401, content={"detail": str(e)})
-        return JSONResponse(
-            {"user_id": ctx.user_id, "auth_method": ctx.auth_method}
-        )
+        return JSONResponse({"user_id": ctx.user_id, "auth_method": ctx.auth_method})
 
     return app
 

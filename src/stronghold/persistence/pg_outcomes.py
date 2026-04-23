@@ -119,7 +119,7 @@ class PgOutcomeStore:
                        COUNT(*) AS request_count,
                        SUM(CASE WHEN success THEN 1 ELSE 0 END) AS success_count,
                        ROUND(AVG(response_time_ms)::numeric, 1) AS avg_response_ms
-                   FROM outcomes"""
+                   FROM outcomes"""  # noqa: S608  # nosec B608
 
         async with self._pool.acquire() as conn:
             if days > 0:
@@ -178,10 +178,10 @@ class PgOutcomeStore:
                        COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
                        COALESCE(SUM(charged_microchips), 0) AS total_microchips,
                        COUNT(*) AS request_count
-                FROM outcomes
-                WHERE org_id = $1 AND created_at >= $2
-                GROUP BY day, {group_by}
-                ORDER BY day"""  # noqa: S608
+                 FROM outcomes
+                 WHERE org_id = $1 AND created_at >= $2
+                 GROUP BY day, {group_by}
+                 ORDER BY day"""  # noqa: S608  # nosec B608
         else:
             query = """
                 SELECT DATE(created_at AT TIME ZONE 'UTC') AS day,

@@ -314,14 +314,15 @@ def check_private_field_access(
     return findings
 
 
+_BUNDLED_COMMIT_THRESHOLD = 10
+
+
 def check_bundled_changes(
     changed_files: list[str],
     *,
     commit_count: int,
 ) -> list[ReviewFinding]:
     """Flag PRs with too many unrelated commits or files."""
-    # Heuristic: if a PR touches more than 5 distinct top-level source directories
-    # in a single commit, it's likely bundled
     src_dirs: set[str] = set()
     for path in changed_files:
         if path.startswith("src/stronghold/"):
@@ -341,6 +342,19 @@ def check_bundled_changes(
                     "This may indicate bundled unrelated changes."
                 ),
                 suggestion="Split into focused PRs, one per module or issue.",
+            ),
+        )
+    if commit_count > _BUNDLED_COMMIT_THRESHOLD:
+        findings.append(
+            ReviewFinding(
+                category=ViolationCategory.BUNDLED_CHANGES,
+                severity=Severity.MEDIUM,
+                file_path="",
+                description=(
+                    f"PR contains {commit_count} commits. "
+                    "High commit count often signals bundled-and-unrelated work."
+                ),
+                suggestion=("Squash-merge, or split into smaller PRs grouped by concern."),
             ),
         )
     return findings

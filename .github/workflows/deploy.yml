@@ -1,42 +1,85 @@
 name: Deploy
 
-# Blue-green deploy to agentstronghold.com
-# Triggered on push to main (after release PR merges) or manual dispatch
+# GitOps deploy for Stronghold.
+#
+# Build the image, push to GHCR, and bump the matching values-{env}-image.yaml
+# file. Argo CD watches this repo and reconciles the cluster state on change.
+#
+#   push to integration  →  build + push + bot commits tag bump to integration
+#                            →  Argo CD auto-syncs stronghold-integration
+#
+#   push to main         →  build + push + bot opens PR titled
+#                            "deploy(production): bump image to <tag>"
+#                            →  operator reviews + merges (signed commit)
+#                            →  operator runs `argocd app sync stronghold-production`
+#
+# See deploy/argocd/README.md for the full flow and rollback procedure.
 
 on:
   push:
-    branches: [main]
+    branches: [integration, main]
   workflow_dispatch:
     inputs:
       environment:
-        description: "Deploy environment"
+        description: "Force a deploy to this environment"
         required: true
-        default: "production"
         type: choice
         options:
+          - integration
           - production
 
+permissions:
+  contents: write       # bot pushes the image-tag bump
+  packages: write       # push image to GHCR
+  pull-requests: write  # bot opens deploy PR for production
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/agent-stronghold/stronghold
+
 jobs:
+  resolve-env:
+    name: Resolve target environment
+    runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.pick.outputs.env }}
+      tag_file: ${{ steps.pick.outputs.tag_file }}
+    steps:
+      - id: pick
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ inputs.environment }}"
+          elif [ "${{ github.ref }}" = "refs/heads/integration" ]; then
+            ENV="integration"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENV="production"
+          else
+            echo "Unsupported ref for deploy: ${{ github.ref }}" >&2
+            exit 1
+          fi
+          echo "env=${ENV}" >> "$GITHUB_OUTPUT"
+          echo "tag_file=deploy/helm/stronghold/values-${ENV}-image.yaml" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build & Push Image
+    needs: resolve-env
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-      version: ${{ steps.version.outputs.version }}
-
+      image_tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version
-        id: version
+      - name: Compute image tag
+        id: tag
         run: |
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          SHA=$(git rev-parse --short HEAD)
-          echo "version=${VERSION}-${SHA}" >> "$GITHUB_OUTPUT"
+          set -eu
+          ENV="${{ needs.resolve-env.outputs.env }}"
+          SHA="$(git rev-parse --short HEAD)"
+          echo "tag=${ENV}-${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -45,72 +88,118 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build and push
         uses: docker/build-push-action@v6
-        id: meta
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/agent-stronghold/stronghold:latest
-            ghcr.io/agent-stronghold/stronghold:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:${{ needs.resolve-env.outputs.env }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-  deploy:
-    name: Blue-Green Deploy
+  promote:
+    name: Promote (bump image tag in git)
+    needs: [resolve-env, build]
     runs-on: ubuntu-latest
-    needs: build
-    environment: production
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            cd /root/github/stronghold
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-            # Pull latest code
-            git pull origin main
-
-            # Pull new image
-            docker pull ghcr.io/agent-stronghold/stronghold:latest
-
-            # Blue-green swap
-            # 1. Start green (new version) alongside blue (current)
-            docker compose -f docker-compose.yml -p stronghold-green up -d --build stronghold
-            sleep 10
-
-            # 2. Health check green
-            for i in $(seq 1 12); do
-              if curl -sf http://localhost:8101/health > /dev/null 2>&1; then
-                echo "Green is healthy"
-                break
-              fi
-              if [ "$i" -eq 12 ]; then
-                echo "Green failed health check — rolling back"
-                docker compose -p stronghold-green down
-                exit 1
-              fi
-              sleep 5
-            done
-
-            # 3. Swap: stop blue, promote green
-            docker compose down stronghold
-            docker compose up -d stronghold
-            docker compose -p stronghold-green down 2>/dev/null || true
-
-            # 4. Verify
-            sleep 5
-            curl -sf http://localhost:8100/health || exit 1
-            echo "Deploy complete: ${{ needs.build.outputs.version }}"
-
-      - name: Create release tag
-        if: success()
+      - name: Bump image.tag in values file
+        env:
+          TAG_FILE: ${{ needs.resolve-env.outputs.tag_file }}
+          NEW_TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          git tag "v${{ needs.build.outputs.version }}"
-          git push origin "v${{ needs.build.outputs.version }}"
+          set -eu
+          python3 - <<'PY'
+          import os, re, sys
+          path = os.environ["TAG_FILE"]
+          new_tag = os.environ["NEW_TAG"]
+          with open(path) as f:
+              content = f.read()
+          new_content = re.sub(
+              r'(\n\s*tag:\s*).+',
+              lambda m: f'{m.group(1)}"{new_tag}"',
+              content,
+          )
+          if new_content == content:
+              print(f"ERROR: no `tag:` lines updated in {path}", file=sys.stderr)
+              sys.exit(1)
+          with open(path, "w") as f:
+              f.write(new_content)
+          PY
+          git diff --stat "$TAG_FILE" || true
+
+      - name: Identify bot
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit + push (integration)
+        if: needs.resolve-env.outputs.env == 'integration'
+        env:
+          TAG_FILE: ${{ needs.resolve-env.outputs.tag_file }}
+          NEW_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -eu
+          git add "$TAG_FILE"
+          if git diff --cached --quiet; then
+            echo "No-op: tag already at ${NEW_TAG}."
+            exit 0
+          fi
+          git commit -m "deploy(integration): bump image to ${NEW_TAG} [skip ci]"
+          git push origin HEAD:integration
+
+      - name: Open PR (production)
+        if: needs.resolve-env.outputs.env == 'production'
+        env:
+          TAG_FILE: ${{ needs.resolve-env.outputs.tag_file }}
+          NEW_TAG: ${{ needs.build.outputs.image_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          if git diff --quiet -- "$TAG_FILE"; then
+            echo "No-op: tag already at ${NEW_TAG}."
+            exit 0
+          fi
+          BRANCH="deploy/production-${NEW_TAG}"
+          git checkout -b "$BRANCH"
+          git add "$TAG_FILE"
+          git commit -m "deploy(production): bump image to ${NEW_TAG}"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "deploy(production): bump image to ${NEW_TAG}" \
+            --body "Auto-generated by deploy.yml.
+
+          **Approve + merge** to stage the production image bump.
+          After merge, run \`argocd app sync stronghold-production\`
+          (or use the Argo CD UI) to apply.
+
+          Image: \`${{ env.IMAGE }}:${NEW_TAG}\`"
+
+      - name: Summary
+        env:
+          ENV: ${{ needs.resolve-env.outputs.env }}
+          NEW_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          {
+            echo "### Deploy: ${ENV}"
+            echo ""
+            echo "Image: \`${{ env.IMAGE }}:${NEW_TAG}\`"
+            echo ""
+            if [ "${ENV}" = "production" ]; then
+              echo "Production tag bump opened as a PR. Merge + sync via Argo CD:"
+              echo "  https://10.10.42.31:30443/applications/argocd/stronghold-production"
+            else
+              echo "Argo CD will auto-sync stronghold-integration within ~1 min."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

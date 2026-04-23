@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stronghold-integration
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Agent-StrongHold/stronghold.git
+    targetRevision: integration
+    path: deploy/helm/stronghold
+    helm:
+      releaseName: stronghold
+      valueFiles:
+        - values.yaml
+        - values-vanilla-k8s.yaml
+        - values-integration.yaml
+        - values-integration-image.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: stronghold-integration
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

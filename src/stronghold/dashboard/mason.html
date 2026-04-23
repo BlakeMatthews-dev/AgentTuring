@@ -201,6 +201,12 @@
 </main>
 
 <script>
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s == null ? '' : s);
+  return d.innerHTML;
+}
+
 function openSidebar(){document.getElementById('sidebar').classList.add('open');document.getElementById('sidebar-overlay').classList.add('open')}
 function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebar-overlay').classList.remove('open')}
 
@@ -241,10 +247,10 @@ function renderItems(items) {
     const assignee = i.assignee ? `<span class="text-xs text-[var(--iron-light)]">${i.assignee}</span>` : '';
     const btn = i.is_pr
       ? `<button class="btn-iron text-xs ml-3 flex-shrink-0" onclick="reviewPRDirect(${i.number})">Review</button>`
-      : `<button class="btn-gold text-xs ml-3 flex-shrink-0" onclick="assignIssue(${i.number},'${i.title.replace(/'/g,"\\'")}')">Assign</button>`;
+      : `<button class="btn-gold text-xs ml-3 flex-shrink-0" data-num="${esc(i.number)}" data-title="${esc(i.title)}" onclick="assignIssue(this.dataset.num, this.dataset.title)">Assign</button>`;
     return `<div class="flex items-center justify-between p-3 rounded" style="background:var(--stone-dark)">
       <div class="flex-1 min-w-0">
-        <div class="text-sm">${type} <span class="text-[var(--gold)]">#${i.number}</span> ${i.title}</div>
+        <div class="text-sm">${type} <span class="text-[var(--gold)]">#${esc(i.number)}</span> ${esc(i.title)}</div>
         <div class="flex gap-1 mt-1 flex-wrap">${labels} ${assignee}</div>
       </div>
       ${btn}
@@ -292,7 +298,7 @@ async function loadIssues() {
     labelSelect.innerHTML = '<option value="">All labels</option>' + labels.map(l => `<option value="${l}">${l}</option>`).join('');
     applyFilters();
   } catch(e) {
-    el.innerHTML = `<div class="text-sm" style="color:var(--blood)">Failed: ${e.message}</div>`;
+    el.innerHTML = `<div class="text-sm" style="color:var(--blood)">Failed: ${esc(e.message)}</div>`;
   }
 }
 
@@ -342,15 +348,15 @@ function showDetail(idx) {
   if (log.length > 0) {
     const logHtml = log.map(e => {
       const t = new Date(e.time).toLocaleTimeString();
-      return `<div class="flex gap-3 text-xs"><span class="text-[var(--iron-light)] flex-shrink-0">${t}</span><span>${e.message}</span></div>`;
+      return `<div class="flex gap-3 text-xs"><span class="text-[var(--iron-light)] flex-shrink-0">${esc(t)}</span><span>${esc(e.message)}</span></div>`;
     }).join('');
     rows.push(`<div class="mt-3"><div class="text-xs text-[var(--iron-light)] mb-2 uppercase tracking-wider">Work Log</div><div class="space-y-1 p-3 rounded max-h-[250px] overflow-y-auto" style="background:var(--stone-dark)">${logHtml}</div></div>`);
   }
   if (i.error) {
-    rows.push(`<div class="mt-3 p-3 rounded" style="background:rgba(139,37,0,0.15); border:1px solid var(--blood)"><div class="text-xs text-[var(--iron-light)] mb-1">Error</div><div class="text-sm" style="color:#ff6b6b; word-break:break-all">${i.error}</div></div>`);
+    rows.push(`<div class="mt-3 p-3 rounded" style="background:rgba(139,37,0,0.15); border:1px solid var(--blood)"><div class="text-xs text-[var(--iron-light)] mb-1">Error</div><div class="text-sm" style="color:#ff6b6b; word-break:break-all">${esc(i.error)}</div></div>`);
   }
   if (i.status === 'failed') {
-    rows.push(`<div class="mt-3"><button class="btn-gold w-full" onclick="retryIssue(${i.issue_number}, '${(i.title||'').replace(/'/g,"\\'")}')">Retry</button></div>`);
+    rows.push(`<div class="mt-3"><button class="btn-gold w-full" data-num="${esc(i.issue_number)}" data-title="${esc(i.title||'')}" onclick="retryIssue(this.dataset.num, this.dataset.title)">Retry</button></div>`);
   }
   if (i.status === 'in_progress') {
     rows.push(`<div class="mt-2 text-xs text-[var(--iron-light)]">Auto-refreshing...</div>`);

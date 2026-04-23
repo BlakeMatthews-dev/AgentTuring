@@ -148,6 +148,7 @@ class Conduit:
     """
 
     _MAX_STICKY_SESSIONS = 10_000  # Evict oldest entries when exceeded
+    _MAX_CONSENT_ENTRIES = 10_000  # SEC-013: bound consent maps too
 
     def __init__(self, container: Container) -> None:
         self._c = container
@@ -346,6 +347,11 @@ class Conduit:
                 if session_id not in self._session_consents:
                     self._session_consents[session_id] = set()
                 self._session_consents[session_id].add(pending_provider)
+                # SEC-013: bound consent map growth
+                if len(self._session_consents) > self._MAX_CONSENT_ENTRIES:
+                    excess = len(self._session_consents) - self._MAX_CONSENT_ENTRIES
+                    for old_key in list(self._session_consents)[:excess]:
+                        del self._session_consents[old_key]
                 logger.info(
                     "Data sharing consent granted: session=%s provider=%s",
                     session_id,
@@ -473,6 +479,11 @@ class Conduit:
                     "for model training."
                 )
                 self._consent_pending[session_id] = full_selection.provider
+                # SEC-013: bound consent pending map
+                if len(self._consent_pending) > self._MAX_CONSENT_ENTRIES:
+                    excess = len(self._consent_pending) - self._MAX_CONSENT_ENTRIES
+                    for old_key in list(self._consent_pending)[:excess]:
+                        del self._consent_pending[old_key]
 
                 arbiter_agent = self._fallback_agent("arbiter")
                 consent_messages = [

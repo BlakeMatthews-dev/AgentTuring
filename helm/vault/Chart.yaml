@@ -1,0 +1,18 @@
+apiVersion: v2
+name: stronghold-vault
+description: OpenBao secret management for Stronghold agent governance platform
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+keywords:
+  - vault
+  - secret-management
+  - stronghold
+  - agent-governance
+maintainers:
+  - name: Stronghold Team
+    email: team@stronghold.example.com
+dependencies:
+  - name: vault
+    repository: https://helm.releases.hashicorp.com
+    version: 0.28.0

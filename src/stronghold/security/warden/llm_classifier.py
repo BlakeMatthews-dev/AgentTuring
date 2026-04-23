@@ -145,7 +145,8 @@ async def classify_tool_result(
     Returns:
         {"label": "safe"|"suspicious", "model": str, "tokens": int}
 
-    Non-blocking: returns "safe" on any error (fail-open for availability).
+    Non-blocking: returns "inconclusive" on any error (fail-open for availability,
+    but elevated risk to avoid false negatives).
     """
     try:
         messages = _build_classification_prompt(text)
@@ -164,5 +165,10 @@ async def classify_tool_result(
 
         return {"label": label, "model": model, "tokens": tokens}
     except Exception:
-        logger.warning("L3 classification failed, defaulting to safe", exc_info=True)
-        return {"label": "safe", "model": model, "tokens": 0, "error": "classification_failed"}
+        logger.warning("L3 classification failed, defaulting to inconclusive", exc_info=True)
+        return {
+            "label": "inconclusive",
+            "model": model,
+            "tokens": 0,
+            "error": "classification_failed",
+        }

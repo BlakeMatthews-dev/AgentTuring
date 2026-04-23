@@ -82,8 +82,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    """Create the FastAPI application."""
+    """Create FastAPI application."""
     from stronghold.api.middleware import PayloadSizeLimitMiddleware
+    from stronghold.api.middleware.security_headers import SecurityHeadersMiddleware
     from stronghold.config.loader import load_config as _load_config_for_middleware
 
     running_under_pytest = "PYTEST_CURRENT_TEST" in os.environ
@@ -92,6 +93,54 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Secure Agent Governance Platform",
         lifespan=None if running_under_pytest else lifespan,
+    )
+
+    if running_under_pytest:
+
+        @app.middleware("http")
+        async def _ensure_test_container(
+            request: Request,
+            call_next: Callable[[Request], Awaitable[Response]],
+        ) -> Response:
+            if not hasattr(request.app.state, "container"):
+                request.app.state.container = await create_container(load_config())
+            return await call_next(request)
+
+    # Middleware (order matters: outermost runs first)
+    # Load config early for middleware setup (container loads full config in lifespan)
+    _mw_config = _load_config_for_middleware()
+
+    # Security headers — R9 fix
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # CORS — required for OpenWebUI and dashboard cross-origin requests.
+    # Use explicit cors_origins list (top-level config) if set; otherwise fall back
+    # to detailed CORSConfig.  Only add middleware when at least one origin
+    # is configured to avoid overly-permissive defaults.
+    _cors_origins = _mw_config.cors_origins or _mw_config.cors.allowed_origins
+    if _cors_origins:
+        from starlette.middleware.cors import CORSMiddleware  # noqa: PLC0415
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=_cors_origins,
+            allow_methods=_mw_config.cors.allowed_methods,
+            allow_headers=_mw_config.cors.allowed_headers,
+            allow_credentials=_mw_config.cors.allow_credentials,
+        )
+
+    # Demo cookie → Authorization injection middleware
+    # Reads the session cookie and, if it contains a valid HS256 demo JWT,
+    # injects a synthetic Authorization header so all route handlers authenticate
+    # without needing to pass headers explicitly. Runs before route handlers.
+    from stronghold.api.middleware.demo_cookie import DemoCookieMiddleware  # noqa: PLC0415
+
+    app.add_middleware(DemoCookieMiddleware)
+
+    # Payload size limit — reject oversized requests before parsing
+    app.add_middleware(
+        PayloadSizeLimitMiddleware,
+        max_bytes=_mw_config.max_request_body_bytes,
     )
 
     if running_under_pytest:

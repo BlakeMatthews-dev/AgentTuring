@@ -56,9 +56,20 @@ class FileOpsExecutor:
         if not ws.is_dir():
             return ToolResult(success=False, error=f"workspace not found: {workspace}")
 
-        # Resolve and sandbox
-        target = (ws / rel_path).resolve()
-        if not str(target).startswith(str(ws.resolve())):
+        # Resolve and sandbox. Use is_relative_to (Path semantics) instead of
+        # string startswith to prevent:
+        #   - prefix collision attacks (/tmp/work vs /tmp/work-evil)
+        #   - symlink escapes (symlink in workspace pointing outside)
+        # Catch null bytes and other OS errors from resolve().
+        try:
+            ws_resolved = ws.resolve(strict=True)
+            target = (ws / rel_path).resolve(strict=False)
+        except (OSError, ValueError) as e:
+            return ToolResult(success=False, error=f"invalid path: {e}")
+
+        try:
+            target.relative_to(ws_resolved)
+        except ValueError:
             return ToolResult(success=False, error="path escapes workspace")
 
         try:

@@ -18,7 +18,6 @@ from stronghold.agents.auditor.checks import (
 )
 from stronghold.types.feedback import Severity, ViolationCategory
 
-
 # ---------------------------------------------------------------------------
 # check_mock_usage
 # ---------------------------------------------------------------------------
@@ -263,9 +262,7 @@ class TestCheckPrivateFieldAccess:
 
     def test_detects_store_private_access(self) -> None:
         diff = ["+        entries = self._store._memories"]
-        findings = check_private_field_access(
-            diff, file_path="src/stronghold/memory/management.py"
-        )
+        findings = check_private_field_access(diff, file_path="src/stronghold/memory/management.py")
         assert len(findings) == 1
         assert findings[0].category == ViolationCategory.PRIVATE_FIELD_ACCESS
 
@@ -308,3 +305,29 @@ class TestCheckBundledChanges:
         ]
         findings = check_bundled_changes(files, commit_count=1)
         assert len(findings) == 0
+
+    def test_high_commit_count_flagged(self) -> None:
+        """> threshold commits flags bundled changes even with one module."""
+        files = ["src/stronghold/security/warden/detector.py"]
+        findings = check_bundled_changes(files, commit_count=15)
+        assert len(findings) == 1
+        assert findings[0].category == ViolationCategory.BUNDLED_CHANGES
+        assert "15 commits" in findings[0].description
+
+    def test_commit_count_at_threshold_not_flagged(self) -> None:
+        """Boundary: commit_count == threshold does NOT flag (strictly greater)."""
+        files = ["src/stronghold/security/warden/detector.py"]
+        findings = check_bundled_changes(files, commit_count=10)
+        assert len(findings) == 0
+
+    def test_high_commit_count_and_many_modules_two_findings(self) -> None:
+        """Both heuristics fire independently."""
+        files = [
+            "src/stronghold/agents/base.py",
+            "src/stronghold/security/warden/detector.py",
+            "src/stronghold/router/scorer.py",
+            "src/stronghold/memory/learnings/store.py",
+            "src/stronghold/api/routes/chat.py",
+        ]
+        findings = check_bundled_changes(files, commit_count=20)
+        assert len(findings) == 2

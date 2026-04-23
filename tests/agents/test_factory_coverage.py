@@ -12,7 +12,6 @@ Covers:
 
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -22,34 +21,29 @@ import yaml
 from stronghold.agents.base import Agent
 from stronghold.agents.context_builder import ContextBuilder
 from stronghold.agents.factory import (
+    _PREAMBLE_DEFAULTS,
+    _STRATEGY_REGISTRY,
     _build_identity_from_manifest,
     _build_strategy,
     _load_preamble,
     _parse_agent_dir,
     _render_preamble,
-    _PREAMBLE_DEFAULTS,
     create_agents,
     register_strategy,
-    _STRATEGY_REGISTRY,
 )
 from stronghold.agents.strategies.direct import DirectStrategy
 from stronghold.memory.learnings.extractor import ToolCorrectionExtractor
 from stronghold.memory.learnings.store import InMemoryLearningStore
 from stronghold.memory.outcomes import InMemoryOutcomeStore
-from stronghold.prompts.store import InMemoryPromptManager
-from stronghold.security.sentinel.audit import InMemoryAuditLog
-from stronghold.security.sentinel.policy import Sentinel
 from stronghold.security.warden.detector import Warden
 from stronghold.sessions.store import InMemorySessionStore
 from stronghold.types.agent import AgentIdentity
-from stronghold.types.auth import PermissionTable
 from tests.fakes import (
     FakeLLMClient,
     FakePromptManager,
     FakeQuotaTracker,
     NoopTracingBackend,
 )
-
 
 # ── _load_preamble ─────────────────────────────────────────────────
 
@@ -189,18 +183,14 @@ class TestParseAgentDir:
     def test_yaml_without_name_returns_none(self, tmp_path: Path) -> None:
         agent_dir = tmp_path / "no_name"
         agent_dir.mkdir()
-        (agent_dir / "agent.yaml").write_text(
-            yaml.dump({"version": "1.0.0"}), encoding="utf-8"
-        )
+        (agent_dir / "agent.yaml").write_text(yaml.dump({"version": "1.0.0"}), encoding="utf-8")
         result = _parse_agent_dir(agent_dir)
         assert result is None
 
     def test_missing_soul_returns_empty_string(self, tmp_path: Path) -> None:
         agent_dir = tmp_path / "no_soul"
         agent_dir.mkdir()
-        (agent_dir / "agent.yaml").write_text(
-            yaml.dump({"name": "test"}), encoding="utf-8"
-        )
+        (agent_dir / "agent.yaml").write_text(yaml.dump({"name": "test"}), encoding="utf-8")
         result = _parse_agent_dir(agent_dir)
         assert result is not None
         _, soul, _ = result
@@ -209,9 +199,7 @@ class TestParseAgentDir:
     def test_missing_rules_returns_empty_string(self, tmp_path: Path) -> None:
         agent_dir = tmp_path / "no_rules"
         agent_dir.mkdir()
-        (agent_dir / "agent.yaml").write_text(
-            yaml.dump({"name": "test"}), encoding="utf-8"
-        )
+        (agent_dir / "agent.yaml").write_text(yaml.dump({"name": "test"}), encoding="utf-8")
         (agent_dir / "SOUL.md").write_text("soul text", encoding="utf-8")
         result = _parse_agent_dir(agent_dir)
         assert result is not None
@@ -524,16 +512,12 @@ class TestCreateAgentsFilesystem:
         # Valid agent
         valid = agents_dir / "valid"
         valid.mkdir()
-        (valid / "agent.yaml").write_text(
-            yaml.dump({"name": "valid"}), encoding="utf-8"
-        )
+        (valid / "agent.yaml").write_text(yaml.dump({"name": "valid"}), encoding="utf-8")
 
         # Invalid agent (no name)
         invalid = agents_dir / "invalid"
         invalid.mkdir()
-        (invalid / "agent.yaml").write_text(
-            yaml.dump({"version": "1.0.0"}), encoding="utf-8"
-        )
+        (invalid / "agent.yaml").write_text(yaml.dump({"version": "1.0.0"}), encoding="utf-8")
 
         result = await create_agents(
             agents_dir=agents_dir,

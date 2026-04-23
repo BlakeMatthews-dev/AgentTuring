@@ -1,0 +1,14 @@
+# Auto-managed by .github/workflows/deploy.yml — DO NOT HAND-EDIT.
+#
+# Bumped on every push to the `integration` branch after the image is
+# built and pushed to GHCR. The bot commits this file directly to
+# integration with `[skip ci]` so the change does not retrigger the
+# workflow. Argo CD's stronghold-integration Application detects the
+# commit and auto-syncs.
+#
+# To roll back: `git revert` the offending bump commit on integration.
+image:
+  tag: integration-init
+strongholdApi:
+  image:
+    tag: integration-init

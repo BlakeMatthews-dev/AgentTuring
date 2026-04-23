@@ -30,7 +30,17 @@ import yaml
 
 from stronghold.types.skill import SkillDefinition
 
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)", re.DOTALL)
+
+def _split_frontmatter(content: str) -> tuple[str, str] | None:
+    """Split SKILL.md into (yaml_block, body) without regex to avoid ReDoS."""
+    if not content.startswith("---\n"):
+        return None
+    end = content.find("\n---\n", 4)
+    if end == -1:
+        return None
+    return content[4:end], content[end + 5:]
+
+
 _VALID_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,50}$")
 MAX_SKILL_BODY_LENGTH = 50000  # 50KB max system prompt body
 
@@ -91,12 +101,13 @@ def parse_skill_file(content: str, source: str = "") -> SkillDefinition | None:
 
     Returns None if the content is invalid (bad YAML, missing fields, etc.).
     """
-    match = _FRONTMATTER_RE.match(content)
-    if not match:
+    parts = _split_frontmatter(content)
+    if not parts:
         return None
+    yaml_block, skill_body = parts
 
     try:
-        frontmatter: dict[str, Any] = yaml.safe_load(match.group(1))
+        frontmatter: dict[str, Any] = yaml.safe_load(yaml_block)
     except yaml.YAMLError:
         return None
 
@@ -124,7 +135,7 @@ def parse_skill_file(content: str, source: str = "") -> SkillDefinition | None:
     groups_raw = frontmatter.get("groups", [])
     groups = tuple(str(g) for g in groups_raw) if isinstance(groups_raw, list) else ()
 
-    body = match.group(2).strip()
+    body = skill_body.strip()
 
     # M4: Strip Unicode directional override characters from body.
     # These can visually hide malicious instructions in the system prompt.
@@ -165,8 +176,8 @@ def security_scan(content: str) -> tuple[bool, list[str]]:
     safe = True
 
     # Check body only (after frontmatter)
-    match = _FRONTMATTER_RE.match(content)
-    body = match.group(2) if match else content
+    parts = _split_frontmatter(content)
+    body = parts[1] if parts else content
 
     # Normalize Unicode to prevent bypass (Cyrillic 'е' → Latin 'e', etc.)
     body_normalized = unicodedata.normalize("NFKD", body)

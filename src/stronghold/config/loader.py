@@ -80,6 +80,7 @@ def load_config(path: str | Path | None = None) -> StrongholdConfig:
         "litellm_url": os.getenv("LITELLM_URL"),
         "litellm_key": os.getenv("LITELLM_MASTER_KEY"),
         "router_api_key": os.getenv("ROUTER_API_KEY"),
+        "jwt_secret": os.getenv("JWT_SECRET"),
         "phoenix_endpoint": os.getenv("PHOENIX_COLLECTOR_ENDPOINT"),
         "webhook_secret": os.getenv("STRONGHOLD_WEBHOOK_SECRET"),
     }
@@ -95,6 +96,11 @@ def load_config(path: str | Path | None = None) -> StrongholdConfig:
             "this is insecure and may be rejected in a future version",
             len(router_key),
         )
+
+    jwt_secret = env_overrides.get("jwt_secret")
+    if jwt_secret and len(jwt_secret) < 32:
+        msg = f"JWT_SECRET must be at least 32 characters, got {len(jwt_secret)}"
+        raise ValueError(msg)
 
     webhook_secret = env_overrides.get("webhook_secret")
     if webhook_secret and len(webhook_secret) < 16:

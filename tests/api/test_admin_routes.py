@@ -31,7 +31,7 @@ from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
 from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.types.agent import AgentIdentity
-from stronghold.types.auth import AuthContext, PermissionTable
+from stronghold.types.auth import AuthContext, IdentityKind, PermissionTable
 from stronghold.types.config import StrongholdConfig, TaskTypeConfig
 from stronghold.types.memory import Learning
 from tests.fakes import FakeAuthProvider, FakeLLMClient
@@ -111,7 +111,15 @@ def admin_app() -> FastAPI:
 
         return Container(
             config=config,
-            auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+            auth_provider=FakeAuthProvider(
+                auth_context=AuthContext(
+                    user_id="system",
+                    username="admin",
+                    roles=frozenset({"admin", "user"}),
+                    org_id="__system__",
+                    kind=IdentityKind.SYSTEM,
+                )
+            ),
             permission_table=PermissionTable.from_config({"admin": ["*"]}),
             router=RouterEngine(InMemoryQuotaTracker()),
             classifier=ClassifierEngine(),
@@ -980,8 +988,6 @@ class TestUserManagementNoDb:
             assert resp.status_code == 503
 
 
-
-
 class TestAgentTrustNoDb:
     """Test agent trust endpoints when db_pool is absent."""
 
@@ -1196,9 +1202,7 @@ class TestAgentAiReviewNoDb:
         from stronghold.agents.store import InMemoryAgentStore
 
         container = admin_app.state.container
-        container.agent_store = InMemoryAgentStore(
-            container.agents, container.prompt_manager
-        )
+        container.agent_store = InMemoryAgentStore(container.agents, container.prompt_manager)
         with TestClient(admin_app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/agents/arbiter/ai-review",
@@ -1235,9 +1239,7 @@ class TestAdminReviewNoDb:
         from stronghold.agents.store import InMemoryAgentStore
 
         container = admin_app.state.container
-        container.agent_store = InMemoryAgentStore(
-            container.agents, container.prompt_manager
-        )
+        container.agent_store = InMemoryAgentStore(container.agents, container.prompt_manager)
         with TestClient(admin_app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/agents/arbiter/admin-review",

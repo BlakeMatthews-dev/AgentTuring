@@ -4,17 +4,20 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from stronghold.tracing.phoenix_backend import PhoenixTracingBackend
+
+
+@pytest.fixture(scope="module")
+def phoenix_backend() -> PhoenixTracingBackend:
+    b = PhoenixTracingBackend(endpoint="http://localhost:6006")
+    yield b
+    b.shutdown()
+
 
 class TestTracingWired:
-    def test_trace_created_on_request(self) -> None:
+    def test_trace_created_on_request(self, phoenix_backend: PhoenixTracingBackend) -> None:
         """Every request should create a trace with spans."""
-        # For now: verify the tracing backend is NOT noop in production config
-        from stronghold.tracing.noop import NoopTracingBackend
-        from stronghold.tracing.phoenix_backend import PhoenixTracingBackend
-
-        # Phoenix backend should exist and be importable
-        backend = PhoenixTracingBackend(endpoint="http://localhost:6006")
-        trace = backend.create_trace(user_id="test", name="test-request")
+        trace = phoenix_backend.create_trace(user_id="test", name="test-request")
         assert trace.trace_id != "noop-trace"
 
         with trace.span("test-span") as s:

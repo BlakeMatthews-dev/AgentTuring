@@ -152,6 +152,17 @@ class ShellExecutor:
         if not command.strip():
             return ToolResult(success=False, error="empty command")
 
+        # Security: reject shell metacharacters that enable injection.
+        # Without this, `echo hi; rm -rf /` would pass the allowlist because
+        # it starts with "echo".
+        metachars = ";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"
+        for meta in metachars:
+            if meta in command:
+                return ToolResult(
+                    success=False,
+                    error=f"shell metacharacter '{meta}' not allowed (injection risk)",
+                )
+
         # Security: check allowlist
         cmd_lower = command.strip().lower()
         if not any(cmd_lower.startswith(p) for p in _ALLOWED_PREFIXES):

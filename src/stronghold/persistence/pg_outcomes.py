@@ -111,7 +111,6 @@ class PgOutcomeStore:
         if not org_id:
             return []
 
-        # group_by is whitelisted above (see `allowed`)
         select_cols = f"""SELECT {group_by} AS grp,
                        COALESCE(SUM(input_tokens), 0) AS input_tokens,
                        COALESCE(SUM(output_tokens), 0) AS output_tokens,
@@ -120,7 +119,7 @@ class PgOutcomeStore:
                        COUNT(*) AS request_count,
                        SUM(CASE WHEN success THEN 1 ELSE 0 END) AS success_count,
                        ROUND(AVG(response_time_ms)::numeric, 1) AS avg_response_ms
-                   FROM outcomes"""  # nosec B608
+                   FROM outcomes"""  # noqa: S608  # nosec B608
 
         async with self._pool.acquire() as conn:
             if days > 0:
@@ -171,7 +170,6 @@ class PgOutcomeStore:
         cutoff = datetime.now(UTC) - timedelta(days=days)
 
         if has_group:
-            # group_by is whitelisted (has_group check)
             query = f"""
                 SELECT DATE(created_at AT TIME ZONE 'UTC') AS day,
                        {group_by} AS grp,
@@ -180,10 +178,10 @@ class PgOutcomeStore:
                        COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
                        COALESCE(SUM(charged_microchips), 0) AS total_microchips,
                        COUNT(*) AS request_count
-                FROM outcomes
-                WHERE org_id = $1 AND created_at >= $2
-                GROUP BY day, {group_by}
-                ORDER BY day"""  # nosec B608  # noqa: S608
+                 FROM outcomes
+                 WHERE org_id = $1 AND created_at >= $2
+                 GROUP BY day, {group_by}
+                 ORDER BY day"""  # noqa: S608  # nosec B608
         else:
             query = """
                 SELECT DATE(created_at AT TIME ZONE 'UTC') AS day,

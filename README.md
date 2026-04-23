@@ -10,6 +10,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
 ## Project Turing — Research Track
 
+**→ Start here: [project_turing.research.md](project_turing.research.md)** — research arc across CoinSwarm, mAIstro, Stronghold, and Turing; the two principles the portfolio applies; and an honest read of where the Turing sketch breaks (with pointers to the 34-finding audit).
+
+
 > **An autonoetic Conduit.** The central routing pipeline carries a persistent, self-indexed memory and routes from first-person experience — personality, mood, passions, skills, and todos — rather than stateless classification. One global self, no tenant scoping. Structurally incompatible with `main`'s multi-tenant posture; lives as a pseudo-fork on its own branch.
 
 **Branches:** `project_Turing` (integration / "main" of the pseudo-fork) · `research/project-turing` (active research) · `claude/autonoetic-self-tranche-6` (example feature branch) — feature work flows `feature → research/project-turing → project_Turing → main`.

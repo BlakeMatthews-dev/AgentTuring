@@ -1,0 +1,81 @@
+{{- if .Values.stronghold.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stronghold-vault-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: stronghold-vault
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  stronghold-init.sh: |
+    #!/bin/bash
+    set -e
+
+    # Wait for Vault to be ready
+    until vault status > /dev/null 2>&1; do
+      echo "Waiting for Vault to be ready..."
+      sleep 1
+    done
+
+    echo "Vault is ready. Initializing Stronghold configuration..."
+
+    # Enable audit logging
+    vault audit enable file file_path=/vault/logs/audit.log
+
+    {{- range .Values.stronghold.namespaces }}
+    # Create namespace path for {{ . }}
+    vault secrets enable -path=stronghold/{{ . }} kv-v2
+    {{- end }}
+
+    # Write policies
+    {{- range $name, $policy := .Values.stronghold.policies }}
+    vault policy write {{ $name }} - <<EOF
+    {{ $policy | indent 4 }}
+    EOF
+    {{- end }}
+
+    # Enable and configure Kubernetes auth
+    {{- if .Values.stronghold.authMethods.kubernetes.enabled }}
+    vault auth enable kubernetes
+
+    vault write auth/kubernetes/config \
+      kubernetes_host="{{ .Values.stronghold.authMethods.kubernetes.config.kubernetes_host }}" \
+      kubernetes_ca_cert="{{ .Values.stronghold.authMethods.kubernetes.config.kubernetes_ca_cert }}" \
+      issuer="{{ .Values.stronghold.authMethods.kubernetes.config.issuer }}"
+
+    # Create role for Stronghold agents
+    vault write auth/kubernetes/role/stronghold-agent \
+      bound_service_account_names="stronghold-agent" \
+      bound_service_account_namespaces="{{ .Release.Namespace }}" \
+      policies="agent-read,agent-write,secrets-read" \
+      ttl=24h
+    {{- end }}
+
+    # Enable and configure JWT/OIDC auth
+    {{- if .Values.stronghold.authMethods.jwt.enabled }}
+    vault auth enable jwt
+
+    vault write auth/jwt/config \
+      oidc_discovery_url="{{ .Values.stronghold.authMethods.jwt.config.oidc_discovery_url }}" \
+      oidc_client_id="{{ .Values.stronghold.authMethods.jwt.config.oidc_client_id }}" \
+      oidc_client_secret="{{ .Values.stronghold.authMethods.jwt.config.oidc_client_secret }}" \
+      default_role="{{ .Values.stronghold.authMethods.jwt.config.default_role }}"
+
+    # Create role for Stronghold users
+    vault write auth/jwt/role/stronghold-user \
+      user_claim="sub" \
+      role_type="oidc" \
+      policies="secrets-read,agent-read" \
+      ttl=1h
+    {{- end }}
+
+    # Write initial secrets
+    {{- range $secret := .Values.stronghold.secrets }}
+    vault kv put {{ $secret.path }} data.yml <<EOF
+    {{ $secret.data | indent 4 }}
+    EOF
+    {{- end }}
+
+    echo "Stronghold configuration complete."
+{{- end }}

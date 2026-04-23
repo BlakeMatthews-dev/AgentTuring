@@ -32,6 +32,7 @@ from stronghold.security.warden.detector import Warden
 from stronghold.sessions.store import InMemorySessionStore
 from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
+from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.tracing.phoenix_backend import PhoenixTracingBackend
 from stronghold.types.auth import PermissionTable
 from stronghold.types.errors import ConfigError
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from stronghold.protocols.memory import AuditLog, LearningStore, OutcomeStore, SessionStore
     from stronghold.protocols.prompts import PromptManager
     from stronghold.protocols.quota import QuotaTracker
+    from stronghold.protocols.tracing import TracingBackend
     from stronghold.types.config import StrongholdConfig
 
 logger = logging.getLogger("stronghold.container")
@@ -65,7 +67,7 @@ class Container:
     warden: Warden
     gate: Gate
     sentinel: Sentinel
-    tracer: PhoenixTracingBackend
+    tracer: TracingBackend
     context_builder: ContextBuilder
     intent_registry: IntentRegistry
     llm: LiteLLMClient
@@ -222,6 +224,9 @@ async def create_container(config: StrongholdConfig) -> Container:
         )
         raise ConfigError(msg)
 
+    if not config.jwt_secret:
+        config.jwt_secret = config.router_api_key
+
     # ── Auth ──
     auth_provider, permission_table = _wire_auth(config)
     learning_extractor = ToolCorrectionExtractor()
@@ -311,11 +316,10 @@ async def create_container(config: StrongholdConfig) -> Container:
         permission_table=permission_table,
         audit_log=audit_log,
     )
-    # Tracing backend: Phoenix if configured, otherwise no-op (CI compatibility)
     if config.phoenix_endpoint:
-        tracer_backend = PhoenixTracingBackend(endpoint=config.phoenix_endpoint)
+        tracer: TracingBackend = PhoenixTracingBackend(endpoint=config.phoenix_endpoint)
     else:
-        tracer_backend = NoopTracingBackend()
+        tracer: TracingBackend = NoopTracingBackend()
     context_builder = ContextBuilder()
     intent_registry = IntentRegistry()
 
@@ -421,12 +425,6 @@ async def create_container(config: StrongholdConfig) -> Container:
 
     coin_ledger = PgCoinLedger(db_pool, config) if db_pool else NoOpCoinLedger()
 
-    rca_extractor: Any = None
-    if config.learnings.rca_enabled:
-        from stronghold.memory.learnings.extractor import RCAExtractor  # noqa: PLC0415
-
-        rca_extractor = RCAExtractor(llm_client=llm, rca_model=config.learnings.rca_model)
-
     agents = await create_agents(
         agents_dir=agents_dir,
         prompt_manager=prompt_manager,
@@ -440,10 +438,9 @@ async def create_container(config: StrongholdConfig) -> Container:
         session_store=session_store,
         quota_tracker=quota_tracker,
         coin_ledger=coin_ledger,
-        tracer=tracer_backend,
+        tracer=tracer,
         tool_executor=_tool_exec,
         sa_engine=sa_engine,
-        rca_extractor=rca_extractor,
     )
 
     reactor = Reactor()
@@ -468,7 +465,7 @@ async def create_container(config: StrongholdConfig) -> Container:
 
     learning_promoter = LearningPromoter(
         learning_store,
-        threshold=config.learnings.promotion_threshold,
+        threshold=5,
         approval_gate=approval_gate,
     )
 
@@ -501,7 +498,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         warden=warden,
         gate=gate,
         sentinel=sentinel,
-        tracer=tracer_backend,
+        tracer=tracer,
         context_builder=context_builder,
         intent_registry=intent_registry,
         llm=llm,

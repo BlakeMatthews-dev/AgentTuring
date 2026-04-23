@@ -59,9 +59,12 @@ class RedisSessionStore:
                 f"got bare id: {session_id[:20]!r}"
             )
             raise ValueError(err)
-        limit = max_messages or self._max
+        limit = max_messages if max_messages is not None else self._max
         ttl = ttl_seconds or self._ttl
         cutoff = time.time() - ttl
+
+        if limit == 0:
+            return []
 
         rkey = self._key(session_id)
         raw: list[Any] = await self._redis.lrange(rkey, 0, -1)  # type: ignore[misc]
@@ -71,10 +74,21 @@ class RedisSessionStore:
         # Refresh key-level TTL on access
         await self._redis.expire(rkey, self._ttl)
 
-        # Filter by per-message timestamp, return only role+content
+        # Filter by per-message timestamp, return only role+content.
+        # Skip (log) any poisoned/non-JSON entries rather than crashing the
+        # whole session retrieval.
         result: list[dict[str, str]] = []
         for item in raw:
-            msg = json.loads(item)
+            try:
+                msg = json.loads(item)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                logger.warning(
+                    "Skipping poisoned session entry in %s",
+                    session_id,
+                )
+                continue
+            if not isinstance(msg, dict):
+                continue
             ts = msg.pop("_ts", 0)
             if ts >= cutoff:
                 result.append({"role": msg.get("role", ""), "content": msg.get("content", "")})
@@ -101,6 +115,9 @@ class RedisSessionStore:
         rkey = self._key(session_id)
         pipe = self._redis.pipeline()
         for msg in messages:
+            # SEC-009: skip non-dict entries to avoid AttributeError on .get()
+            if not isinstance(msg, dict):
+                continue
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role not in ("user", "assistant"):

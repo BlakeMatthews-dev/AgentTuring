@@ -1115,7 +1115,11 @@ async def convert_coins(request: Request) -> JSONResponse:
     container = request.app.state.container
     body: dict[str, Any] = await request.json()
 
-    copper_amount = int(body.get("copper_amount", 0))
+    # SEC-014: guard int() against non-numeric input
+    try:
+        copper_amount = int(body.get("copper_amount", 0))
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"copper_amount must be an integer: {e}") from e
     if copper_amount < 10:
         raise HTTPException(status_code=400, detail="Minimum conversion: 10 copper")
 

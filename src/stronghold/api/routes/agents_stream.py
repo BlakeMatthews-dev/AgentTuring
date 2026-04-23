@@ -139,8 +139,8 @@ async def structured_request_stream(request: Request) -> StreamingResponse:
                     "model": result.get("model", ""),
                 }
             )
-        except Exception as e:
-            yield _sse({"type": "error", "message": str(e)})
+        except Exception:
+            yield _sse({"type": "error", "message": "An error occurred processing the request"})
 
     return StreamingResponse(stream_events(), media_type="text/event-stream")
 

@@ -59,9 +59,12 @@ class RedisSessionStore:
                 f"got bare id: {session_id[:20]!r}"
             )
             raise ValueError(err)
-        limit = max_messages or self._max
+        limit = max_messages if max_messages is not None else self._max
         ttl = ttl_seconds or self._ttl
         cutoff = time.time() - ttl
+
+        if limit == 0:
+            return []
 
         rkey = self._key(session_id)
         raw: list[Any] = await self._redis.lrange(rkey, 0, -1)  # type: ignore[misc]

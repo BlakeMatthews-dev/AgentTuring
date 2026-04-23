@@ -46,28 +46,32 @@ jobs:
         continue-on-error: true
         run: |
           ruff check src/stronghold/ 2>&1 | tee /tmp/ruff-check.txt
-          echo "errors=$(grep -c 'Found [0-9]' /tmp/ruff-check.txt || echo 0)" >> "$GITHUB_OUTPUT"
+          ERRORS=$(grep -c 'Found [0-9]' /tmp/ruff-check.txt || true)
+          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Ruff format (full)
         id: ruff_format
         continue-on-error: true
         run: |
           ruff format --check src/stronghold/ 2>&1 | tee /tmp/ruff-format.txt
-          echo "errors=$(grep -c 'would be reformatted' /tmp/ruff-format.txt || echo 0)" >> "$GITHUB_OUTPUT"
+          ERRORS=$(grep -c 'would be reformatted' /tmp/ruff-format.txt || true)
+          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Mypy strict (full)
         id: mypy
         continue-on-error: true
         run: |
           mypy src/stronghold/ --strict 2>&1 | tee /tmp/mypy.txt
-          echo "errors=$(grep -c 'error:' /tmp/mypy.txt || echo 0)" >> "$GITHUB_OUTPUT"
+          ERRORS=$(grep -c 'error:' /tmp/mypy.txt || true)
+          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Bandit (full)
         id: bandit
         continue-on-error: true
         run: |
           bandit -r src/stronghold/ -ll --skip B608 2>&1 | tee /tmp/bandit.txt
-          echo "errors=$(grep -c 'Issue:' /tmp/bandit.txt || echo 0)" >> "$GITHUB_OUTPUT"
+          ERRORS=$(grep -c 'Issue:' /tmp/bandit.txt || true)
+          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Check for drift
         id: summary

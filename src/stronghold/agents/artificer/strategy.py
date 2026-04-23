@@ -241,6 +241,15 @@ class ArtificerStrategy:
                 # Sentinel post_call: Warden scan + PII filter
                 if sentinel is not None and auth is not None:
                     result_str = await sentinel.post_call(tool_name, result_str, auth)
+                else:
+                    warden = kwargs.get("warden")
+                    if warden is not None:
+                        verdict = await warden.scan(result_str, "tool_result")
+                        if not verdict.clean:
+                            result_str = (
+                                f"[BLOCKED: tool result contained suspicious content: "
+                                f"{', '.join(verdict.flags)}]"
+                            )
 
                 # Log result summary
                 result_preview = result_str[:200]
@@ -255,7 +264,7 @@ class ArtificerStrategy:
                     {
                         "tool_name": tool_name,
                         "arguments": tool_args,
-                        "result": tool_result,
+                        "result": result_str,
                         "round": round_num,
                     }
                 )

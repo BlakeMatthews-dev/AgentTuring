@@ -146,3 +146,7 @@ class PhoenixTracingBackend:
     def flush(self) -> None:
         """Force-flush pending spans. Useful before shutdown."""
         self._provider.force_flush()
+
+    def shutdown(self) -> None:
+        """Shut down the tracer provider and stop background export threads."""
+        self._provider.shutdown()

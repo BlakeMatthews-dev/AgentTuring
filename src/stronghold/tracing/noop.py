@@ -69,3 +69,6 @@ class NoopTracingBackend:
         metadata: dict[str, Any] | None = None,
     ) -> NoopTrace:
         return NoopTrace()
+
+    def shutdown(self) -> None:
+        pass

@@ -76,7 +76,8 @@ def test_capacity_evicts_lowest_priority_first(repo: Repo, self_id: str) -> None
 def test_remove(repo: Repo, self_id: str) -> None:
     wm = WorkingMemory(repo.conn)
     eid = wm.add(self_id, "to remove")
-    assert wm.remove(self_id, eid) is True
+    removed = wm.remove(self_id, eid)
+    assert removed is True
     assert wm.entries(self_id) == []
 
 

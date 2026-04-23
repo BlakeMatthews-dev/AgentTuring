@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 - required for git CLI invocations; all callers use list-form args (no shell)
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -208,7 +208,7 @@ class WorkspaceManager:
                     cwd=repo_dir,
                 )
                 break
-            except Exception:
+            except Exception:  # nosec B112 - try each cached-repo candidate until one succeeds
                 continue
         # Fallback: just delete the directory
         if worktree_dir.exists():
@@ -217,7 +217,8 @@ class WorkspaceManager:
 
     @staticmethod
     def _run(cmd: list[str], cwd: Path | None = None) -> str:
-        result = subprocess.run(
+        # nosec B603 - cmd is a fixed list (no shell); args come from trusted callers
+        result = subprocess.run(  # nosec B603
             cmd,
             cwd=cwd,
             capture_output=True,

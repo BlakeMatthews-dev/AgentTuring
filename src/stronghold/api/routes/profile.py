@@ -97,7 +97,7 @@ async def get_profile(request: Request) -> JSONResponse:
             if entry["group"] == auth.user_id:
                 total_tokens = entry["total_tokens"]
                 break
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # nosec B110 - usage lookup is best-effort; 0 points is the fallback
         pass
 
     points = total_tokens // TOKENS_PER_POINT

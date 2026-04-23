@@ -203,7 +203,7 @@ def register_core_triggers(container: Container) -> None:
         not already `in-progress` or `blocked`. Respects concurrency limit.
         """
         # Try GitHub App token first, fall back to GITHUB_TOKEN env var
-        token = ""
+        token = ""  # nosec B105 - initializer sentinel, not a hardcoded secret
         try:
             from stronghold.tools.github import _get_app_installation_token  # noqa: PLC0415
 
@@ -314,7 +314,7 @@ def register_core_triggers(container: Container) -> None:
                         },
                         json={"labels": [triage_label, "in-progress"]},
                     )
-            except Exception:
+            except Exception:  # nosec B110 - labeling is best-effort; comment below
                 pass  # Labeling is best-effort
 
             # ── Dispatch through BuilderPipeline (full chain) ──

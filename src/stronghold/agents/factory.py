@@ -329,7 +329,7 @@ async def create_agents(
             from stronghold.persistence.pg_agents import PgAgentRegistry  # noqa: PLC0415
 
             persist_registry = PgAgentRegistry(sa_engine)
-        except Exception:
+        except Exception:  # nosec B110 - DB persistence is best-effort; fall back to in-memory
             pass
 
     for agent_dir in sorted(agents_path.iterdir()):

@@ -70,7 +70,7 @@ class LearningPromoter:
 
     async def _check_with_gate(self, org_id: str = "") -> list[Learning]:
         """Gate-aware promotion: queue for approval + process approved."""
-        assert self._approval_gate is not None
+        assert self._approval_gate is not None  # nosec B101 - mypy narrowing; check_and_promote only calls this branch when the gate is set
         promoted: list[Learning] = []
 
         # 1. Queue high-hit learnings for approval

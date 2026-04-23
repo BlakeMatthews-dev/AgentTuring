@@ -175,7 +175,7 @@ class HybridLearningStore:
                     embed_score = cosine_similarity(query_vec, vec)
                     if learning.id is not None:
                         self._embedding_cache[learning.id] = vec
-                except Exception:
+                except Exception:  # nosec B110 - embedding service is optional; keyword-only score is the fallback
                     pass
 
             combined = kw_score * KEYWORD_WEIGHT + embed_score * EMBEDDING_WEIGHT

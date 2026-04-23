@@ -113,7 +113,7 @@ class CanaryManager:
         deployment = self._deployments.get((skill_name, org_id))
         if not deployment:
             return False
-        return random.random() < deployment.traffic_pct  # noqa: S311
+        return random.random() < deployment.traffic_pct  # noqa: S311  # nosec B311 - canary traffic sampling, not security-sensitive
 
     def record_result(self, skill_name: str, success: bool, org_id: str = "") -> None:
         """Record a canary request result."""

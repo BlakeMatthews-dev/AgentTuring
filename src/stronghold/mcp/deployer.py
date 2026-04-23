@@ -267,12 +267,12 @@ class K8sDeployer:
         try:
             self._apps_v1.delete_namespaced_deployment(name, ns)
             logger.info("Deleted deployment: %s", name)
-        except Exception:
+        except Exception:  # nosec B110 - delete-if-exists; 404 is expected on missing resource
             pass
         try:
             self._core_v1.delete_namespaced_service(name, ns)
             logger.info("Deleted service: %s", name)
-        except Exception:
+        except Exception:  # nosec B110 - delete-if-exists; 404 is expected on missing resource
             pass
         server.status = MCPServerStatus.REMOVED
         return server

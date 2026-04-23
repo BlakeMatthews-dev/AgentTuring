@@ -31,7 +31,7 @@ KNOWN_MCP_SERVERS: dict[str, dict[str, Any]] = {
         "author": "Anthropic (official)",
         "port": 3000,
         "trust_tier": "t2",
-        "secrets": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat:token"},
+        "secrets": {"GITHUB_PERSONAL_ACCESS_TOKEN": "github-pat:token"},  # nosec B105 - K8s secret ref (name:key), not a secret value
         "known_tools": [
             MCPDiscoveredTool("create_or_update_file", "Create or update a file in a repository"),
             MCPDiscoveredTool("search_repositories", "Search GitHub repositories"),
@@ -78,7 +78,7 @@ KNOWN_MCP_SERVERS: dict[str, dict[str, Any]] = {
         "author": "Anthropic (official)",
         "port": 3000,
         "trust_tier": "t2",
-        "secrets": {"SLACK_BOT_TOKEN": "slack-token:bot-token"},
+        "secrets": {"SLACK_BOT_TOKEN": "slack-token:bot-token"},  # nosec B105 - K8s secret ref (name:key), not a secret value
         "known_tools": [
             MCPDiscoveredTool("send_message", "Send a message to a Slack channel"),
             MCPDiscoveredTool("list_channels", "List available Slack channels"),

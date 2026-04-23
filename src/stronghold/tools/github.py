@@ -188,7 +188,7 @@ class GitHubToolExecutor:
     3. GITHUB_TOKEN env var (PAT — posts as the user)
     """
 
-    def __init__(self, token: str = "", bot: str = "gatekeeper") -> None:
+    def __init__(self, token: str = "", bot: str = "gatekeeper") -> None:  # nosec B107 - "" is a sentinel for "no token provided", not a default password
         app_token = _get_app_installation_token(bot)
         self._token = app_token or token or os.environ.get("GITHUB_TOKEN", "")
         self._bot = bot

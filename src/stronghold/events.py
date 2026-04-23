@@ -97,7 +97,7 @@ class Reactor:
             future=loop.create_future(),
         )
         self._queue.put_nowait(mev)
-        assert mev.future is not None  # for mypy
+        assert mev.future is not None  # nosec B101 - mypy narrowing; future was created on line above
         return await asyncio.wait_for(mev.future, timeout=timeout)
 
     # ── Main loop ────────────────────────────────────────────
@@ -201,7 +201,8 @@ class Reactor:
                 return MutableEvent(name=f"_interval:{spec.name}")
             effective_interval = spec.interval_secs
             if spec.jitter > 0:
-                effective_interval *= 1 + random.uniform(-spec.jitter, spec.jitter)
+                # nosec B311 - jitter timing, not security-sensitive
+                effective_interval *= 1 + random.uniform(-spec.jitter, spec.jitter)  # nosec B311
             if mono - state.last_fired >= effective_interval:
                 return MutableEvent(name=f"_interval:{spec.name}")
             return None

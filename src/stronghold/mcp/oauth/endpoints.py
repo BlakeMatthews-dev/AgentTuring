@@ -248,7 +248,7 @@ async def _handle_code_exchange(form: Any) -> JSONResponse:
     return JSONResponse(
         {
             "access_token": access_value,
-            "token_type": "Bearer",
+            "token_type": "Bearer",  # nosec B105 - RFC 6750 token type identifier, not a secret
             "expires_in": 900,  # 15 minutes
             "refresh_token": refresh_value,
             "scope": auth_code.scope,
@@ -261,7 +261,7 @@ async def _handle_refresh(form: Any) -> JSONResponse:
     client_id = str(form.get("client_id", ""))
 
     claims = await _store.validate_token(refresh_token_value)
-    if claims is None or claims.token_type != "refresh":
+    if claims is None or claims.token_type != "refresh":  # nosec B105 - token type discriminator
         raise HTTPException(400, "Invalid or expired refresh token")
 
     if claims.client_id != client_id:
@@ -288,7 +288,7 @@ async def _handle_refresh(form: Any) -> JSONResponse:
     return JSONResponse(
         {
             "access_token": access_value,
-            "token_type": "Bearer",
+            "token_type": "Bearer",  # nosec B105 - RFC 6750 token type identifier, not a secret
             "expires_in": 900,
             "refresh_token": new_refresh_value,
             "scope": claims.scope,

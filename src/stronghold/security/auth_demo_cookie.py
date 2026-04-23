@@ -59,7 +59,7 @@ class DemoCookieAuthProvider:
                 sc: SimpleCookie = SimpleCookie()
                 try:
                     sc.load(cookie_header)
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001  # nosec B110 - malformed cookie treated as absent
                     pass
                 else:
                     morsel = sc.get(self._cookie_name)

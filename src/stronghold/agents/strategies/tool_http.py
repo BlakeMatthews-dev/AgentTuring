@@ -55,6 +55,6 @@ class HTTPToolExecutor:
                     data: dict[str, Any] = resp.json()
                     tools: list[dict[str, str]] = data.get("tools", [])
                     return tools
-        except Exception:
+        except Exception:  # nosec B110 - remote MCP listing is optional; empty list is the fallback
             pass
         return []

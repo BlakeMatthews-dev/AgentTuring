@@ -130,7 +130,7 @@ def issue_access_token(
         user_id=user_id,
         tenant_id=tenant_id,
         scope=scope,
-        token_type="access",
+        token_type="access",  # nosec B106 - OAuth token type discriminator, not a password
         expires_at=datetime.now(UTC) + timedelta(minutes=ttl_minutes),
     )
     return token_value, token
@@ -151,7 +151,7 @@ def issue_refresh_token(
         user_id=user_id,
         tenant_id=tenant_id,
         scope=scope,
-        token_type="refresh",
+        token_type="refresh",  # nosec B106 - OAuth token type discriminator, not a password
         expires_at=datetime.now(UTC) + timedelta(days=ttl_days),
     )
     return token_value, token

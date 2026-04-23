@@ -1,0 +1,129 @@
+# Spec A: Structured cause taxonomy on Learning + RCAExtractor
+
+issue_number: TBD
+title: "Structured RCA output: taxonomy + prevention fields on Learning"
+status: active
+complexity: M
+
+protocols_touched:
+  - RCAExtractor
+
+files_touched:
+  - src/stronghold/types/memory.py
+  - src/stronghold/memory/learnings/extractor.py
+  - src/stronghold/agents/context_builder.py
+  - tests/memory/test_extractor_extended.py
+
+acceptance_criteria:
+  - "Learning dataclass gains rca_category: str | None and rca_prevention: str fields, both optional with safe defaults"
+  - "RCAExtractor.extract_rca() populates rca_category from a fixed vocabulary: missing_precondition | tool_contract_mismatch | permission_gap | rate_limit | input_validation | ambiguous_intent | unknown"
+  - "RCAExtractor prompt instructs the LLM to emit CATEGORY: <enum>\\nROOT CAUSE: <sentence>\\nPREVENTION: <sentence> and parses each line"
+  - "Malformed LLM output falls back to rca_category='unknown' with rca_prevention='' and the full text preserved in learning"
+  - "context_builder renders rca_category as a tag in the promoted learnings XML block when present"
+  - "Existing non-RCA Learning instances (category='tool_correction' | 'positive_pattern') are unaffected"
+
+invariants:
+  - name: taxonomy_closed
+    description: "rca_category is always None or one of the fixed vocabulary values"
+    kind: postcondition
+    expression: "rca_category in (None, 'missing_precondition', 'tool_contract_mismatch', 'permission_gap', 'rate_limit', 'input_validation', 'ambiguous_intent', 'unknown')"
+    severity: critical
+
+  - name: malformed_is_unknown
+    description: "LLM output that does not match the expected format yields category='unknown', never raises"
+    kind: postcondition
+    expression: "malformed_llm_response -> rca_category == 'unknown' and no exception"
+    severity: high
+
+  - name: backward_compatible_learning
+    description: "Existing learnings with no RCA fields continue to round-trip through store and find_relevant"
+    kind: postcondition
+    expression: "legacy Learning without rca_* fields -> store/retrieve unchanged"
+    severity: critical
+---
+# Spec B: LearningsConfig
+
+issue_number: TBD
+title: "LearningsConfig section: rca_enabled, rca_model, promotion_threshold"
+status: active
+complexity: S
+
+protocols_touched: []
+
+files_touched:
+  - src/stronghold/types/config.py
+  - src/stronghold/container.py
+  - src/stronghold/memory/learnings/promoter.py
+  - config/example.yaml
+
+acceptance_criteria:
+  - "New LearningsConfig(BaseModel) added to types/config.py with: rca_enabled: bool = True, rca_model: str = '', promotion_threshold: int = 5"
+  - "StrongholdConfig gains learnings: LearningsConfig = Field(default_factory=LearningsConfig)"
+  - "container.py wires config.learnings.promotion_threshold into LearningPromoter instead of the hardcoded 5"
+  - "container.py skips RCAExtractor construction when config.learnings.rca_enabled is False"
+  - "config.learnings.rca_model passed through to RCAExtractor constructor (empty string means 'use default routing')"
+  - "config/example.yaml shows a commented-out learnings: block documenting the knobs"
+
+invariants:
+  - name: default_unchanged
+    description: "A config file with no learnings: section produces the same runtime behavior as today"
+    kind: postcondition
+    expression: "StrongholdConfig() == StrongholdConfig(learnings=LearningsConfig()) -> identical promoter threshold, RCA enabled"
+    severity: critical
+
+  - name: rca_disabled_means_silent
+    description: "rca_enabled=False disables RCA entirely; no learnings with category='rca' are stored"
+    kind: postcondition
+    expression: "rca_enabled=False -> RCAExtractor not constructed -> no rca learnings persisted"
+    severity: high
+---
+# Spec C: RCA feedback loop to OutcomeStore
+
+issue_number: TBD
+title: "Track success/failure of promoted learnings via mark_outcome feedback"
+status: active
+complexity: M
+
+protocols_touched:
+  - LearningStore
+
+files_touched:
+  - src/stronghold/types/memory.py
+  - src/stronghold/protocols/memory.py
+  - src/stronghold/memory/learnings/store.py
+  - src/stronghold/agents/base.py
+  - src/stronghold/agents/context_builder.py
+  - tests/memory/test_learning_storage.py
+
+acceptance_criteria:
+  - "Learning dataclass gains success_after_use: int = 0 and failure_after_use: int = 0 fields"
+  - "LearningStore protocol gains async mark_outcome(learning_ids: list[int], success: bool) -> None"
+  - "InMemoryLearningStore.mark_outcome increments success_after_use if success else failure_after_use for each id"
+  - "context_builder returns the list of injected_learning_ids (both promoted and matched) up the call stack to agent base"
+  - "base.py, after outcome is recorded in step 11 (line ~454), calls learning_store.mark_outcome(injected_ids, success=outcome.success)"
+  - "Learnings whose failure_after_use significantly exceeds success_after_use can be listed via a new LearningStore.list_ineffective(min_uses: int) -> list[Learning] read-only helper (for future demotion logic — not wired in v1)"
+
+invariants:
+  - name: counts_monotonic
+    description: "success_after_use and failure_after_use only increase, never decrease"
+    kind: postcondition
+    expression: "after mark_outcome: count_new >= count_old"
+    severity: critical
+
+  - name: outcome_counts_learning
+    description: "Each request that injected N learnings and succeeded produces exactly +1 on success_after_use for each of those N"
+    kind: postcondition
+    expression: "injected=[l1,l2]; success=True -> l1.success_after_use += 1 and l2.success_after_use += 1"
+    severity: high
+
+  - name: no_injection_no_change
+    description: "A request that injected zero learnings leaves all counts untouched"
+    kind: postcondition
+    expression: "injected=[] -> no mark_outcome call, all learnings unchanged"
+    severity: high
+
+  - name: org_scoped
+    description: "mark_outcome cannot cross org boundaries — ids not in the caller's org are ignored"
+    kind: postcondition
+    expression: "mark_outcome(ids_from_other_org) -> silently skipped, no cross-tenant mutation"
+    severity: critical

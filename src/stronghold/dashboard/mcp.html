@@ -55,7 +55,7 @@
 <nav class="sidebar flex-shrink-0 flex flex-col" id="sidebar">
   <div class="p-5 border-b border-[var(--iron)]"><div class="flex items-center gap-3"><span class="tower-crest" style="font-size:2rem;text-shadow:0 0 20px rgba(226,165,41,0.4)">&#x1F3F0;</span><div><h1 class="text-lg leading-tight">Stronghold</h1><p class="text-xs text-[var(--iron-light)]">Agent Governance Platform</p></div></div></div>
   <div class="flex-1 py-4">
-    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall</a>
+    <a href="/greathall" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4AC;</span> Chat</a>
     <a href="/dashboard/agents" class="sidebar-item"><span style="width:24px;text-align:center">&#x2694;</span> Knights</a>
     <a href="/dashboard/skills" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F6E1;</span> Armory</a>
     <a href="/dashboard/mcp" class="sidebar-item active"><span style="width:24px;text-align:center">&#x1F525;</span> Forge</a>
@@ -63,6 +63,7 @@
     <a href="/dashboard/outcomes" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4B0;</span> Treasury</a>
     <a href="/dashboard/quota" class="sidebar-item"><span style="width:24px;text-align:center">&#x2696;</span> Ledger</a>
     <a href="/prompts" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F4DC;</span> Scrolls</a>
+    <a href="/dashboard/leaderboard" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F3C6;</span> Arena</a>
   </div>
   <div class="py-2 border-t border-[var(--iron)]">
     <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
@@ -126,7 +127,7 @@
 </main>
 
 <!-- Tool Detail Modal -->
-<div id="tool-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(13,13,26,0.92);display:none;align-items:center;justify-content:center;">
+<div id="tool-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(13,13,26,0.92);align-items:center;justify-content:center;">
   <div style="background:var(--stone-light);border:2px solid var(--gold-dim);border-radius:12px;max-width:600px;width:95vw;max-height:80vh;overflow-y:auto;">
     <div style="padding:20px;border-bottom:1px solid var(--iron);display:flex;justify-content:space-between;align-items:center;">
       <h3 id="modal-title" style="margin:0;"></h3>
@@ -279,7 +280,7 @@ async function loadDeployed() {
     if (servers.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'text-center py-12 text-[var(--iron-light)] col-span-3';
-      empty.innerHTML = strongholdEmptyState('&#x1F525;', 'The forge is cold', 'No MCP servers are deployed. MCP servers extend your agents with external tools.', 'Browse Catalog', '#');
+      empty.innerHTML = strongholdEmptyState('&#x1F525;', 'The forge is cold', 'No MCP servers are deployed. MCP servers extend your agents with external tools.', 'Browse Catalog', null, "switchTab('catalog')");
       grid.appendChild(empty);
       return;
     }

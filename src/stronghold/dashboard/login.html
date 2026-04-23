@@ -536,7 +536,7 @@ async function checkApprovalStatus() {
     var resp = await fetch('/auth/registration-status?email=' + encodeURIComponent(email));
     var data = await resp.json();
     if (data.status === 'approved') {
-      resultEl.innerHTML = '<span style="color:#4ade80">&#x2714; Approved! <a href="#" onclick="showTab(\'login\');return false" style="color:var(--gold)">Sign in</a> to enter the fortress.</span>';
+      resultEl.innerHTML = '<span style="color:#4ade80">&#x2714; Approved! <button type="button" onclick="showTab(\'login\')" style="color:var(--gold);background:none;border:none;padding:0;font:inherit;cursor:pointer;text-decoration:underline">Sign in</button> to enter the fortress.</span>';
       localStorage.removeItem('sh_pending_email');
     } else if (data.status === 'pending') {
       resultEl.innerHTML = '<span style="color:var(--gold)">&#x23F3; Still pending review. Check back later.</span>';

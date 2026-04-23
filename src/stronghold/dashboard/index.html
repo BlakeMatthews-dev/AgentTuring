@@ -143,7 +143,7 @@
 
   <div class="flex-1 py-4" onclick="closeSidebar()">
     <a href="/greathall" class="sidebar-item active">
-      <span style="width:24px;text-align:center">&#x1F3DB;</span> Great Hall
+      <span style="width:24px;text-align:center">&#x1F4AC;</span> Chat
     </a>
     <a href="/dashboard/agents" class="sidebar-item">
       <span class="sidebar-icon">&#x2694;</span> Knights
@@ -166,10 +166,9 @@
     <a href="/prompts" class="sidebar-item">
       <span class="sidebar-icon">&#x1F4DC;</span> Scrolls
     </a>
-  </div>
-  <div class="py-2 border-t border-[var(--iron)]">
-    <div class="px-5 py-2 text-xs text-[var(--iron-light)] uppercase tracking-wider">Admin</div>
-    <a href="/dashboard/mason" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F9F1;</span> Workshop</a>
+    <a href="/dashboard/leaderboard" class="sidebar-item">
+      <span class="sidebar-icon">&#x1F3C6;</span> Arena
+    </a>
   </div>
   <div class="py-2 border-t border-[var(--iron)]">
     <a href="/dashboard/profile" class="sidebar-item"><span style="width:24px;text-align:center">&#x1F464;</span> Profile</a>
@@ -305,9 +304,15 @@ async function fetchStats() {
     var health = await healthResp.json();
     var agents = await fetch(API + '/v1/stronghold/agents', {headers: authHeaders()}).then(function(r){return r.json()}).catch(function(){return []});
     var models = await fetch(API + '/v1/models', {headers: authHeaders()}).then(function(r){return r.json()}).catch(function(){return {data:[]}});
-    document.getElementById('stat-health').textContent = health.status === 'ok' ? '100%' : '??';
-    document.getElementById('health-status').textContent = health.status === 'ok' ? '\u25cf Fortress Online' : '\u25cb Offline';
-    document.getElementById('health-status').style.color = health.status === 'ok' ? '#4ade80' : '#ff6b6b';
+    var ok = health.status === 'ok';
+    var degraded = health.status === 'degraded';
+    document.getElementById('stat-health').textContent = ok ? '100%' : degraded ? '~' : '??';
+    document.getElementById('health-status').textContent = ok
+      ? '\u25cf Fortress Online'
+      : degraded
+      ? '\u25d0 Fortress Degraded'
+      : '\u25cb Offline';
+    document.getElementById('health-status').style.color = ok ? '#4ade80' : degraded ? '#fbbf24' : '#ff6b6b';
     document.getElementById('stat-agents').textContent = Array.isArray(agents) ? agents.length : '?';
     document.getElementById('stat-models').textContent = models.data ? models.data.length : '?';
   } catch(e) {
@@ -569,29 +574,85 @@ async function sendFollowup() {
   addMessage('user', text);
   chatHistory.push({role: 'user', content: text});
 
+  // Route through the same streaming pipeline as Deploy so classification,
+  // routing, and security scans behave identically for new and follow-up turns.
+  const spinner = document.createElement('div');
+  spinner.id = 'spinner';
+  spinner.className = 'text-center py-2 text-[var(--gold-dim)] text-xs';
+  spinner.innerHTML = '&#x2694; Thinking<span class="animate-pulse">...</span>';
+  document.getElementById('conversation').appendChild(spinner);
+
   try {
-    const resp = await fetch(API + '/v1/chat/completions', {
+    const resp = await fetch(API + '/v1/stronghold/request/stream', {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({
-        model: 'auto',
-        messages: chatHistory,
+        goal: text,
+        execution_mode: document.getElementById('mode').value,
+        intent_hint: document.getElementById('intent').value,
         session_id: sessionId,
+        details: '',
       }),
     });
-    const data = await resp.json();
-    if (data.error && data.error.code === 'BLOCKED_BY_GATE') {
-      showSecurityAlert(data.error);
+
+    document.getElementById('spinner')?.remove();
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({error: {message: 'Request failed'}}));
+      if (err.error && err.error.code === 'BLOCKED_BY_GATE') {
+        showSecurityAlert(err.error);
+      } else {
+        addMessage('assistant', 'Error: ' + (err.error?.message || err.detail || resp.status), {});
+      }
       return;
     }
-    const content = data.choices?.[0]?.message?.content || 'No response';
-    const routing = data._routing || {};
-    addMessage('assistant', content, {
-      agent: routing.agent, intent: routing.intent?.task_type, model: routing.model
-    });
-    chatHistory.push({role: 'assistant', content});
-    saveMission();
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+    let meta = {};
+    let errorMessage = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.type === 'status') {
+            const s = document.getElementById('spinner');
+            if (s) s.textContent = parsed.message;
+          } else if (parsed.type === 'error') {
+            errorMessage = parsed.message || 'Request failed';
+          } else if (parsed.type === 'done') {
+            fullContent = parsed.content || '';
+            meta = parsed._routing || {};
+          }
+        } catch(e) {}
+      }
+    }
+
+    if (errorMessage) {
+      addMessage('assistant', 'Error: ' + errorMessage, {});
+      return;
+    }
+
+    if (fullContent) {
+      addMessage('assistant', fullContent, {
+        agent: meta.agent, intent: meta.intent?.task_type, model: meta.model
+      });
+      chatHistory.push({role: 'assistant', content: fullContent});
+      saveMission();
+    }
   } catch(e) {
+    document.getElementById('spinner')?.remove();
     addMessage('assistant', 'Connection error: unable to reach server', {});
   }
 }

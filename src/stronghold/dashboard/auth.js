@@ -121,9 +121,22 @@ function strongholdErrorMessage(parsed) {
 window._shProfile = null;
 window._shProfileReady = new Promise(function(resolve) { window._shProfileResolve = resolve; });
 
-/* -- Empty state helper (used by all dashboard pages) -- */
-function strongholdEmptyState(icon, title, desc, ctaText, ctaHref) {
-  var cta = ctaText ? '<a href="' + (ctaHref || '#') + '" style="display:inline-block;margin-top:16px;background:linear-gradient(135deg,#c9a227,#e2a529);color:#1a1a2e;padding:8px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.8rem;font-family:inherit">' + ctaText + '</a>' : '';
+/* -- Empty state helper (used by all dashboard pages) --
+ * ctaHref: navigate to URL. Pass null/"#"/"" to render no CTA link.
+ * ctaOnclick: inline JS to execute (e.g. "toggleForm()"). When present, a
+ *   <button> is rendered instead of an <a> and ctaHref is ignored. Lets
+ *   callers bind to page-local handlers without dead href="#" anchors.
+ */
+function strongholdEmptyState(icon, title, desc, ctaText, ctaHref, ctaOnclick) {
+  var cta = '';
+  if (ctaText) {
+    var style = 'display:inline-block;margin-top:16px;background:linear-gradient(135deg,#c9a227,#e2a529);color:#1a1a2e;padding:8px 20px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.8rem;font-family:inherit;border:none;cursor:pointer';
+    if (ctaOnclick) {
+      cta = '<button type="button" onclick="' + ctaOnclick + '" style="' + style + '">' + ctaText + '</button>';
+    } else if (ctaHref && ctaHref !== '#') {
+      cta = '<a href="' + ctaHref + '" style="' + style + '">' + ctaText + '</a>';
+    }
+  }
   return '<div style="text-align:center;padding:40px 20px">'
     + '<div style="font-size:3rem;margin-bottom:12px;opacity:0.5">' + icon + '</div>'
     + '<div style="font-family:Playfair Display,serif;color:#e2a529;font-size:1.1rem;margin-bottom:8px">' + title + '</div>'
@@ -598,6 +611,13 @@ function strongholdEmptyState(icon, title, desc, ctaText, ctaHref) {
         label.style.color = 'var(--gold-dim)';
         label.textContent = 'Admin';
         adminDiv.appendChild(label);
+
+        // Workshop link (Mason autonomous agent — admin-only power tool)
+        var workshopLink = document.createElement('a');
+        workshopLink.href = '/dashboard/mason';
+        workshopLink.className = 'sidebar-item' + (location.pathname === '/dashboard/mason' ? ' active' : '');
+        workshopLink.innerHTML = '<span style="width:24px;text-align:center">&#x1F9F1;</span> Workshop';
+        adminDiv.appendChild(workshopLink);
 
         // Dungeon link with notification badge (visible to team_admin+)
         var dungeonLink = document.createElement('a');

@@ -75,6 +75,62 @@ The self-model — what the Turing Conduit knows about itself between requests �
 | 29 | [`self-bootstrap.md`](./self-bootstrap.md) | `stronghold bootstrap-self` CLI. Random HEXACO draw → 200 Likert LLM answers with justifications → 24 facets + 1 mood + empty everything else. Idempotent per `self_id`; resumable. | 22, 23, 24, 27, 8 |
 | 30 | [`self-as-conduit.md`](./self-as-conduit.md) | First-person routing pipeline: Warden → minimal block + retrieval contributors → perception (LLM + possible `recall_self`) → decision (`reply_directly` / `delegate` / `ask_clarifying` / `decline`) → dispatch → observation (self-model updates, mood nudges). Replaces the stateless Conduit for the Turing branch. | 22, 23, 24, 25, 26, 27, 28, 29, 9, 16, 17 |
 
+### Tranche 7 (planning — not yet implemented)
+
+Closes Tranche 6 implementation gaps and lands the audit's guardrails in dependency order. Plan doc: [`../PLAN-tranche-7.md`](../PLAN-tranche-7.md). Audit: [`../AUDIT-self-model-guardrails.md`](../AUDIT-self-model-guardrails.md).
+
+**7.0 — Foundation closure** (critical impl gaps from F35–F39)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 31 | [`self-tool-registry.md`](./self-tool-registry.md) | `SelfTool` dataclass + `SELF_TOOL_REGISTRY` + `register_self_tool`; implementations of `write_contributor`, `record_personality_claim`, `retract_contributor_by_counter`. | 28, 18 |
+| 32 | [`memory-mirroring.md`](./memory-mirroring.md) | `self_memory_bridge.py` wraps write-paths for every self-model write-site; closes ~10 spec ACs that specified memory mirrors but were silently ignored. | 1, 2, 4, 31 |
+| 33 | [`self-schedules.md`](./self-schedules.md) | Reactor interval triggers for `tick_mood_decay` (hourly) and `run_personality_retest` (weekly), registered at bootstrap finalize. | 20, 27, 23, 29, 32 |
+| 34 | [`memory-source-state.md`](./memory-source-state.md) | Wire `source_kind = "memory"` to real `memory.weight`; restore "REGRET > OBSERVATION" invariant in activation graph. | 1, 2, 25, 8 |
+| 35 | [`self-write-preconditions.md`](./self-write-preconditions.md) | Bootstrap-complete check on every write-tool; `active_now` 30s cache with invalidation; `acting_self_id` on repo mutators. | 22, 29, 28, 25 |
+
+**7.1 — Boundary hardening** (guardrails G1, G2, G5, G17)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 36 | [`warden-on-self-writes.md`](./warden-on-self-writes.md) | Warden scan (tool-result posture) on every self-authored text write; block mirrors as OBSERVATION. | 31, 32 |
+| 37 | [`self-write-budgets.md`](./self-write-budgets.md) | Per-request caps: 3 new nodes / 5 contributors / 2 todo-writes / 3 personality claims. | 31, 35 |
+| 38 | [`retrieval-contributor-cap.md`](./retrieval-contributor-cap.md) | Top-K ≤ 8 retrieval contributors per target; Σ\|weight\| ≤ 1.0 per target per request. | 25, 16, 44 |
+| 39 | [`forensic-tagging.md`](./forensic-tagging.md) | `request_hash` + `perception_tool_call_id` context vars stamp every self-write via the memory bridge. | 32, 31, 44 |
+
+**7.2 — Drift bounds** (G3, G4, G6, G10)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 40 | [`facet-drift-budget.md`](./facet-drift-budget.md) | Rolling 7-day and 90-day Δ caps per facet; `apply_retest` clips; OPINION memory on clip. | 23, 33, 32 |
+| 41 | [`narrative-claim-rate-limit.md`](./narrative-claim-rate-limit.md) | ≤ 3 `record_personality_claim` per facet per rolling 7 days. | 23, 31, 32 |
+| 42 | [`mood-rolling-sum-guard.md`](./mood-rolling-sum-guard.md) | Cap cumulative \|delta\| per mood dim per rolling 7 days; over-cap still mirrors, doesn't mutate. | 27, 33, 32 |
+| 43 | [`skill-honesty-invariant.md`](./skill-honesty-invariant.md) | `practice_skill(new_level > stored_level)` requires a same-request supporting OBSERVATION/ACCOMPLISHMENT. | 24, 32, 39 |
+
+**7.3 — Self-as-Conduit runtime** (closes F39, F40)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 44 | [`conduit-runtime.md`](./conduit-runtime.md) | Implementation of spec 30's full perception → decision → dispatch → observation pipeline. Per-self advisory lock with watchdog. | 30, 31, 32, 33, 35, 37, 38, 39, 17, 36 |
+| 45 | [`conduit-mode-shim.md`](./conduit-mode-shim.md) | `CONDUIT_MODE = "stateless" \| "self"` config flag; default stateless during rollout. | 44, 17 |
+
+**7.4 — Operator oversight** (G12, G13, G14, G15, G16, G18)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 46 | [`operator-review-gate.md`](./operator-review-gate.md) | Self-authored facet/passion contributors route to `self_contributor_pending`; weekly digest + CLI ack. | 25, 31, 32, 39 |
+| 47 | [`repo-self-id-enforcement.md`](./repo-self-id-enforcement.md) | `acting_self_id` parameter on every `SelfRepo` mutator; FK from every self-model table to `self_identity`. | 22, 8, 35 |
+| 48 | [`bootstrap-seed-registry.md`](./bootstrap-seed-registry.md) | Refuse reused HEXACO seeds by default; sign bootstrap-complete memory with operator HMAC; tamper → read-only mode. | 29, 8, 32 |
+| 49 | [`self-tool-import-firewall.md`](./self-tool-import-firewall.md) | `importlib` meta-path finder blocks imports of `SELF_TOOL_REGISTRY` from non-self modules. | 31 |
+
+**7.5 — Growth and operational** (G7, G8, G9, G11)
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 50 | [`retrieval-contributor-gc.md`](./retrieval-contributor-gc.md) | Scheduled sweep + opportunistic-on-read GC of expired retrieval contributors. | 25, 20, 33 |
+| 51 | [`per-kind-node-caps.md`](./per-kind-node-caps.md) | Hard caps per kind; at-cap `note_*` archives lowest-`active_now` existing row. | 24, 25, 32, 35 |
+| 52 | [`near-duplicate-review.md`](./near-duplicate-review.md) | Cosine-similar `note_*` texts flag for merge-review; 0.5× activation multiplier until operator resolves. | 24, 16, 46, 32 |
+| 53 | [`revision-compaction.md`](./revision-compaction.md) | Weekly compaction of `self_todo_revisions` and `self_personality_answers`. | 26, 23, 20 |
 ### Autonoetic completion (Tranche 7 — Phase 2)
 
 | # | Spec | Scope | Depends on |
@@ -111,6 +167,8 @@ The self-model — what the Turing Conduit knows about itself between requests �
 
 - **Additional detectors** — `learning_extraction`, `affirmation_candidacy`, `prospection`. Pattern is established by `detectors/contradiction.md`; individual specs will land alongside implementations.
 - **Mood affects decisions** — Phase-2 coupling of mood to routing / model choice / Warden thresholds. Specified as deferred in [`mood.md`](./mood.md) Q27.4.
+- **Multi-self reconciliation** — [`../DESIGN.md`](../DESIGN.md) §6.4.
+- **Sentinel × self-output interaction** — how Sentinel treats `reply_directly` outputs.
 
 ## Non-goals (all specs)
 

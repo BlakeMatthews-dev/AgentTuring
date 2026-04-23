@@ -289,6 +289,37 @@ These are places where the merged sketch either diverges from the spec or leaves
 **What goes wrong:** A caller (or a test clock, or a cloned container with skew) can insert rows with past timestamps that land between existing rows. The recency-based sampler (AC-23.12) and last-asked lookup assume timestamps are monotonic. A clock regression produces non-monotonic `asked_at` which the weighted-sample math treats as legitimate.
 **Severity:** `low`. Operational.
 
+### F35 — No self-tool registry, no `SelfTool`, no `register_self_tool`
+
+**Where:** `specs/self-surface.md` §28.2 specifies `SELF_TOOL_REGISTRY: dict[str, SelfTool]`, `register_self_tool`, and `SelfTool` dataclass; none exist in the sketch.
+**What goes wrong:** Without a registry there is no runtime surface for the self to *call* its tools. All the spec-named tools (`note_passion`, `write_self_todo`, `complete_self_todo`, etc.) are callable Python functions, but nothing turns them into OpenAI function-call schemas the perception LLM can invoke, and nothing gates them by `trust_tier = t0`. The self cannot use these tools end-to-end from within a chat turn.
+**Severity:** `high`. Load-bearing for the self-as-Conduit design.
+
+### F36 — Three specced tools have no implementation
+
+**Where:** `specs/activation-graph.md` AC-25.17 (`write_contributor`) and AC-25.15 (`retract_contributor_by_counter`); `specs/personality.md` AC-23.19 (`record_personality_claim`).
+**What goes wrong:** Each of these is named as a tool the self uses, with documented behavior. None exist as callable functions in the sketch. `retract_contributor_by_counter` has no counterpart even at the repo level (only `mark_contributor_retracted` exists, which is not the contract from AC-25.15 — that one requires writing a new counter-contributor, not retracting the target directly).
+**Severity:** `high`. Narrative personality revision and graph conflict resolution are specced but non-functional.
+
+### F37 — Scheduled jobs are unregistered
+
+**Where:** `specs/personality.md` AC-23.11 (`run_personality_retest` weekly); `specs/mood.md` AC-27.5 (hourly `tick_mood_decay`); `specs/self-bootstrap.md` AC-29.16 (`first_fire_at` on bootstrap finalize).
+**What goes wrong:** The scheduled-work functions exist (`apply_retest`, `tick_mood_decay`) but nothing registers them with the Reactor. Weekly retests never fire. Mood never decays in a running deployment — only on direct `tick_mood_decay` calls. The 7-day first-fire registration in `finalize` (spec 29) is not present in `self_bootstrap.finalize`.
+**Severity:** `high`. Without scheduling, the personality never drifts past bootstrap and mood persists indefinitely at whatever the last nudge left.
+
+### F38 — Memory-mirroring from self-model writes is entirely absent
+
+**Where:** Specs 23 (AC-23.9, AC-23.17, AC-23.19), 24 (AC-24.8, AC-24.10), 25 (AC-25.19), 26 (AC-26.12), 27 (AC-27.9) all require specific self-model actions to mirror as OBSERVATION / AFFIRMATION / LESSON memories with named `intent_at_time` and `context` fields.
+**What goes wrong:** The self-model modules contain zero calls to any `write_observation` / `write_affirmation` / `write_lesson` / `write_regret` path. Only `daydream.py` references a writer. Every spec clause of the form "and writes an OBSERVATION memory with ..." is currently silently ignored by the sketch.
+**Why it matters:** The activation graph depends on memory contributors (F30). The operator review digest (G12 proposal) consumes mirrored observations. The self's own awareness of what it did last week depends on the memory trail. Without mirroring, the self-model is structurally disconnected from the episodic memory layer it was designed to live alongside.
+**Severity:** `critical`. Pulls the whole design's "every self-action leaves a first-person trace" property. Promote above F30.
+
+### F39 — Self-as-Conduit pipeline is entirely unwired
+
+**Where:** `specs/self-as-conduit.md` (all of spec 30); `runtime/chat.py` is the pre-Tranche-6 classify-and-route pipeline with zero references to `self_surface`, `recall_self`, `render_minimal_block`, or the decision tools.
+**What goes wrong:** The spec describes a full request pipeline (perception → decision → dispatch → observation) that replaces the stateless Conduit. The existing `chat.py` is untouched. Running the sketch against the chat surface today routes as if Tranche 6 never landed.
+**Severity:** `critical`. The self has a schema and math but does not participate in any routing. Tranche 6 is, operationally, a library only.
+
 ---
 
 ## G. Guardrails — proposed invariants
@@ -396,9 +427,9 @@ The `SELF_TOOL_REGISTRY` is exposed only via a `SelfRuntime` object instantiated
 | C. Unbounded growth | — | — | F13, F15, F16, F17 | F14 |
 | D. Authority surface | F18 | F20, F23 | F19, F21, F22 | — |
 | E. Cross-self / identity | — | — | F24, F28 | F25, F26, F27 |
-| F. Implementation gaps | — | F30 | F29, F31, F33 | F32, F34 |
+| F. Implementation gaps | F38, F39 | F30, F35, F36, F37 | F29, F31, F33 | F32, F34 |
 
-**Totals:** 3 critical, 10 high, 13 medium, 8 low.
+**Totals:** 5 critical, 14 high, 13 medium, 8 low.
 
 ### Recommended ordering
 

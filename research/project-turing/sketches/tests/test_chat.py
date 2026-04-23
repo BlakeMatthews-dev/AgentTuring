@@ -20,7 +20,7 @@ from turing.self_identity import bootstrap_self_id
 
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
+        s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
@@ -79,8 +79,6 @@ def test_post_chat_resolves_via_dispatch(chat_setup) -> None:
         )
         return urllib.request.urlopen(req, timeout=5.0).read().decode("utf-8")
 
-    sender = threading.Thread(target=lambda result: result.append(_send()),
-                               args=([],))
     # Start sender, then drive reactor so the chat handler dispatches.
     result_holder: list[str] = []
     sender = threading.Thread(target=lambda: result_holder.append(_send()))

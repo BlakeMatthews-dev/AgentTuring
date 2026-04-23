@@ -76,13 +76,15 @@ def test_capacity_evicts_lowest_priority_first(repo: Repo, self_id: str) -> None
 def test_remove(repo: Repo, self_id: str) -> None:
     wm = WorkingMemory(repo.conn)
     eid = wm.add(self_id, "to remove")
-    assert wm.remove(self_id, eid) is True
+    removed = wm.remove(self_id, eid)
+    assert removed is True
     assert wm.entries(self_id) == []
 
 
 def test_remove_unknown_returns_false(repo: Repo, self_id: str) -> None:
     wm = WorkingMemory(repo.conn)
-    assert wm.remove(self_id, "nope") is False
+    removed = wm.remove(self_id, "nope")
+    assert removed is False
 
 
 def test_update_priority(repo: Repo, self_id: str) -> None:

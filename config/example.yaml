@@ -157,6 +157,12 @@ sessions:
   max_messages: 20
   ttl_seconds: 86400
 
+security:
+  canary:
+    enabled: true  # Per-session canary tokens in system prompt for exfiltration detection (S1.1).
+                   # Disable only in environments where the prompt caching budget is critical
+                   # and the added ~30 chars per session is unacceptable.
+
 # ── Infrastructure ──
 # Production: K8s + Helm. Docker Compose is local dev only.
 database_url: ""  # postgresql://user:pass@postgres:5432/stronghold

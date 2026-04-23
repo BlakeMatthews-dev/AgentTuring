@@ -48,6 +48,11 @@ class Provenance(StrEnum):
     COMMUNITY = "community"  # Imported from external URL/marketplace
 
 
+# Known Warden flag names. Kept as constants so callers can compare without
+# hardcoding strings. Extend as new detection layers are added.
+WARDEN_FLAG_CANARY_ECHO = "canary_echo"
+
+
 @dataclass(frozen=True)
 class WardenVerdict:
     """Result of Warden threat detection scan."""

@@ -112,7 +112,7 @@ class InMemoryTaskAcceptancePolicy:
         agent_name: str,
     ) -> bool:
         if (user_id, org_id, agent_name) in self._denied_agents:
-            logger.warning(
+            logger.warning(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                 "Task creation DENIED: user=%s org=%s agent=%s",
                 user_id,
                 org_id,
@@ -132,7 +132,7 @@ class InMemoryTaskAcceptancePolicy:
     ) -> bool:
         # Reject unknown tiers (security: prevent bypass via invalid tier names)
         if priority_tier not in self._base_budget:
-            logger.warning(  # nosemgrep: python.logger-credential-disclosure
+            logger.warning(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                 "Budget DENIED: user=%s org=%s unknown tier=%s",
                 user_id,
                 org_id,
@@ -144,7 +144,7 @@ class InMemoryTaskAcceptancePolicy:
         if token_budget is not None:
             max_tokens = self._calculate_token_budget(priority_tier)
             if token_budget > max_tokens:
-                logger.warning(  # nosemgrep: python.logger-credential-disclosure
+                logger.warning(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                     "Budget DENIED: user=%s org=%s tier=%s token_count=%s > max=%s",
                     user_id,
                     org_id,
@@ -155,7 +155,7 @@ class InMemoryTaskAcceptancePolicy:
                 return False
 
         if cost_budget is not None and cost_budget > limits.get("max_cost", float("inf")):
-            logger.warning(  # nosemgrep: python.logger-credential-disclosure
+            logger.warning(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                 "Budget DENIED: user=%s org=%s tier=%s cost=%s > max=%s",
                 user_id,
                 org_id,
@@ -167,7 +167,7 @@ class InMemoryTaskAcceptancePolicy:
 
         max_seconds = limits.get("max_seconds", float("inf"))
         if wall_clock_seconds is not None and wall_clock_seconds > max_seconds:
-            logger.warning(  # nosemgrep: python.logger-credential-disclosure
+            logger.warning(  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
                 "Budget DENIED: user=%s org=%s tier=%s seconds=%s > max=%s",
                 user_id,
                 org_id,

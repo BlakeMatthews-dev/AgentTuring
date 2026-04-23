@@ -14,8 +14,8 @@ from stronghold.mcp.deployer import K8sDeployer
 def deployer() -> K8sDeployer:
     """Create deployer with mocked K8s client."""
     with ExitStack() as stack:
-        stack.enter_context(patch("kubernetes.client.config.load_incluster_config"))
-        stack.enter_context(patch("kubernetes.client.config.load_kube_config"))
+        stack.enter_context(patch("kubernetes.config.load_incluster_config"))
+        stack.enter_context(patch("kubernetes.config.load_kube_config"))
         stack.enter_context(patch("kubernetes.client.AppsV1Api"))
         stack.enter_context(patch("kubernetes.client.CoreV1Api"))
         return K8sDeployer()
@@ -27,8 +27,8 @@ class TestK8sDeployerInit:
     def test_init_sets_namespace(self) -> None:
         """Deployer initialization sets namespace."""
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config.load_incluster_config"))
-            stack.enter_context(patch("kubernetes.client.config.load_kube_config"))
+            stack.enter_context(patch("kubernetes.config.load_incluster_config"))
+            stack.enter_context(patch("kubernetes.config.load_kube_config"))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer = K8sDeployer(namespace="test-ns")
@@ -37,8 +37,8 @@ class TestK8sDeployerInit:
     def test_init_uses_default_namespace(self) -> None:
         """Deployer defaults to stronghold namespace."""
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config.load_incluster_config"))
-            stack.enter_context(patch("kubernetes.client.config.load_kube_config"))
+            stack.enter_context(patch("kubernetes.config.load_incluster_config"))
+            stack.enter_context(patch("kubernetes.config.load_kube_config"))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer = K8sDeployer()
@@ -61,7 +61,7 @@ class TestK8sClient:
         fake_config.ConfigException = Exception
 
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config", fake_config))
+            stack.enter_context(patch("kubernetes.config", fake_config))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer_instance = K8sDeployer()
@@ -80,7 +80,7 @@ class TestK8sClient:
         fake_config.load_kube_config = MagicMock()
 
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config", fake_config))
+            stack.enter_context(patch("kubernetes.config", fake_config))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer = K8sDeployer()
@@ -99,7 +99,7 @@ class TestK8sClient:
         fake_config.load_kube_config = MagicMock(side_effect=raise_exception)
 
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config", fake_config))
+            stack.enter_context(patch("kubernetes.config", fake_config))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer_instance = K8sDeployer()
@@ -120,8 +120,8 @@ class TestDeployerNamespace:
     def test_custom_namespace_isolation(self) -> None:
         """Custom namespaces provide isolation."""
         with ExitStack() as stack:
-            stack.enter_context(patch("kubernetes.client.config.load_incluster_config"))
-            stack.enter_context(patch("kubernetes.client.config.load_kube_config"))
+            stack.enter_context(patch("kubernetes.config.load_incluster_config"))
+            stack.enter_context(patch("kubernetes.config.load_kube_config"))
             stack.enter_context(patch("kubernetes.client.AppsV1Api"))
             stack.enter_context(patch("kubernetes.client.CoreV1Api"))
             deployer = K8sDeployer(namespace="custom-ns")

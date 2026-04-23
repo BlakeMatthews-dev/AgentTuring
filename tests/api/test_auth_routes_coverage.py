@@ -133,6 +133,7 @@ def _base_config(**auth_overrides: Any) -> StrongholdConfig:
     auth_kwargs: dict[str, Any] = {
         "session_cookie_name": "stronghold_session",
         "session_max_age": 3600,
+        "jwt_secret": "sk-test-key",
     }
     auth_kwargs.update(auth_overrides)
     return StrongholdConfig(
@@ -389,7 +390,9 @@ class TestTokenExchange:
         failing_auth = FakeAuthProvider()
 
         # Override authenticate to always raise
-        async def _reject(authorization: str | None, headers: dict[str, str] | None = None) -> AuthContext:
+        async def _reject(
+            authorization: str | None, headers: dict[str, str] | None = None
+        ) -> AuthContext:
             raise ValueError("Invalid token")
 
         failing_auth.authenticate = _reject  # type: ignore[assignment]
@@ -505,11 +508,18 @@ class TestDemoLogin:
 
     def test_user_pending_returns_403(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 1, "email": "pending@example.com", "display_name": "Pending",
-            "org_id": "acme", "team_id": "default", "roles": "[]",
-            "status": "pending", "password_hash": "",
-        })
+        db.add_user(
+            {
+                "id": 1,
+                "email": "pending@example.com",
+                "display_name": "Pending",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": "[]",
+                "status": "pending",
+                "password_hash": "",
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -522,11 +532,18 @@ class TestDemoLogin:
 
     def test_user_rejected_returns_403(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 2, "email": "rejected@example.com", "display_name": "Rejected",
-            "org_id": "acme", "team_id": "default", "roles": "[]",
-            "status": "rejected", "password_hash": "",
-        })
+        db.add_user(
+            {
+                "id": 2,
+                "email": "rejected@example.com",
+                "display_name": "Rejected",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": "[]",
+                "status": "rejected",
+                "password_hash": "",
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -539,11 +556,18 @@ class TestDemoLogin:
 
     def test_user_disabled_returns_403(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 3, "email": "disabled@example.com", "display_name": "Disabled",
-            "org_id": "acme", "team_id": "default", "roles": "[]",
-            "status": "disabled", "password_hash": "",
-        })
+        db.add_user(
+            {
+                "id": 3,
+                "email": "disabled@example.com",
+                "display_name": "Disabled",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": "[]",
+                "status": "disabled",
+                "password_hash": "",
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -556,11 +580,18 @@ class TestDemoLogin:
 
     def test_user_unknown_status_returns_403(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 4, "email": "weird@example.com", "display_name": "Weird",
-            "org_id": "acme", "team_id": "default", "roles": "[]",
-            "status": "limbo", "password_hash": "",
-        })
+        db.add_user(
+            {
+                "id": 4,
+                "email": "weird@example.com",
+                "display_name": "Weird",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": "[]",
+                "status": "limbo",
+                "password_hash": "",
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -574,11 +605,18 @@ class TestDemoLogin:
     def test_approved_user_no_password_body_returns_401(self) -> None:
         pw_hash = _make_password_hash("secret123")
         db = FakeDBPool()
-        db.add_user({
-            "id": 5, "email": "alice@example.com", "display_name": "Alice",
-            "org_id": "acme", "team_id": "default", "roles": '["user"]',
-            "status": "approved", "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 5,
+                "email": "alice@example.com",
+                "display_name": "Alice",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": '["user"]',
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -591,11 +629,18 @@ class TestDemoLogin:
 
     def test_approved_user_no_stored_hash_returns_401(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 6, "email": "nohash@example.com", "display_name": "NoHash",
-            "org_id": "acme", "team_id": "default", "roles": '["user"]',
-            "status": "approved", "password_hash": "",
-        })
+        db.add_user(
+            {
+                "id": 6,
+                "email": "nohash@example.com",
+                "display_name": "NoHash",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": '["user"]',
+                "status": "approved",
+                "password_hash": "",
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -609,11 +654,18 @@ class TestDemoLogin:
     def test_approved_user_wrong_password_returns_401(self) -> None:
         pw_hash = _make_password_hash("correct-password")
         db = FakeDBPool()
-        db.add_user({
-            "id": 7, "email": "alice@example.com", "display_name": "Alice",
-            "org_id": "acme", "team_id": "default", "roles": '["user"]',
-            "status": "approved", "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 7,
+                "email": "alice@example.com",
+                "display_name": "Alice",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": '["user"]',
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -627,11 +679,18 @@ class TestDemoLogin:
     def test_successful_login_sets_cookies_and_returns_user(self) -> None:
         pw_hash = _make_password_hash("correct-password")
         db = FakeDBPool()
-        db.add_user({
-            "id": 8, "email": "alice@example.com", "display_name": "Alice",
-            "org_id": "acme", "team_id": "eng", "roles": '["user", "engineer"]',
-            "status": "approved", "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 8,
+                "email": "alice@example.com",
+                "display_name": "Alice",
+                "org_id": "acme",
+                "team_id": "eng",
+                "roles": '["user", "engineer"]',
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -658,11 +717,18 @@ class TestDemoLogin:
         """
         pw_hash = _make_password_hash("pass")
         db = FakeDBPool()
-        db.add_user({
-            "id": 9, "email": "bob@example.com", "display_name": "Bob",
-            "org_id": "acme", "team_id": "default", "roles": ["admin"],
-            "status": "approved", "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 9,
+                "email": "bob@example.com",
+                "display_name": "Bob",
+                "org_id": "acme",
+                "team_id": "default",
+                "roles": ["admin"],
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             resp = client.post(
@@ -723,9 +789,7 @@ class TestLogout:
             assert resp.status_code == 200
             set_cookies = resp.headers.get_list("set-cookie")
             # Must find at least one Set-Cookie for the session name.
-            session_headers = [
-                h for h in set_cookies if "stronghold_session=" in h.lower()
-            ]
+            session_headers = [h for h in set_cookies if "stronghold_session=" in h.lower()]
             assert session_headers, f"no session cookie clear in: {set_cookies!r}"
             # And it must mark the cookie for deletion.
             combined = " ".join(session_headers).lower()
@@ -843,7 +907,9 @@ class TestSessionEndpoint:
         """When both HS256 and auth_provider fail, returns 401."""
         failing_auth = FakeAuthProvider()
 
-        async def _reject(authorization: str | None, headers: dict[str, str] | None = None) -> AuthContext:
+        async def _reject(
+            authorization: str | None, headers: dict[str, str] | None = None
+        ) -> AuthContext:
             raise ValueError("Invalid token")
 
         failing_auth.authenticate = _reject  # type: ignore[assignment]
@@ -861,7 +927,9 @@ class TestSessionEndpoint:
         """When the cookie is not a valid JWT and auth_provider also rejects it."""
         failing_auth = FakeAuthProvider()
 
-        async def _reject(authorization: str | None, headers: dict[str, str] | None = None) -> AuthContext:
+        async def _reject(
+            authorization: str | None, headers: dict[str, str] | None = None
+        ) -> AuthContext:
             raise ValueError("Invalid token")
 
         failing_auth.authenticate = _reject  # type: ignore[assignment]
@@ -1017,9 +1085,13 @@ class TestRegistration:
 
     def test_register_existing_approved_returns_409(self) -> None:
         db = FakeDBPool()
-        db.add_user({
-            "id": 1, "email": "existing@example.com", "status": "approved",
-        })
+        db.add_user(
+            {
+                "id": 1,
+                "email": "existing@example.com",
+                "status": "approved",
+            }
+        )
         cfg = _base_config(allowed_registration_orgs=["acme"])
         app = _build_app(config=cfg, db_pool=db)
         with TestClient(app) as client:
@@ -1115,12 +1187,18 @@ class TestLoginThenSession:
         """Login should set a cookie that /auth/session can decode."""
         pw_hash = _make_password_hash("password123")
         db = FakeDBPool()
-        db.add_user({
-            "id": 10, "email": "roundtrip@example.com", "display_name": "RT User",
-            "org_id": "acme", "team_id": "eng",
-            "roles": '["user"]', "status": "approved",
-            "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 10,
+                "email": "roundtrip@example.com",
+                "display_name": "RT User",
+                "org_id": "acme",
+                "team_id": "eng",
+                "roles": '["user"]',
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app, cookies={}) as client:
             # Login
@@ -1157,12 +1235,18 @@ class TestLoginThenSession:
         """After logout, session check should fail."""
         pw_hash = _make_password_hash("password123")
         db = FakeDBPool()
-        db.add_user({
-            "id": 11, "email": "logouttest@example.com", "display_name": "Logout",
-            "org_id": "acme", "team_id": "eng",
-            "roles": '["user"]', "status": "approved",
-            "password_hash": pw_hash,
-        })
+        db.add_user(
+            {
+                "id": 11,
+                "email": "logouttest@example.com",
+                "display_name": "Logout",
+                "org_id": "acme",
+                "team_id": "eng",
+                "roles": '["user"]',
+                "status": "approved",
+                "password_hash": pw_hash,
+            }
+        )
         app = _build_app(db_pool=db)
         with TestClient(app) as client:
             # Login

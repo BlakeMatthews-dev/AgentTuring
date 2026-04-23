@@ -111,7 +111,7 @@ def admin_app() -> FastAPI:
 
         return Container(
             config=config,
-            auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+            auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
             permission_table=PermissionTable.from_config({"admin": ["*"]}),
             router=RouterEngine(InMemoryQuotaTracker()),
             classifier=ClassifierEngine(),
@@ -980,8 +980,6 @@ class TestUserManagementNoDb:
             assert resp.status_code == 503
 
 
-
-
 class TestAgentTrustNoDb:
     """Test agent trust endpoints when db_pool is absent."""
 
@@ -1196,9 +1194,7 @@ class TestAgentAiReviewNoDb:
         from stronghold.agents.store import InMemoryAgentStore
 
         container = admin_app.state.container
-        container.agent_store = InMemoryAgentStore(
-            container.agents, container.prompt_manager
-        )
+        container.agent_store = InMemoryAgentStore(container.agents, container.prompt_manager)
         with TestClient(admin_app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/agents/arbiter/ai-review",
@@ -1235,9 +1231,7 @@ class TestAdminReviewNoDb:
         from stronghold.agents.store import InMemoryAgentStore
 
         container = admin_app.state.container
-        container.agent_store = InMemoryAgentStore(
-            container.agents, container.prompt_manager
-        )
+        container.agent_store = InMemoryAgentStore(container.agents, container.prompt_manager)
         with TestClient(admin_app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/agents/arbiter/admin-review",

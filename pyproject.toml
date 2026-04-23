@@ -111,3 +111,11 @@ exclude_lines = [
 [tool.bandit]
 targets = ["src/stronghold"]
 severity = "medium"
+
+[tool.mutmut]
+paths_to_mutate = [
+    "src/stronghold/",
+    "research/project-turing/sketches/turing/",
+]
+runner = "pytest -x -q --tb=short"
+tests_dir = "tests/"

@@ -206,3 +206,50 @@ class TestSignalDetection:
             task_type="code",
         )
         assert result.confidence >= 0.7
+
+
+class TestConversationContextAwareness:
+    """Tests for cross-turn accumulation via concatenated text + conversation_context."""
+
+    def test_standalone_short_text_insufficient(self) -> None:
+        """Short standalone creative request fails the heuristic."""
+        result = analyze_request_sufficiency("write a story", task_type="creative")
+        assert not result.sufficient
+
+    def test_accumulated_text_flips_sufficient(self) -> None:
+        """Concatenated multi-turn user text can satisfy the creative heuristic (AC-IC-05)."""
+        accumulated = (
+            "write a story "
+            "sci-fi about first contact for a general audience, "
+            "hopeful tone, focusing on the theme of discovery"
+        )
+        result = analyze_request_sufficiency(accumulated, task_type="creative")
+        assert result.sufficient
+
+    def test_conversation_context_confirmation_path(self) -> None:
+        """Short 'yes' after a proposal is sufficient via _is_confirmation (AC-IC-05)."""
+        context = [
+            {"role": "user", "content": "write a short story about discovery"},
+            {
+                "role": "assistant",
+                "content": (
+                    "I'll write a 300-word sci-fi story about first contact. "
+                    "Shall I proceed with a hopeful tone?"
+                ),
+            },
+        ]
+        result = analyze_request_sufficiency("yes proceed", task_type="creative", conversation_context=context)
+        assert result.sufficient
+
+    def test_conversation_context_non_proposal_stays_insufficient(self) -> None:
+        """Short 'ok' without a prior proposal is NOT sufficient (no hijacking)."""
+        context = [
+            {"role": "user", "content": "write a story"},
+            {
+                "role": "assistant",
+                "content": "What kind of story would you like?",
+            },
+        ]
+        result = analyze_request_sufficiency("ok", task_type="creative", conversation_context=context)
+        # Prior message is a question, not a proposal — confirmation path should NOT fire
+        assert not result.sufficient

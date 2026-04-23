@@ -79,8 +79,6 @@ def test_post_chat_resolves_via_dispatch(chat_setup) -> None:
         )
         return urllib.request.urlopen(req, timeout=5.0).read().decode("utf-8")
 
-    sender = threading.Thread(target=lambda result: result.append(_send()),
-                               args=([],))
     # Start sender, then drive reactor so the chat handler dispatches.
     result_holder: list[str] = []
     sender = threading.Thread(target=lambda: result_holder.append(_send()))

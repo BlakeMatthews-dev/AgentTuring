@@ -6,13 +6,15 @@ metadata:
   labels:
     app: turing
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: turing
   ports:
     - name: metrics
       port: 9100
       targetPort: metrics
+      nodePort: 30910
     - name: chat
       port: 9101
       targetPort: chat
+      nodePort: 30911

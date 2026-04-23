@@ -20,8 +20,8 @@ spec:
     spec:
       containers:
         - name: turing
-          image: project-turing:latest
-          imagePullPolicy: IfNotPresent
+          image: 10.10.42.100:5000/project-turing:latest
+          imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: turing-config

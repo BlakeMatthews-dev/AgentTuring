@@ -6,23 +6,26 @@ services:
     image: project-turing:latest
     container_name: turing
     restart: unless-stopped
+    user: "1000:1000"
     env_file:
       - .env
+    environment:
+      - TURING_METRICS_BIND=0.0.0.0
+      - TURING_CHAT_BIND=0.0.0.0
     ports:
       - "9100:9100"
+      - "9101:9101"
     volumes:
-      - turing-data:/data
+      - ./data:/data
       - ./scenarios:/app/scenarios:ro
       - ./config:/app/config:ro
-    # Override at compose up time with: `docker compose run --rm turing <flags>`
     command:
       - "--use-fake-provider"
       - "--scenario"
       - "baseline"
       - "--metrics-port"
       - "9100"
+      - "--chat-port"
+      - "9101"
       - "--journal-dir"
       - "/data/journal"
-
-volumes:
-  turing-data:

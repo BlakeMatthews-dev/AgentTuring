@@ -163,12 +163,39 @@ Closes Tranche 6 implementation gaps and lands the audit's guardrails in depende
 | 55 | [`proactive-outbound.md`](./proactive-outbound.md) | Agent-initiated conversations and messages via OpenWebUI API. Outbound dispatch at P20-P30. OpenWebUI client, retry logic, quota-aware delivery. | 54, 17, 9 |
 | 56 | [`interactive-bootstrap.md`](./interactive-bootstrap.md) | Multi-phase bootstrap conversation (20 user questions, 20 agent guidance, 5 self-description, name selection). Per-facet multipliers on-read (24 dials). Three laws of robotics in system prompt. HEXACO population norms + 6 archetypes. | 54, 55, 23, 29 |
 
+### Tranche 8 — Reflection and decision-influence
+
+The self gains agency beyond tone. Weekly reflection, prospective simulation, mood-driven decisions, self-naming, Sentinel integration, and per-conversation session mood.
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 57 | [`self-reflection-ritual.md`](./self-reflection-ritual.md) | Scheduled weekly pass where the self reviews recent memories and proposes LESSONs / WISDOM candidates / todo revisions / personality claims. Fills the gap between daily routing and monthly dreaming. | 33, 31, 32, 12, 4, 28 |
+| 58 | [`session-scoped-mood.md`](./session-scoped-mood.md) | Per-conversation sub-mood that inherits from and decays toward the global mood. Event nudges default to session when in a conversation. Prompt rendering uses session when active. | 27, 54, 33, 32, 42 |
+| 59 | [`mood-affects-decisions.md`](./mood-affects-decisions.md) | Phase 2 of spec 27 (Q27.4). Mood biases specialist selection, model tier, and Warden threshold. Biases are prompt hints + router weights, not hard filters. | 27, 58, 44, 36, 17, 19 |
+| 60 | [`prospective-simulation.md`](./prospective-simulation.md) | Before routing, the self imagines outcomes for each candidate specialist. Post-dispatch, compares prediction to actual; mints surprise-delta. | 44, 16, 32, 25, 1 |
+| 61 | [`self-naming-ritual.md`](./self-naming-ritual.md) | Self-initiated naming after N durable memories OR operator command. Proposal → operator review → `display_name` set. Complements spec 56's bootstrap-naming path. | 28, 56, 8, 32, 33 |
+| 62 | [`sentinel-self-interaction.md`](./sentinel-self-interaction.md) | How Sentinel's pass/warn/block verdicts affect the self's memory, mood, and activation graph. Specialists with high block-rate get dampened in routing. | 44, 36, 32, 27, 4 |
+
+### Tranche 9 — Detectors and feedback channels
+
+Deeper pattern recognition and explicit operator↔self channels.
+
+| # | Spec | Scope | Depends on |
+|---|---|---|---|
+| 63 | [`learning-extraction-detector.md`](./learning-extraction-detector.md) | Pairs REGRET → later-success routings by request similarity. Proposes LESSONs: "for requests like X, route to Z, not Y." Auto-promotes at 3+ hits. | D, 9, 57, 32, 25 |
+| 64 | [`affirmation-candidacy-detector.md`](./affirmation-candidacy-detector.md) | Finds `(request-shape, specialist, success)` triples repeating 7+ times at ≥85% success. Proposes AFFIRMATION commitments gated through operator review (spec 46). | D, 63, 4, 32, 46 |
+| 65 | [`prospection-accuracy-detector.md`](./prospection-accuracy-detector.md) | Consumes spec 60's predictions. Computes per-specialist mean-surprise and confidence-calibration-error. Mints miscalibration LESSONs and tuner proposals. | D, 60, 32, 11 |
+| 66 | [`operator-coaching-channel.md`](./operator-coaching-channel.md) | `stronghold self coach "<content>"` CLI + API writes `I_WAS_TOLD` memories. Signed by operator key. One-way teaching channel, distinct from the review gate. | 1, 4, 32, 46, 39 |
+| 67 | [`cross-user-self-experience.md`](./cross-user-self-experience.md) | How experience with User A affects routing for User B. Memory tagging with `source_user_id` + `user_scoped` + configurable cross-user dampening (shared / dampened / isolated). | 54, 25, 16, 58, 39, 30 |
+
 ## Deferred
 
-- **Additional detectors** — `learning_extraction`, `affirmation_candidacy`, `prospection`. Pattern is established by `detectors/contradiction.md`; individual specs will land alongside implementations.
-- **Mood affects decisions** — Phase-2 coupling of mood to routing / model choice / Warden thresholds. Specified as deferred in [`mood.md`](./mood.md) Q27.4.
-- **Multi-self reconciliation** — [`../DESIGN.md`](../DESIGN.md) §6.4.
-- **Sentinel × self-output interaction** — how Sentinel treats `reply_directly` outputs.
+- **Additional detectors** — `learning_extraction`, `affirmation_candidacy`, and `prospection_accuracy` detectors are now specced (63–65); remaining slots for domain-specific detectors will land alongside implementations.
+- **Self naming** — now specced (61); the deferred slot is closed.
+- **Mood affects decisions** — now specced (59) as Phase 2 of spec 27.
+- **Multi-self reconciliation** — [`../DESIGN.md`](../DESIGN.md) §6.4. Still deferred.
+- **Sentinel × self-output interaction** — now specced (62).
+- **Per-user mood** — flagged but not specced; would extend spec 58's per-conversation mood one layer out.
 
 ## Non-goals (all specs)
 

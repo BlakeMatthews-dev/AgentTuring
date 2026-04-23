@@ -172,3 +172,56 @@ class TestMarkOutcome:
         b_match = [lr for lr in store._learnings if lr.id == lid_b][0]
         assert a_match.success_after_use == 1
         assert b_match.success_after_use == 0
+
+
+class TestListIneffective:
+    """list_ineffective returns learnings that have been tried but mostly failed."""
+
+    @pytest.mark.asyncio
+    async def test_returns_learning_with_more_failures_than_successes(self) -> None:
+        store = InMemoryLearningStore()
+        lid = await store.store(build_learning(trigger_keys=["x"]))
+        await store.mark_outcome([lid], success=False)
+        await store.mark_outcome([lid], success=False)
+        await store.mark_outcome([lid], success=True)
+        # 2 failures vs 1 success; total uses = 3 >= min_uses 3
+        results = await store.list_ineffective(min_uses=3)
+        assert len(results) == 1
+        assert results[0].id == lid
+
+    @pytest.mark.asyncio
+    async def test_excludes_learning_below_min_uses(self) -> None:
+        store = InMemoryLearningStore()
+        lid = await store.store(build_learning(trigger_keys=["x"]))
+        await store.mark_outcome([lid], success=False)
+        # Only 1 use, min_uses=5
+        results = await store.list_ineffective(min_uses=5)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_mostly_successful_learning(self) -> None:
+        store = InMemoryLearningStore()
+        lid = await store.store(build_learning(trigger_keys=["x"]))
+        for _ in range(4):
+            await store.mark_outcome([lid], success=True)
+        await store.mark_outcome([lid], success=False)
+        # 4 success vs 1 failure — not ineffective
+        results = await store.list_ineffective(min_uses=3)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_untouched_learning(self) -> None:
+        store = InMemoryLearningStore()
+        await store.store(build_learning(trigger_keys=["x"]))
+        results = await store.list_ineffective(min_uses=1)
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_tie_is_not_ineffective(self) -> None:
+        """A tied success/failure count should NOT be flagged — only strictly worse."""
+        store = InMemoryLearningStore()
+        lid = await store.store(build_learning(trigger_keys=["x"]))
+        await store.mark_outcome([lid], success=True)
+        await store.mark_outcome([lid], success=False)
+        results = await store.list_ineffective(min_uses=2)
+        assert results == []

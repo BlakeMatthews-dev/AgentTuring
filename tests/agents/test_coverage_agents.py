@@ -748,7 +748,7 @@ class TestContextBuilderPromotedLearnings:
         )
         builder = ContextBuilder()
         messages = [{"role": "user", "content": "turn on the fan"}]
-        result = await builder.build(
+        result, _ = await builder.build(
             messages,
             identity,
             prompt_manager=prompts,
@@ -776,7 +776,7 @@ class TestContextBuilderPromotedLearnings:
         )
         builder = ContextBuilder()
         messages = [{"role": "user", "content": "hello"}]
-        result = await builder.build(
+        result, _ = await builder.build(
             messages,
             identity,
             prompt_manager=prompts,
@@ -810,7 +810,7 @@ class TestContextBuilderPromotedLearnings:
         )
         builder = ContextBuilder()
         messages = [{"role": "user", "content": "turn on the fan"}]
-        result = await builder.build(
+        result, _ = await builder.build(
             messages,
             identity,
             prompt_manager=prompts,
@@ -844,7 +844,7 @@ class TestContextBuilderPromotedLearnings:
             memory_config={"learnings": True},
         )
         builder = ContextBuilder()
-        result = await builder.build(
+        result, _ = await builder.build(
             [{"role": "user", "content": "hello"}],
             identity,
             prompt_manager=prompts,
@@ -869,7 +869,7 @@ class TestContextBuilderPromotedLearnings:
             memory_config={"learnings": True},
         )
         builder = ContextBuilder()
-        result = await builder.build(
+        result, _ = await builder.build(
             [{"role": "user", "content": "hello"}],
             identity,
             prompt_manager=prompts,

@@ -159,6 +159,19 @@ class InMemoryLearningStore:
             results.append(lr)
         return results
 
+    async def list_ineffective(self, min_uses: int) -> list[Learning]:
+        """Return learnings whose failure count strictly exceeds successes.
+
+        Only includes learnings with at least min_uses total outcomes.
+        Read-only helper — no demotion is performed here.
+        """
+        results: list[Learning] = []
+        for lr in self._learnings:
+            total = lr.success_after_use + lr.failure_after_use
+            if total >= min_uses and lr.failure_after_use > lr.success_after_use:
+                results.append(lr)
+        return results
+
     async def list_all(self, org_id: str = "", limit: int = 200) -> list[Learning]:
         """List all learnings for an org (admin endpoint)."""
         results: list[Learning] = []

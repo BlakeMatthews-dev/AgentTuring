@@ -195,7 +195,7 @@ class TestContextBuilderCaching:
 
         builder = ContextBuilder()
         messages = [{"role": "user", "content": "hello"}]
-        result = await builder.build(
+        result, _ = await builder.build(
             messages,
             identity,
             prompt_manager=StubPromptManager(),
@@ -235,7 +235,7 @@ class TestContextBuilderCaching:
 
         builder = ContextBuilder()
         messages = [{"role": "user", "content": "hello"}]
-        result = await builder.build(
+        result, _ = await builder.build(
             messages,
             identity,
             prompt_manager=StubPromptManager(),

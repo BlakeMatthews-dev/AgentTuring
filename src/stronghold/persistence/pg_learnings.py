@@ -44,8 +44,11 @@ class PgLearningStore:
             row = await conn.fetchrow(
                 """INSERT INTO learnings
                    (category, trigger_keys, learning, tool_name,
-                    org_id, team_id, agent_id, user_id, scope, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    org_id, team_id, agent_id, user_id, scope, status,
+                    rca_category, rca_prevention,
+                    success_after_use, failure_after_use)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                           $11, $12, $13, $14)
                    RETURNING id""",
                 learning.category,
                 list(learning.trigger_keys),
@@ -57,6 +60,10 @@ class PgLearningStore:
                 learning.user_id,
                 learning.scope,
                 learning.status,
+                learning.rca_category,
+                learning.rca_prevention,
+                learning.success_after_use,
+                learning.failure_after_use,
             )
             return int(row["id"]) if row else 0
 
@@ -108,15 +115,36 @@ class PgLearningStore:
     async def mark_outcome(
         self, learning_ids: list[int], success: bool, *, org_id: str = ""
     ) -> None:
-        """Record success/failure feedback. No-op in PG until migration lands."""
+        """Increment success_after_use or failure_after_use per id, org-scoped."""
         if not learning_ids:
             return
-        logger.debug(
-            "mark_outcome: ids=%s success=%s org_id=%s — not persisted (schema pending)",
-            learning_ids,
-            success,
-            org_id,
-        )
+        async with self._pool.acquire() as conn:
+            if success and org_id:
+                await conn.execute(
+                    "UPDATE learnings SET success_after_use = success_after_use + 1 "
+                    "WHERE id = ANY($1::int[]) AND org_id = $2",
+                    learning_ids,
+                    org_id,
+                )
+            elif success:
+                await conn.execute(
+                    "UPDATE learnings SET success_after_use = success_after_use + 1 "
+                    "WHERE id = ANY($1::int[])",
+                    learning_ids,
+                )
+            elif org_id:
+                await conn.execute(
+                    "UPDATE learnings SET failure_after_use = failure_after_use + 1 "
+                    "WHERE id = ANY($1::int[]) AND org_id = $2",
+                    learning_ids,
+                    org_id,
+                )
+            else:
+                await conn.execute(
+                    "UPDATE learnings SET failure_after_use = failure_after_use + 1 "
+                    "WHERE id = ANY($1::int[])",
+                    learning_ids,
+                )
 
     async def check_auto_promotions(
         self,
@@ -184,4 +212,8 @@ def _row_to_learning(row: asyncpg.Record) -> Learning:
         scope=row.get("scope", "organization"),
         hit_count=row.get("hit_count", 0),
         status=row.get("status", "active"),
+        rca_category=row.get("rca_category"),
+        rca_prevention=row.get("rca_prevention", ""),
+        success_after_use=row.get("success_after_use", 0),
+        failure_after_use=row.get("failure_after_use", 0),
     )

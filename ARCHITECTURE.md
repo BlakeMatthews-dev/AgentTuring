@@ -432,6 +432,18 @@ Request arrives with user text
   → Optionally bridge to episodic memory (LESSON tier)
 ```
 
+### 4.5 SessionCheckpoint (Cross-session Handoff)
+
+**SessionCheckpoint** is a typed snapshot of working state — summary, decisions made, remaining work, notes, failed approaches — written by either a server-side strategy or the `/checkpoint-save` client-side skill. Schema is shared byte-for-byte so a client checkpoint file (YAML frontmatter in `.claude/checkpoints/*.md`) ingests into `CheckpointStore` without transformation.
+
+`CheckpointStore` protocol (`src/stronghold/protocols/memory.py`) is distinct from the existing conversation-history `SessionStore`. Three operations: `save` (returns id), `load(id, org_id=...)` (returns None on cross-org or unknown), `list_recent(org_id, [user_id/team_id/agent_id], limit)`.
+
+Read-only admin endpoints (S1.3):
+- `GET /v1/stronghold/admin/checkpoints?limit=20` — org-scoped list.
+- `GET /v1/stronghold/admin/checkpoints/{id}` — single checkpoint; 404 on cross-org id to hide existence.
+
+Write path is strictly programmatic via the protocol. S3.2 (`investigate` strategy) writes a checkpoint at every phase transition; S1.6 client skills produce the same shape.
+
 ---
 
 ## 5. Tool Architecture

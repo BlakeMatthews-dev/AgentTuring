@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from stronghold.types.memory import EpisodicMemory, Learning, Outcome, SkillMutation
+    from stronghold.types.memory import (
+        EpisodicMemory,
+        Learning,
+        Outcome,
+        SessionCheckpoint,
+        SkillMutation,
+    )
     from stronghold.types.security import AuditEntry
 
 
@@ -214,4 +220,48 @@ class AuditLog(Protocol):
         limit: int = 100,
     ) -> list[AuditEntry]:
         """Retrieve audit entries with optional filtering (org-scoped)."""
+        ...
+
+
+@runtime_checkable
+class CheckpointStore(Protocol):
+    """Typed-snapshot store for SessionCheckpoint (S1.3).
+
+    Distinct from the conversation-history `SessionStore` above — this stores
+    structured snapshots of working state (summary, decisions, remaining work)
+    that enable cross-session handoff. Schema-compatible with the client-side
+    `/checkpoint-save` skill.
+
+    Tenant isolation: all operations are org-scoped. A checkpoint saved under
+    org A cannot be loaded with org_id=B — the store returns None, never raises,
+    to avoid leaking existence via error messages.
+    """
+
+    async def save(self, checkpoint: SessionCheckpoint) -> str:
+        """Persist a checkpoint and return its id.
+
+        Implementations may use the provided checkpoint_id or generate a new one
+        when the input is empty. The returned id is the canonical handle.
+        """
+        ...
+
+    async def load(
+        self,
+        checkpoint_id: str,
+        *,
+        org_id: str,
+    ) -> SessionCheckpoint | None:
+        """Load a checkpoint. Returns None for unknown id or cross-org access."""
+        ...
+
+    async def list_recent(
+        self,
+        *,
+        org_id: str,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        team_id: str | None = None,
+        limit: int = 20,
+    ) -> list[SessionCheckpoint]:
+        """List checkpoints (org-scoped, ordered by created_at desc, limit applied)."""
         ...

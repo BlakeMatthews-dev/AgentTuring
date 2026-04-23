@@ -493,13 +493,19 @@ class FakeToolPolicy:
         self._denied_tasks.add((user_id, org_id, agent_name))
 
     def check_tool_call(
-        self, user_id: str, org_id: str, tool_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        tool_name: str,
     ) -> bool:
         self.tool_checks.append((user_id, org_id, tool_name))
         return (user_id, org_id, tool_name) not in self._denied_tools
 
     def check_task_creation(
-        self, user_id: str, org_id: str, agent_name: str,
+        self,
+        user_id: str,
+        org_id: str,
+        agent_name: str,
     ) -> bool:
         self.task_checks.append((user_id, org_id, agent_name))
         return (user_id, org_id, agent_name) not in self._denied_tasks
@@ -534,7 +540,11 @@ class FakeVaultClient:
         return f"{org_id}/{user_id}/{service}/{key}"
 
     async def get_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
     ) -> Any:
         from stronghold.protocols.vault import VaultSecret
 
@@ -549,7 +559,12 @@ class FakeVaultClient:
         )
 
     async def put_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str, value: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
+        value: str,
     ) -> Any:
         from stronghold.protocols.vault import VaultSecret
 
@@ -560,26 +575,34 @@ class FakeVaultClient:
         return VaultSecret(value=value, service=service, key=key, version=ver)
 
     async def delete_user_secret(
-        self, org_id: str, user_id: str, service: str, key: str,
+        self,
+        org_id: str,
+        user_id: str,
+        service: str,
+        key: str,
     ) -> None:
         path = self._path(org_id, user_id, service, key)
         self._store.pop(path, None)
         self._version.pop(path, None)
 
     async def list_user_services(
-        self, org_id: str, user_id: str,
+        self,
+        org_id: str,
+        user_id: str,
     ) -> list[str]:
         prefix = f"{org_id}/{user_id}/"
         services = set()
         for k in self._store:
             if k.startswith(prefix):
-                parts = k[len(prefix):].split("/")
+                parts = k[len(prefix) :].split("/")
                 if parts:
                     services.add(parts[0])
         return sorted(services)
 
     async def revoke_user(
-        self, org_id: str, user_id: str,
+        self,
+        org_id: str,
+        user_id: str,
     ) -> int:
         prefix = f"{org_id}/{user_id}/"
         to_delete = [k for k in self._store if k.startswith(prefix)]
@@ -749,6 +772,7 @@ class FakeSpecVerifier:
         )
 
 
-# Re-export InMemoryCanaryStore from its canonical location so tests can import
-# it from fakes for consistency with the existing pattern.
 from stronghold.memory.canaries.store import InMemoryCanaryStore  # noqa: E402
+from stronghold.memory.sessions.store import (  # noqa: E402
+    InMemoryCheckpointStore as FakeCheckpointStore,
+)

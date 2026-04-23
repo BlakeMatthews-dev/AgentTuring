@@ -533,7 +533,6 @@ class TestHighAdminOrgScoping:
 
         source = inspect.getsource(admin.update_user_roles)
         # The SQL should have an org_id WHERE clause
-        has_org_in_update = "org_id" in source and "UPDATE" in source
         # BUG: currently the UPDATE users SET roles WHERE id = $N has no org_id
         # We check the SQL specifically
         if "WHERE id = " in source or "WHERE email = " in source:

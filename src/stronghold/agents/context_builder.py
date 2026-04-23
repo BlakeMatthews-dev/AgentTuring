@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from stronghold.protocols.canaries import CanaryStore
     from stronghold.protocols.memory import LearningStore
     from stronghold.protocols.prompts import PromptManager
     from stronghold.types.agent import AgentIdentity
@@ -43,6 +44,8 @@ class ContextBuilder:
         *,
         prompt_manager: PromptManager,
         learning_store: LearningStore | None = None,
+        canary_store: CanaryStore | None = None,
+        session_id: str = "",
         agent_id: str = "",
         user_id: str = "",
         org_id: str = "",
@@ -60,6 +63,8 @@ class ContextBuilder:
         Token budget enforcement: soul is always included. Learnings are
         added until the budget is exhausted, then remaining are dropped.
         """
+        from stronghold.security.warden.canary import CANARY_BLOCK_TEMPLATE  # noqa: PLC0415
+
         system_parts: list[str] = []
         budget_chars = system_token_budget * _CHARS_PER_TOKEN
 
@@ -76,6 +81,13 @@ class ContextBuilder:
                     len(soul),
                     system_token_budget,
                 )
+
+        # 1.5. Canary token (injected after soul, before learnings — dynamic, must not be cached)
+        if canary_store and session_id:
+            canary_token = await canary_store.get_or_mint(session_id, org_id)
+            canary_block = CANARY_BLOCK_TEMPLATE.format(token=canary_token)
+            system_parts.append(canary_block)
+            budget_chars -= len(canary_block)
 
         # 2. Promoted learnings (org-scoped, boundary-isolated)
         if learning_store and identity.memory_config.get("learnings") and budget_chars > 0:
@@ -172,9 +184,12 @@ class ContextBuilder:
 def inject_cache_breakpoints(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Mark stable system prompt prefix with cache_control for Anthropic prompt caching.
 
-    Splits system content at the learnings boundary so the soul prompt
-    (stable across calls) gets cached while dynamic learnings do not.
+    Splits at the first dynamic boundary — canary token if present (rotates on
+    detection), otherwise learnings boundary. Everything before the split is
+    stable (soul prompt) and gets cached. Everything after is dynamic.
     """
+    from stronghold.security.warden.canary import CANARY_BOUNDARY  # noqa: PLC0415
+
     result = list(messages)
     if not result or result[0].get("role") != "system":
         return result
@@ -183,7 +198,11 @@ def inject_cache_breakpoints(messages: list[dict[str, Any]]) -> list[dict[str, A
     content = system_msg["content"]
 
     if isinstance(content, str):
-        idx = content.find(_LEARNINGS_BOUNDARY)
+        # Prefer splitting at canary boundary (most dynamic); fall back to learnings.
+        split_at = content.find(CANARY_BOUNDARY)
+        if split_at <= 0:
+            split_at = content.find(_LEARNINGS_BOUNDARY)
+        idx = split_at
         if idx > 0:
             stable = content[:idx].rstrip()
             dynamic = content[idx:]

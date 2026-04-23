@@ -1,8 +1,9 @@
 """Warden: threat detection at two ingress points.
 
 Scans user input and tool results for hostile content.
-Four layers (cheap to expensive, short-circuit on detection):
+Five layers (cheap to expensive, short-circuit on detection):
 1. Regex patterns (zero cost, sub-millisecond)
+1.5. Canary token echo (substring match, < 1ms — only on tool_result)
 2. Heuristic scoring (lightweight statistical check)
 2.5. Semantic tool-poisoning (action+object+prescriptive, sub-millisecond)
 3. LLM classification (few-shot, ~100ms, costs tokens — optional)
@@ -50,17 +51,29 @@ class Warden:
         self,
         content: str,
         boundary: str,
+        *,
+        canary_token: str | None = None,
     ) -> WardenVerdict:
         """Scan content for threats.
 
         Args:
             content: The text to scan.
             boundary: "user_input" or "tool_result".
+            canary_token: Per-session canary token to check for echo (optional).
 
         Returns:
             WardenVerdict with clean/blocked/flags.
         """
         flags: list[str] = []
+
+        # Layer 1.5: Canary token echo (only on tool_result, before regex to
+        # short-circuit immediately on high-confidence exfil signal)
+        if canary_token and boundary == "tool_result":
+            from stronghold.security.warden.canary import scan_canary  # noqa: PLC0415
+
+            canary_verdict = await scan_canary(content, token=canary_token, boundary="tool_result")
+            if not canary_verdict.clean:
+                return canary_verdict
 
         # Layer 1: Regex patterns
         # Normalize Unicode to defeat homoglyph bypass (Cyrillic lookalikes etc.)

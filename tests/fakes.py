@@ -747,3 +747,8 @@ class FakeSpecVerifier:
             passed=self._default_pass,
             coverage_pct=coverage,
         )
+
+
+# Re-export InMemoryCanaryStore from its canonical location so tests can import
+# it from fakes for consistency with the existing pattern.
+from stronghold.memory.canaries.store import InMemoryCanaryStore  # noqa: E402

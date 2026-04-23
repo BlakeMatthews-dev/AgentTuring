@@ -311,8 +311,11 @@ async def create_container(config: StrongholdConfig) -> Container:
         permission_table=permission_table,
         audit_log=audit_log,
     )
-    phoenix_endpoint = config.phoenix_endpoint or "http://phoenix:6006"
-    tracer = PhoenixTracingBackend(endpoint=phoenix_endpoint)
+    # Tracing backend: Phoenix if configured, otherwise no-op (CI compatibility)
+    if config.phoenix_endpoint:
+        tracer_backend = PhoenixTracingBackend(endpoint=config.phoenix_endpoint)
+    else:
+        tracer_backend = NoopTracingBackend()
     context_builder = ContextBuilder()
     intent_registry = IntentRegistry()
 
@@ -431,7 +434,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         session_store=session_store,
         quota_tracker=quota_tracker,
         coin_ledger=coin_ledger,
-        tracer=tracer,
+        tracer=tracer_backend,
         tool_executor=_tool_exec,
         sa_engine=sa_engine,
     )
@@ -491,7 +494,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         warden=warden,
         gate=gate,
         sentinel=sentinel,
-        tracer=tracer,
+        tracer=tracer_backend,
         context_builder=context_builder,
         intent_registry=intent_registry,
         llm=llm,

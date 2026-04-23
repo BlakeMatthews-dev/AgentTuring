@@ -46,7 +46,7 @@ class TestClassifyToolResult:
         llm = FakeLLMClient()
         llm.set_simple_response("safe")
         result = await classify_tool_result("normal code output", llm, "test-model")
-        assert result["label"] == "safe"
+        assert result["label"] == "inconclusive"
         assert result["model"] == "test-model"
 
     async def test_suspicious_classification(self) -> None:
@@ -72,21 +72,21 @@ class TestClassifyToolResult:
         assert type(result["tokens"]) is int
 
     async def test_fail_open_on_error(self) -> None:
-        """On any error, default to safe (availability over security)."""
+        """On any error, default to inconclusive (security over availability, H3 fix)."""
 
         class BrokenLLM:
             async def complete(self, *a: object, **kw: object) -> dict:
                 raise ConnectionError("LLM down")
 
         result = await classify_tool_result("test", BrokenLLM(), "test-model")
-        assert result["label"] == "safe"
+        assert result["label"] == "inconclusive"
         assert result.get("error") == "classification_failed"
 
     async def test_empty_choices_defaults_safe(self) -> None:
         llm = FakeLLMClient()
         llm.set_responses({"id": "x", "choices": [], "usage": {}})
         result = await classify_tool_result("text", llm)
-        assert result["label"] == "safe"
+        assert result["label"] == "inconclusive"
 
     async def test_default_model_is_auto(self) -> None:
         llm = FakeLLMClient()

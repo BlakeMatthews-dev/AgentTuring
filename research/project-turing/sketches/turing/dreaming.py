@@ -205,14 +205,12 @@ class Dreamer:
         except TimeoutError:
             logger.warning("dream session %s truncated", session_id)
             patterns = []
-            pending = []
             committed, rejected = [], []
             affirmations, lessons, pruned = 0, 0, 0
             truncated = True
         except Exception:
             logger.exception("dream session %s failed", session_id)
             patterns = []
-            pending = []
             committed, rejected = [], []
             affirmations, lessons, pruned = 0, 0, 0
 

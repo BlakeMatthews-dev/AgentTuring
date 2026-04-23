@@ -1,0 +1,17 @@
+# Auto-managed by .github/workflows/deploy.yml — DO NOT HAND-EDIT.
+#
+# On every push to `main`, CI builds and pushes a new image, then opens
+# a PR titled `deploy(production): bump image to <tag>` against main.
+# Merging that PR bumps this file; Argo CD's stronghold-production
+# Application then detects the change but DOES NOT auto-sync —
+# production deploys require manual sync (approval gate) via:
+#
+#   argocd app sync stronghold-production
+#   # or the Argo CD UI: https://10.10.42.31:30443/applications/argocd/stronghold-production
+#
+# To roll back: `git revert` the bump commit on main, merge, then sync.
+image:
+  tag: production-init
+strongholdApi:
+  image:
+    tag: production-init

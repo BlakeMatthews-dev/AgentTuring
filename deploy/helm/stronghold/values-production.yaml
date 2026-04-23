@@ -1,0 +1,55 @@
+# values-production.yaml
+#
+# Production-environment overlay.
+#
+# CURRENT TARGET: k3s cluster (10.10.42.31), namespace stronghold-platform.
+# FUTURE TARGET: Azure AKS — compose values-aks.yaml on top once the
+#                blue-green pattern is proven on k3s (ADR-K8S-007).
+#
+# Composed on top of values.yaml + values-vanilla-k8s.yaml.
+# Image tag is supplied separately by values-production-image.yaml,
+# which CI (.github/workflows/deploy.yml) bumps via PR on every push to main.
+
+openshift:
+  enabled: false
+
+namespace:
+  create: false
+  name: stronghold-platform
+
+priorityClasses:
+  create: true
+
+rbac:
+  create: true
+
+extraNamespaces:
+  create: true
+
+networkPolicy:
+  enabled: true
+
+ingressRoutes:
+  enabled: false
+
+# Production uses per-tenant credentials, not the shared-PAT dev mode.
+mcp:
+  github:
+    devMode: false
+
+image:
+  repository: ghcr.io/agent-stronghold/stronghold
+  pullPolicy: IfNotPresent
+
+strongholdApi:
+  replicas: 2
+  image:
+    registry: ghcr.io
+    repository: agent-stronghold/stronghold
+    pullPolicy: IfNotPresent
+
+podDisruptionBudgets:
+  enabled: true
+
+autoscaling:
+  enabled: false

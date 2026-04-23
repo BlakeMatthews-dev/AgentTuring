@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stronghold-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Agent-StrongHold/stronghold.git
+    targetRevision: main
+    path: deploy/helm/stronghold
+    helm:
+      releaseName: stronghold
+      valueFiles:
+        - values.yaml
+        - values-vanilla-k8s.yaml
+        - values-production.yaml
+        - values-production-image.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: stronghold-platform
+  syncPolicy:
+    # MANUAL sync — production deploys require human approval. Bumping
+    # the image tag in main only stages the change; Argo will not apply
+    # until an operator runs `argocd app sync stronghold-production`
+    # or clicks Sync in the UI.
+    syncOptions:
+      - CreateNamespace=false   # namespace already exists; do not risk wiping
+      - ServerSideApply=true
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

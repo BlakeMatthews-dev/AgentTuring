@@ -48,9 +48,7 @@ class TestLoadConfig:
         config = load_config("/nonexistent/path.yaml")
         assert config.auth.jwks_url == "https://sso.example.com/.well-known/jwks.json"
 
-    def test_valid_yaml_loaded(
-        self, tmp_path: object, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_valid_yaml_loaded(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
         """Valid YAML file is parsed and values are applied."""
         import pathlib
 

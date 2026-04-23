@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -194,7 +193,7 @@ class TestForgeSkill:
             "  properties:\n"
             "    input:\n"
             "      type: string\n"
-            "      description: \"The input\"\n"
+            '      description: "The input"\n'
             "  required: [input]\n"
             'trust_tier: "t3"\n'
             "---\n\n"
@@ -230,7 +229,6 @@ class TestForgeSkill:
         so we test with a custom auth provider that returns a non-admin user.
         """
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(
@@ -273,7 +271,6 @@ class TestDeleteSkill:
 
     def test_non_admin_returns_403(self, skills_app: FastAPI) -> None:
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(
@@ -316,7 +313,6 @@ class TestUpdateSkill:
 
     def test_non_admin_returns_403(self, skills_app: FastAPI) -> None:
         from stronghold.types.auth import AuthContext
-
         from tests.fakes import FakeAuthProvider
 
         skills_app.state.container.auth_provider = FakeAuthProvider(

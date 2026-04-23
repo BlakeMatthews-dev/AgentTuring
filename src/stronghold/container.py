@@ -32,6 +32,7 @@ from stronghold.security.warden.detector import Warden
 from stronghold.sessions.store import InMemorySessionStore
 from stronghold.tools.executor import ToolDispatcher
 from stronghold.tools.registry import InMemoryToolRegistry
+from stronghold.tracing.noop import NoopTracingBackend
 from stronghold.tracing.phoenix_backend import PhoenixTracingBackend
 from stronghold.types.auth import PermissionTable
 from stronghold.types.errors import ConfigError
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from stronghold.protocols.memory import AuditLog, LearningStore, OutcomeStore, SessionStore
     from stronghold.protocols.prompts import PromptManager
     from stronghold.protocols.quota import QuotaTracker
+    from stronghold.protocols.tracing import TracingBackend
     from stronghold.types.config import StrongholdConfig
 
 logger = logging.getLogger("stronghold.container")
@@ -65,7 +67,7 @@ class Container:
     warden: Warden
     gate: Gate
     sentinel: Sentinel
-    tracer: PhoenixTracingBackend
+    tracer: TracingBackend
     context_builder: ContextBuilder
     intent_registry: IntentRegistry
     llm: LiteLLMClient
@@ -314,8 +316,10 @@ async def create_container(config: StrongholdConfig) -> Container:
         permission_table=permission_table,
         audit_log=audit_log,
     )
-    phoenix_endpoint = config.phoenix_endpoint or "http://phoenix:6006"
-    tracer = PhoenixTracingBackend(endpoint=phoenix_endpoint)
+    if config.phoenix_endpoint:
+        tracer: TracingBackend = PhoenixTracingBackend(endpoint=config.phoenix_endpoint)
+    else:
+        tracer: TracingBackend = NoopTracingBackend()
     context_builder = ContextBuilder()
     intent_registry = IntentRegistry()
 

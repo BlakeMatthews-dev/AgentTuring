@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr create *)",
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if printf '%s' \"$cmd\" | grep -qE '(--base[ =]+main|(^|[[:space:]])-B[ =]+main)([^a-zA-Z0-9_/-]|$)'; then jq -nc '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"ask\",permissionDecisionReason:\"PRs to main are disallowed by convention (see CLAUDE.md Build Rule 9). Approve only for emergency hotfixes or release-only docs.\"}}'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

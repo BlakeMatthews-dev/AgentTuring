@@ -27,11 +27,18 @@ DEFAULT_PRICING_VERSION = "default-v1"
 
 
 def _decimal(value: object, default: str = "0") -> Decimal:
-    """Safely coerce unknown config values into a Decimal."""
+    """Safely coerce unknown config values into a Decimal.
+
+    Rejects NaN and Infinity — those would silently bypass budget checks
+    because any comparison against NaN is False.
+    """
     if value in (None, ""):
         return Decimal(default)
     try:
-        return Decimal(str(value))
+        result = Decimal(str(value))
+        if result.is_nan() or result.is_infinite():
+            return Decimal(default)
+        return result
     except Exception:
         return Decimal(default)
 

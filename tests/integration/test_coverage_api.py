@@ -1,7 +1,6 @@
-"""Coverage tests for worker_main, agents_stream, traces, and webhooks.
+"""Coverage tests for agents_stream, traces, and webhooks.
 
 Targets uncovered lines in:
-  - src/stronghold/worker_main.py (lines 6-40): module import + main signature
   - src/stronghold/api/routes/agents_stream.py (lines 104-105, 112): SSE edge cases
   - src/stronghold/api/routes/traces.py (lines 14-23): trace retrieval
   - src/stronghold/api/routes/webhooks.py (lines 96-109): webhook gate endpoint

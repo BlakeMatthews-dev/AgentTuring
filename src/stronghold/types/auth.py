@@ -98,8 +98,8 @@ class AuthContext:
 SYSTEM_ORG_ID = "__system__"
 
 # System auth context for static API key callers.
-# Includes all admin tiers so API key callers can perform org_admin
-# and team_admin operations (unlock, enable, approve-team, etc.).
+# Read-only keys only get "user" role. Full admin access requires
+# proper authentication (JWT or demo login).
 SYSTEM_AUTH = AuthContext(
     user_id="system",
     username="system",

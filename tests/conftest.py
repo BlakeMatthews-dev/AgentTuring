@@ -33,6 +33,7 @@ import pytest
 # Using a session-scoped autouse fixture avoids requiring every
 # integration test to know about CI's env layer.
 os.environ["ROUTER_API_KEY"] = "sk-example-stronghold"
+os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = ""
 
 from stronghold.types.config import (
     RoutingConfig,

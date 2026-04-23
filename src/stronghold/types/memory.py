@@ -2,6 +2,7 @@
 
 The 7-tier episodic memory system with bounded weights.
 Key insight: REGRET weight cannot drop below 0.6 — structurally unforgettable.
+SessionCheckpoint: typed snapshot of working state for cross-session handoff.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
 
 
 class MemoryTier(StrEnum):
@@ -148,3 +150,37 @@ class EpisodicMemory:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_accessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     deleted: bool = False
+
+
+@dataclass(frozen=True)
+class SessionCheckpoint:
+    """Typed snapshot of working state for cross-session handoff (S1.3).
+
+    Schema-compatible with the client-side checkpoint format written by the
+    `/checkpoint-save` skill (S1.6). Frontmatter keys in the client Markdown
+    map byte-for-byte onto these fields.
+
+    Field notes:
+    - `scope`: enum MemoryScope; SESSION is the typical value for ad-hoc handoffs,
+      USER/AGENT for longer-lived resume points.
+    - `source`: who wrote the checkpoint — `agent` (server-side strategy),
+      `claude_code` (client-side skill), or `manual` (UI / admin upload).
+    - Ordered lists (decisions/remaining/notes/failed_approaches) are tuples so
+      the dataclass stays frozen and hashable.
+    """
+
+    checkpoint_id: str
+    session_id: str
+    agent_id: str | None
+    user_id: str | None
+    org_id: str
+    team_id: str | None
+    scope: MemoryScope
+    branch: str | None
+    summary: str
+    decisions: tuple[str, ...]
+    remaining: tuple[str, ...]
+    notes: tuple[str, ...]
+    failed_approaches: tuple[str, ...]
+    created_at: datetime
+    source: Literal["agent", "claude_code", "manual"]

@@ -747,3 +747,10 @@ class FakeSpecVerifier:
             passed=self._default_pass,
             coverage_pct=coverage,
         )
+
+
+# Re-export the in-memory CheckpointStore from its canonical location (S1.3)
+# so tests can import either directly or via the fakes module.
+from stronghold.memory.sessions.store import (  # noqa: E402
+    InMemoryCheckpointStore as FakeCheckpointStore,
+)

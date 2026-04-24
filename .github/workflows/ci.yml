@@ -279,10 +279,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://stronghold:stronghold@localhost:5433/stronghold
         run: |
-          for f in migrations/*.sql; do
-            echo "Running $f..."
-            psql "$DATABASE_URL" -f "$f"
-          done
+          # Run all migrations in a single connection to avoid inter-file
+          # connection drops on resource-constrained k3s runners.
+          cat migrations/*.sql | psql "$DATABASE_URL"
 
       - name: "Tier 1: Tests (working branch push)"
         if: github.event_name == 'push'

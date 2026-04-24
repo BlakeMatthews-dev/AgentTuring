@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -24,8 +25,6 @@ from .tiers import WEIGHT_BOUNDS, clamp_weight
 from .types import DURABLE_TIERS, EpisodicMemory, MemoryTier, SourceKind
 
 
-_NON_DURABLE_TIERS: frozenset[MemoryTier] = frozenset(MemoryTier) - DURABLE_TIERS
-
 _VALID_TABLES: frozenset[str] = frozenset({"durable_memory", "episodic_memory"})
 
 
@@ -39,13 +38,7 @@ class Repo:
 
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._path = ":memory:" if db_path is None else str(db_path)
-        # check_same_thread=False so the chat HTTP server (in a side thread)
-        # can read from the same connection. The GIL serializes Python-level
-        # accesses; SQLite itself is internally locked. Concurrent writes
-        # from multiple threads should still go through a higher-level lock
-        # in any future production port — for the research sketch with one
-        # writer (the reactor's main thread) and side-thread readers, this
-        # is fine.
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._apply_schema()
@@ -61,8 +54,9 @@ class Repo:
 
     def _apply_schema(self) -> None:
         schema_path = Path(__file__).with_name("schema.sql")
-        self._conn.executescript(schema_path.read_text())
-        self._conn.commit()
+        with self._lock:
+            self._conn.executescript(schema_path.read_text())
+            self._conn.commit()
 
     @staticmethod
     def _validate_table(table: str) -> None:
@@ -86,30 +80,31 @@ class Repo:
             self._validate_wisdom_invariants(memory)
         table = "durable_memory" if memory.tier in DURABLE_TIERS else "episodic_memory"
         self._validate_table(table)
-        try:
-            self._conn.execute(
-                f"""
-                INSERT INTO {table} (
-                    memory_id, self_id, tier, source, content, weight,
-                    affect, confidence_at_creation, surprise_delta, intent_at_time,
-                    supersedes, superseded_by, origin_episode_id, immutable,
-                    reinforcement_count, contradiction_count,
-                    {"deleted," if table == "episodic_memory" else ""}
-                    created_at, last_accessed_at, context
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?,
-                    {"?," if table == "episodic_memory" else ""}
-                    ?, ?, ?
+        with self._lock:
+            try:
+                self._conn.execute(
+                    f"""
+                    INSERT INTO {table} (
+                        memory_id, self_id, tier, source, content, weight,
+                        affect, confidence_at_creation, surprise_delta, intent_at_time,
+                        supersedes, superseded_by, origin_episode_id, immutable,
+                        reinforcement_count, contradiction_count,
+                        {"deleted," if table == "episodic_memory" else ""}
+                        created_at, last_accessed_at, context
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?, ?, ?,
+                        ?, ?,
+                        {"?," if table == "episodic_memory" else ""}
+                        ?, ?, ?
+                    )
+                    """,
+                    self._row_for_insert(memory, table == "episodic_memory"),
                 )
-                """,
-                self._row_for_insert(memory, table == "episodic_memory"),
-            )
-            self._conn.commit()
-        except sqlite3.IntegrityError as e:
-            raise RepoError(str(e)) from e
+                self._conn.commit()
+            except sqlite3.IntegrityError as e:
+                raise RepoError(str(e)) from e
         return memory.memory_id
 
     def _weight_in_bounds(self, memory: EpisodicMemory) -> bool:
@@ -127,27 +122,24 @@ class Repo:
             raise WisdomInvariantViolation(
                 "WISDOM requires context['supersedes_via_lineage'] as a non-empty list"
             )
-        # Every lineage memory_id must exist.
-        for mid in lineage:
-            if self.get(str(mid)) is None:
-                raise WisdomInvariantViolation(
-                    f"WISDOM lineage references unknown memory_id: {mid}"
-                )
-        # Must not supersede another WISDOM entry.
-        if memory.supersedes is not None:
-            prior = self.get(memory.supersedes)
-            if prior is not None and prior.tier == MemoryTier.WISDOM:
-                raise WisdomInvariantViolation(
-                    "WISDOM may not supersede existing WISDOM; extend instead"
-                )
-        # origin_episode_id must point at an OBSERVATION session marker whose
-        # content identifies it as a dream session. Loose lookup (no FK).
-        marker_row = self._conn.execute(
-            "SELECT tier, source, content FROM episodic_memory "
-            "WHERE memory_id = ? OR origin_episode_id = ? "
-            "LIMIT 1",
-            (memory.origin_episode_id, memory.origin_episode_id),
-        ).fetchone()
+        with self._lock:
+            for mid in lineage:
+                if self.get(str(mid)) is None:
+                    raise WisdomInvariantViolation(
+                        f"WISDOM lineage references unknown memory_id: {mid}"
+                    )
+            if memory.supersedes is not None:
+                prior = self.get(memory.supersedes)
+                if prior is not None and prior.tier == MemoryTier.WISDOM:
+                    raise WisdomInvariantViolation(
+                        "WISDOM may not supersede existing WISDOM; extend instead"
+                    )
+            marker_row = self._conn.execute(
+                "SELECT tier, source, content FROM episodic_memory "
+                "WHERE memory_id = ? OR origin_episode_id = ? "
+                "LIMIT 1",
+                (memory.origin_episode_id, memory.origin_episode_id),
+            ).fetchone()
         if marker_row is None:
             raise WisdomInvariantViolation(
                 f"WISDOM origin_episode_id {memory.origin_episode_id} does not resolve to any marker"
@@ -218,9 +210,10 @@ class Repo:
 
     def _fetch_by_id(self, memory_id: str, table: str) -> sqlite3.Row | None:
         self._validate_table(table)
-        cur = self._conn.execute(f"SELECT * FROM {table} WHERE memory_id = ?", (memory_id,))
-        cur.row_factory = sqlite3.Row
-        return cur.fetchone()
+        with self._lock:
+            cur = self._conn.execute(f"SELECT * FROM {table} WHERE memory_id = ?", (memory_id,))
+            cur.row_factory = sqlite3.Row
+            return cur.fetchone()
 
     def _row_to_memory(self, row: sqlite3.Row, *, include_deleted: bool) -> EpisodicMemory:
         return EpisodicMemory(
@@ -253,47 +246,50 @@ class Repo:
 
         INV-6 permits this in-place update; it is one of the few permitted.
         """
-        for table in ("durable_memory", "episodic_memory"):
-            cur = self._conn.execute(
-                f"SELECT superseded_by FROM {table} WHERE memory_id = ?",
-                (memory_id,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                continue
-            if row[0] is not None:
-                raise ImmutableViolation(f"superseded_by already set on {memory_id}")
-            self._conn.execute(
-                f"UPDATE {table} SET superseded_by = ? WHERE memory_id = ?",
-                (successor_id, memory_id),
-            )
-            self._conn.commit()
-            return
-        raise RepoError(f"no memory with id {memory_id}")
-
-    def increment_contradiction_count(self, memory_id: str) -> None:
-        for table in ("durable_memory", "episodic_memory"):
-            cur = self._conn.execute(
-                f"SELECT memory_id FROM {table} WHERE memory_id = ?", (memory_id,)
-            )
-            if cur.fetchone() is not None:
-                self._conn.execute(
-                    f"UPDATE {table} SET contradiction_count = contradiction_count + 1 "
-                    f"WHERE memory_id = ?",
+        with self._lock:
+            for table in ("durable_memory", "episodic_memory"):
+                cur = self._conn.execute(
+                    f"SELECT superseded_by FROM {table} WHERE memory_id = ?",
                     (memory_id,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    continue
+                if row[0] is not None:
+                    raise ImmutableViolation(f"superseded_by already set on {memory_id}")
+                self._conn.execute(
+                    f"UPDATE {table} SET superseded_by = ? WHERE memory_id = ?",
+                    (successor_id, memory_id),
                 )
                 self._conn.commit()
                 return
         raise RepoError(f"no memory with id {memory_id}")
 
+    def increment_contradiction_count(self, memory_id: str) -> None:
+        with self._lock:
+            for table in ("durable_memory", "episodic_memory"):
+                cur = self._conn.execute(
+                    f"SELECT memory_id FROM {table} WHERE memory_id = ?", (memory_id,)
+                )
+                if cur.fetchone() is not None:
+                    self._conn.execute(
+                        f"UPDATE {table} SET contradiction_count = contradiction_count + 1 "
+                        f"WHERE memory_id = ?",
+                        (memory_id,),
+                    )
+                    self._conn.commit()
+                    return
+        raise RepoError(f"no memory with id {memory_id}")
+
     def touch_access(self, memory_id: str) -> None:
         now_iso = datetime.now(UTC).isoformat()
-        for table in ("durable_memory", "episodic_memory"):
-            self._conn.execute(
-                f"UPDATE {table} SET last_accessed_at = ? WHERE memory_id = ?",
-                (now_iso, memory_id),
-            )
-        self._conn.commit()
+        with self._lock:
+            for table in ("durable_memory", "episodic_memory"):
+                self._conn.execute(
+                    f"UPDATE {table} SET last_accessed_at = ? WHERE memory_id = ?",
+                    (now_iso, memory_id),
+                )
+            self._conn.commit()
 
     def decay_weight(self, memory_id: str, delta: float) -> float:
         """Decay a non-durable memory's weight, clamped to tier floor.
@@ -307,11 +303,12 @@ class Repo:
         new_weight = clamp_weight(m.tier, m.weight - delta)
         table = "durable_memory" if m.tier in DURABLE_TIERS else "episodic_memory"
         self._validate_table(table)
-        self._conn.execute(
-            f"UPDATE {table} SET weight = ? WHERE memory_id = ?",
-            (new_weight, memory_id),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE {table} SET weight = ? WHERE memory_id = ?",
+                (new_weight, memory_id),
+            )
+            self._conn.commit()
         return new_weight
 
     # ------------------------------------------------------------------ delete
@@ -326,11 +323,12 @@ class Repo:
             raise RepoError(f"no memory with id {memory_id}")
         if m.immutable or m.tier in DURABLE_TIERS:
             raise ImmutableViolation(f"cannot delete immutable/durable memory {memory_id}")
-        self._conn.execute(
-            "UPDATE episodic_memory SET deleted = 1 WHERE memory_id = ?",
-            (memory_id,),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE episodic_memory SET deleted = 1 WHERE memory_id = ?",
+                (memory_id,),
+            )
+            self._conn.commit()
 
     # ------------------------------------------------------------------ queries
 
@@ -422,16 +420,19 @@ class Repo:
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY created_at DESC"
-        cur = self._conn.execute(sql, tuple(params))
-        cur.row_factory = sqlite3.Row
-        for row in cur.fetchall():
+        with self._lock:
+            cur = self._conn.execute(sql, tuple(params))
+            cur.row_factory = sqlite3.Row
+            rows = cur.fetchall()
+        for row in rows:
             yield self._row_to_memory(row, include_deleted=(table == "episodic_memory"))
 
     def count_by_tier(self, tier: MemoryTier) -> int:
         table = "durable_memory" if tier in DURABLE_TIERS else "episodic_memory"
         self._validate_table(table)
-        cur = self._conn.execute(f"SELECT COUNT(*) FROM {table} WHERE tier = ?", (tier.value,))
-        return int(cur.fetchone()[0])
+        with self._lock:
+            cur = self._conn.execute(f"SELECT COUNT(*) FROM {table} WHERE tier = ?", (tier.value,))
+            return int(cur.fetchone()[0])
 
 
 __all__ = [

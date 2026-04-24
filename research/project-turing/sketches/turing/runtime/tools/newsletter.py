@@ -106,6 +106,10 @@ class NewsletterContentReader:
             return None
         if isinstance(value, datetime):
             return value
+        import datetime as _dt
+
+        if isinstance(value, _dt.date) and not isinstance(value, datetime):
+            return datetime(value.year, value.month, value.day)
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))

@@ -46,6 +46,13 @@ def _parse(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s).astimezone(UTC)
 
 
+def _parse_req(s: str | None) -> datetime:
+    parsed = _parse(s)
+    if parsed is None:
+        return datetime.now(UTC)
+    return parsed
+
+
 class SelfRepo:
     """Self-model repository. Shares the connection with the memory `Repo`."""
 
@@ -104,8 +111,7 @@ class SelfRepo:
 
     def get_facet_score(self, self_id: str, facet_id: str) -> float:
         row = self._conn.execute(
-            "SELECT score FROM self_personality_facets "
-            "WHERE self_id = ? AND facet_id = ?",
+            "SELECT score FROM self_personality_facets WHERE self_id = ? AND facet_id = ?",
             (self_id, facet_id),
         ).fetchone()
         if row is None:
@@ -144,9 +150,9 @@ class SelfRepo:
             trait=Trait(d["trait"]),
             facet_id=d["facet_id"],
             score=float(d["score"]),
-            last_revised_at=_parse(d["last_revised_at"]),
-            created_at=_parse(d["created_at"]),
-            updated_at=_parse(d["updated_at"]),
+            last_revised_at=_parse_req(d["last_revised_at"]),
+            created_at=_parse_req(d["created_at"]),
+            updated_at=_parse_req(d["updated_at"]),
         )
 
     # ------------------------------------------------ personality items ------
@@ -186,8 +192,8 @@ class SelfRepo:
                 prompt_text=r[3],
                 keyed_facet=r[4],
                 reverse_scored=bool(r[5]),
-                created_at=_parse(r[6]),
-                updated_at=_parse(r[7]),
+                created_at=_parse_req(r[6]),
+                updated_at=_parse_req(r[7]),
             )
             for r in rows
         ]
@@ -235,7 +241,10 @@ class SelfRepo:
                WHERE self_id = ? GROUP BY item_id""",
             (self_id,),
         ).fetchall()
-        return {r[0]: _parse(r[1]) for r in rows if r[1] is not None}
+        result: dict[str, datetime] = {}
+        for r in rows:
+            result[str(r[0])] = _parse_req(r[1])
+        return result
 
     # ------------------------------------------------ revisions -------------
 
@@ -295,9 +304,9 @@ class SelfRepo:
                 text=r[2],
                 strength=float(r[3]),
                 rank=int(r[4]),
-                first_noticed_at=_parse(r[5]),
-                created_at=_parse(r[6]),
-                updated_at=_parse(r[7]),
+                first_noticed_at=_parse_req(r[5]),
+                created_at=_parse_req(r[6]),
+                updated_at=_parse_req(r[7]),
             )
             for r in rows
         ]
@@ -316,9 +325,9 @@ class SelfRepo:
             text=row[2],
             strength=float(row[3]),
             rank=int(row[4]),
-            first_noticed_at=_parse(row[5]),
-            created_at=_parse(row[6]),
-            updated_at=_parse(row[7]),
+            first_noticed_at=_parse_req(row[5]),
+            created_at=_parse_req(row[6]),
+            updated_at=_parse_req(row[7]),
         )
 
     def update_passion(self, p: Passion) -> None:
@@ -380,8 +389,8 @@ class SelfRepo:
                 name=r[2],
                 description=r[3],
                 last_engaged_at=_parse(r[4]),
-                created_at=_parse(r[5]),
-                updated_at=_parse(r[6]),
+                created_at=_parse_req(r[5]),
+                updated_at=_parse_req(r[6]),
             )
             for r in rows
         ]
@@ -432,8 +441,8 @@ class SelfRepo:
                 topic=r[2],
                 description=r[3],
                 last_noticed_at=_parse(r[4]),
-                created_at=_parse(r[5]),
-                updated_at=_parse(r[6]),
+                created_at=_parse_req(r[5]),
+                updated_at=_parse_req(r[6]),
             )
             for r in rows
         ]
@@ -474,8 +483,8 @@ class SelfRepo:
                 target=r[3],
                 strength=float(r[4]),
                 rationale=r[5],
-                created_at=_parse(r[6]),
-                updated_at=_parse(r[7]),
+                created_at=_parse_req(r[6]),
+                updated_at=_parse_req(r[7]),
             )
             for r in rows
         ]
@@ -545,9 +554,9 @@ class SelfRepo:
             kind=SkillKind(r[3]),
             stored_level=float(r[4]),
             decay_rate_per_day=float(r[5]),
-            last_practiced_at=_parse(r[6]),
-            created_at=_parse(r[7]),
-            updated_at=_parse(r[8]),
+            last_practiced_at=_parse_req(r[6]),
+            created_at=_parse_req(r[7]),
+            updated_at=_parse_req(r[8]),
         )
 
     # ------------------------------------------------ todos -----------------
@@ -657,17 +666,16 @@ class SelfRepo:
                 revision_num=int(r[3]),
                 text_before=r[4],
                 text_after=r[5],
-                revised_at=_parse(r[6]),
-                created_at=_parse(r[7]),
-                updated_at=_parse(r[8]),
+                revised_at=_parse_req(r[6]),
+                created_at=_parse_req(r[7]),
+                updated_at=_parse_req(r[8]),
             )
             for r in rows
         ]
 
     def max_revision_num(self, todo_id: str) -> int:
         row = self._conn.execute(
-            "SELECT COALESCE(MAX(revision_num), 0) "
-            "FROM self_todo_revisions WHERE todo_id = ?",
+            "SELECT COALESCE(MAX(revision_num), 0) FROM self_todo_revisions WHERE todo_id = ?",
             (todo_id,),
         ).fetchone()
         return int(row[0])
@@ -683,8 +691,8 @@ class SelfRepo:
             motivated_by_node_id=r[3],
             status=TodoStatus(r[4]),
             outcome_text=r[5],
-            created_at=_parse(r[6]),
-            updated_at=_parse(r[7]),
+            created_at=_parse_req(r[6]),
+            updated_at=_parse_req(r[7]),
         )
 
     # ------------------------------------------------ mood ------------------
@@ -734,14 +742,12 @@ class SelfRepo:
             valence=float(row[1]),
             arousal=float(row[2]),
             focus=float(row[3]),
-            last_tick_at=_parse(row[4]),
-            updated_at=_parse(row[5]),
+            last_tick_at=_parse_req(row[4]),
+            updated_at=_parse_req(row[5]),
         )
 
     def has_mood(self, self_id: str) -> bool:
-        row = self._conn.execute(
-            "SELECT 1 FROM self_mood WHERE self_id = ?", (self_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT 1 FROM self_mood WHERE self_id = ?", (self_id,)).fetchone()
         return row is not None
 
     # ------------------------------------------------ activation graph ------
@@ -808,8 +814,8 @@ class SelfRepo:
             rationale=r[8],
             expires_at=_parse(r[9]),
             retracted_by=r[10],
-            created_at=_parse(r[11]),
-            updated_at=_parse(r[12]),
+            created_at=_parse_req(r[11]),
+            updated_at=_parse_req(r[12]),
         )
 
     # ------------------------------------------------ bootstrap progress ----

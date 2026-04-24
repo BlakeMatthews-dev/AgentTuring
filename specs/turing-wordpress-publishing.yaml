@@ -1,0 +1,82 @@
+# Spec 1179: WordPressClient — autonomous publishing to Turing's native blog
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Realises the "Blog" surface's backend: Turing posts autonomously to a
+# native personal WordPress instance bundled in docker-compose. No operator
+# approval gate on the default path — the tool's trust tier + Warden scan
+# of the post body are the only guards.
+
+issue_number: 1179
+title: "WordPressClient — REST client + autonomous publish tool + bundled WP service"
+status: active
+complexity: M
+
+protocols_touched:
+  - WordPressClient (new)
+
+files_touched:
+  - src/stronghold/protocols/wordpress.py
+  - src/stronghold/integrations/wordpress/__init__.py
+  - src/stronghold/integrations/wordpress/rest_client.py
+  - src/stronghold/types/wordpress.py
+  - src/stronghold/tools/wordpress.py
+  - tests/fakes.py
+  - tests/integrations/wordpress/test_rest_client.py
+  - tests/tools/test_wordpress_publish.py
+  - docker-compose.yml
+
+acceptance_criteria:
+  - "WordPressClient exposes async publish(post: WordPressPost) -> PublishResult, list_posts(limit, offset) -> list[PostSummary], get_post(id) -> WordPressPost, update_post(id, patch) -> PublishResult, delete_post(id) -> None"
+  - "WordPressPost carries title, content_markdown, categories, tags, status (draft|publish|private), featured_media_url, excerpt"
+  - "REST impl authenticates via application password (username + app-password), sent as HTTP Basic Auth over HTTPS; credentials loaded from env (WORDPRESS_URL, WORDPRESS_USER, WORDPRESS_APP_PASSWORD) — never hardcoded"
+  - "Any non-HTTPS WORDPRESS_URL at startup raises ConfigError (unless WORDPRESS_ALLOW_INSECURE=1 is set for local dev)"
+  - "publish() sends content_markdown to WP after converting to block-style HTML via an internal converter; the converter is pure and unit-tested"
+  - "wordpress_publish tool is registered at trust tier T1 (operator-vetted) — autonomous but Warden-scanned; output from the tool is also Warden-scanned before re-entering agent context"
+  - "Tool invocation records trace spans with post title + WP response id; post body is never logged to tracing (Warden-sensitive content stays in memory only)"
+  - "docker-compose.yml adds `wordpress` and `mariadb` services; both run on an internal network; WP admin is exposed only on a configurable localhost port"
+  - "tests/fakes.FakeWordPressClient implements the full protocol, backed by an in-memory dict keyed by synthetic post id; returns PublishResult with the dict-generated id"
+  - "REST impl's test suite covers: happy-path publish, 401 auth failure, 429 rate-limit with exponential backoff (up to 4 retries), 5xx with retry, malformed JSON response"
+  - "Tool dispatcher surfaces WordPress network errors as ToolError subclasses; never leaks raw requests.HTTPError"
+
+invariants:
+  - name: no_cleartext_credentials
+    description: "REST impl never logs the app-password to traces, logs, or exceptions"
+    kind: state_invariant
+    expression: "app_password not in tracing_spans AND app_password not in log_lines AND app_password not in exception_messages"
+    severity: critical
+
+  - name: https_required
+    description: "WORDPRESS_URL must be https:// unless WORDPRESS_ALLOW_INSECURE=1"
+    kind: precondition
+    expression: "url.scheme == 'https' OR env.WORDPRESS_ALLOW_INSECURE == '1'"
+    severity: critical
+
+  - name: warden_scan_on_input
+    description: "Every post body entering wordpress_publish is Warden-scanned before dispatch"
+    kind: precondition
+    expression: "warden.scan(post.content_markdown).verdict != BLOCK"
+    severity: critical
+
+  - name: warden_scan_on_output
+    description: "PublishResult re-enters agent context only after Warden-scanning the WP response body (excerpt, rendered_html)"
+    kind: postcondition
+    expression: "warden.scan(result.rendered_html).verdict != BLOCK"
+    severity: critical
+
+  - name: tool_tier_t1
+    description: "wordpress_publish requires trust tier T1 or higher; T2/T3 callers are rejected"
+    kind: precondition
+    expression: "agent.trust_tier >= TrustTier.T1"
+    severity: critical
+
+  - name: idempotent_update
+    description: "update_post(id, patch) with the same patch applied twice leaves WP in the same state as applied once"
+    kind: postcondition
+    expression: "wp.get_post(id) == wp.get_post(id) after second update"
+    severity: high
+
+  - name: protocol_no_requests_import
+    description: "protocols/wordpress.py does not import requests, httpx, or any HTTP client library"
+    kind: state_invariant
+    expression: "protocol module has zero HTTP-library imports"
+    severity: critical

@@ -1,0 +1,84 @@
+# Spec 1180: Memory consolidator — Obsidian scratch → 7-tier vector DB promotion
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Closes the two-tier memory loop: Obsidian is working memory / self-talk;
+# the 7-tier vector DB is long-term authoritative recall. The consolidator
+# reads recent vault notes, extracts candidate memories, and promotes them
+# into the appropriate tier via the existing LearningStore and episodic
+# memory stores.
+#
+# Reuses: memory/learnings/extractor.py (ToolCorrectionExtractor patterns),
+# memory/episodic (7-tier store), protocols/memory.py (LearningStore).
+
+issue_number: 1180
+title: "Memory consolidator — Obsidian notes → 7-tier store promotion pipeline"
+status: active
+complexity: L
+
+protocols_touched:
+  - ObsidianStore
+  - LearningStore
+  - EpisodicMemoryStore
+
+files_touched:
+  - src/stronghold/memory/consolidator/__init__.py
+  - src/stronghold/memory/consolidator/engine.py
+  - src/stronghold/memory/consolidator/extractors.py
+  - src/stronghold/types/consolidation.py
+  - tests/memory/consolidator/test_engine.py
+  - tests/memory/consolidator/test_extractors.py
+
+acceptance_criteria:
+  - "Consolidator.run(since: datetime, max_notes: int) -> ConsolidationReport reads every vault note modified since `since`, up to `max_notes` notes"
+  - "Each note is passed through three extractors in order: self_todo_extractor, passion_extractor, regret_extractor — each returns candidate (tier, content, weight) tuples"
+  - "Candidates are deduplicated against the existing 7-tier store via embedding similarity threshold >= 0.92 before insertion"
+  - "Candidates for tiers REGRET/AFFIRMATION/WISDOM are written at or above their respective weight floors (0.6/0.6/0.9); candidates below the floor are rejected with a logged reason"
+  - "ConsolidationReport records notes_read, candidates_extracted, candidates_promoted, candidates_rejected (with per-candidate reject reason), duplicates_suppressed"
+  - "Consolidator is idempotent over (vault_state, timestamp): running it twice back-to-back on an unchanged vault produces zero new promotions"
+  - "Source note is NOT deleted after promotion — the vault retains the raw text for Turing to reread"
+  - "Consolidator runs on a configurable schedule (default: every 6 hours) AND on an end-of-session trigger hookable from the Conduit"
+  - "Every extractor is a pure function over a single note + its frontmatter; extractors do not hold state between invocations"
+  - "All extractors are Warden-scanned: self-authored content that was never Warden-scanned on the way into Obsidian gets scanned on the way into the durable store (addresses audit finding F1)"
+
+invariants:
+  - name: weight_floor_respected
+    description: "Promoted memories at REGRET/AFFIRMATION/WISDOM tiers are at or above their weight floors"
+    kind: postcondition
+    expression: "for m in promoted: m.tier.floor() <= m.weight"
+    severity: critical
+
+  - name: idempotent_on_unchanged_vault
+    description: "Re-running consolidator on an unchanged vault does not promote any candidates"
+    kind: postcondition
+    expression: "second_run.candidates_promoted == 0"
+    severity: critical
+
+  - name: source_note_preserved
+    description: "No vault note is deleted or truncated as a side effect of consolidation"
+    kind: postcondition
+    expression: "obsidian.read(source_path) == original_note_content"
+    severity: critical
+
+  - name: warden_scan_before_durable_store
+    description: "Every candidate is Warden-scanned before insert into the 7-tier store"
+    kind: precondition
+    expression: "warden.scan(candidate.content).verdict != BLOCK"
+    severity: critical
+
+  - name: dedup_by_embedding_similarity
+    description: "Candidates are rejected if their embedding similarity to an existing memory exceeds the dedup threshold"
+    kind: postcondition
+    expression: "for promoted: max(cosine_sim(promoted, existing)) < 0.92"
+    severity: high
+
+  - name: extractor_purity
+    description: "Extractors are deterministic over (note_body, frontmatter) — no mutable global state, no network, no filesystem"
+    kind: state_invariant
+    expression: "extract(note) == extract(note)"
+    severity: critical
+
+  - name: report_integrity
+    description: "ConsolidationReport counts satisfy: candidates_promoted + candidates_rejected + duplicates_suppressed == candidates_extracted"
+    kind: postcondition
+    expression: "report.promoted + report.rejected + report.duplicates == report.extracted"
+    severity: high

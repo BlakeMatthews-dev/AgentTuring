@@ -1,0 +1,84 @@
+# Spec 1178: ObsidianStore — Turing's working-memory scratch space
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Positions: below the 7-tier vector DB (authoritative long-term memory);
+# above the filesystem. See project_turing.research.md for the two-tier
+# memory architecture this spec realises on the write-side.
+#
+# Not to be confused with the 7-tier episodic memory already described in
+# research/project-turing/. Obsidian is the *scratch* tier; promotion into
+# the 7-tier store is handled by the memory consolidator (spec 1180).
+
+issue_number: 1178
+title: "ObsidianStore — working-memory markdown vault with protocol + filesystem impl + fake"
+status: active
+complexity: M
+
+protocols_touched:
+  - ObsidianStore (new)
+
+files_touched:
+  - src/stronghold/protocols/obsidian.py
+  - src/stronghold/memory/obsidian/__init__.py
+  - src/stronghold/memory/obsidian/filesystem_store.py
+  - src/stronghold/types/obsidian.py
+  - src/stronghold/tools/obsidian.py
+  - tests/fakes.py
+  - tests/memory/obsidian/test_filesystem_store.py
+  - tests/tools/test_obsidian_tools.py
+
+acceptance_criteria:
+  - "ObsidianStore exposes async read(path), write(path, content, frontmatter=None), append(path, content), search(query, limit), list_folder(path) — no other methods"
+  - "Paths are validated against the configured vault root; any '..' segment or absolute-path input raises VaultPathError before filesystem access"
+  - "write() with frontmatter merges provided keys into existing YAML frontmatter without dropping unknown keys; creates frontmatter block if absent"
+  - "append() writes to the end of the file with a leading newline separator; creates the file if it does not exist (and any parent dirs inside the vault)"
+  - "search(query, limit) returns up to `limit` (path, score, snippet) matches, ranked by a deterministic scoring function (exact-substring > word-boundary > stem-match)"
+  - "list_folder(path) returns the immediate (subfolders, notes) contents; does not recurse"
+  - "Four tools (obsidian_read, obsidian_write, obsidian_append, obsidian_search) are registered at trust tier T2 and are callable by Turing agents"
+  - "tests/fakes.FakeObsidianStore implements the full protocol, backed by an in-memory dict, with the same path validation semantics"
+  - "FilesystemObsidianStore rejects writes outside the configured vault root; unit tests exercise path traversal, symlink escape, absolute paths, and '..' segments"
+  - "Tool dispatch surfaces ObsidianStore errors (VaultPathError, NoteNotFound) as typed ToolError subclasses, not raw OSError"
+  - "The vault root path is read from config (StrongholdConfig.obsidian.vault_path); no hardcoded default outside example.yaml"
+
+invariants:
+  - name: vault_root_containment
+    description: "Every path resolved by the store stays inside the configured vault root — no traversal, no symlink escape"
+    kind: postcondition
+    expression: "resolved_path.is_relative_to(vault_root_resolved)"
+    severity: critical
+
+  - name: frontmatter_key_preservation
+    description: "write() with frontmatter never drops unknown keys from an existing frontmatter block"
+    kind: postcondition
+    expression: "set(old_frontmatter.keys()).issubset(set(new_frontmatter.keys()))"
+    severity: high
+
+  - name: append_is_append_only
+    description: "append() never overwrites existing content — old content is a prefix of new content"
+    kind: postcondition
+    expression: "new_content.startswith(old_content)"
+    severity: critical
+
+  - name: search_deterministic
+    description: "For a fixed vault state + query + limit, search() returns the same ordered tuple across calls"
+    kind: postcondition
+    expression: "store.search(q, n) == store.search(q, n)"
+    severity: high
+
+  - name: no_external_imports_in_protocol
+    description: "protocols/obsidian.py imports nothing from concrete filesystem modules (only typing + Path for return types)"
+    kind: state_invariant
+    expression: "protocol module has zero non-stdlib/non-typing imports"
+    severity: critical
+
+  - name: fake_parity
+    description: "FakeObsidianStore raises the same error types as FilesystemObsidianStore for equivalent invalid inputs"
+    kind: postcondition
+    expression: "type(fake_error) == type(real_error)"
+    severity: high
+
+  - name: tool_tier_enforced
+    description: "obsidian_* tools are not callable below T2; registry rejects T3 dispatch"
+    kind: precondition
+    expression: "tool.trust_tier >= TrustTier.T2"
+    severity: critical

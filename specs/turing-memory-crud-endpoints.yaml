@@ -1,0 +1,85 @@
+# Spec 1181: Memory CRUD API — backend for the Memory surface
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Backs the Memory.html page's 7-tier DB inspector (tier nav, row list,
+# detail+edit, promote/demote/expire/burn, audit flag surfaces F1/F4/F13/F18).
+#
+# The Memory UI is a direct operator tool over Turing's autonoetic self —
+# the most powerful surface in the console. Every mutation is audit-logged,
+# every endpoint is admin-only, and the audit log is immutable.
+
+issue_number: 1181
+title: "Memory CRUD API — 7-tier DB inspector endpoints for the Memory surface"
+status: active
+complexity: L
+
+protocols_touched:
+  - EpisodicMemoryStore
+  - AuditLog
+
+files_touched:
+  - src/stronghold/api/routes/memory.py
+  - src/stronghold/types/memory_api.py
+  - tests/api/test_memory_routes.py
+
+acceptance_criteria:
+  - "GET /api/memory/tiers returns the 7-tier summary: tier name, row count, weight floor, weight distribution histogram"
+  - "GET /api/memory/tiers/{tier}/rows?cursor=...&limit=... returns paginated rows for a tier, newest first; cursor is opaque and server-signed"
+  - "GET /api/memory/rows/{id} returns the full row (content, embedding-hash, weight, tier, timestamps, source_note_path if consolidated, audit_flags)"
+  - "PATCH /api/memory/rows/{id} accepts {content?, weight?, audit_resolved?}; mutating content re-embeds and re-scans via Warden before persist"
+  - "POST /api/memory/rows/{id}/promote tier=NEW_TIER demotes/promotes a row; rejects if NEW_TIER has a weight floor above the row's current weight"
+  - "POST /api/memory/rows/{id}/expire soft-deletes the row (marks expired_at, excludes from retrieval, keeps the row for audit)"
+  - "POST /api/memory/rows/{id}/burn hard-deletes the row; requires a confirmation reason string; writes an audit-log entry with the reason"
+  - "Every mutating endpoint writes to AuditLog with {actor, row_id, action, before, after, reason}; audit entries are immutable"
+  - "All endpoints require admin permission (permissions.memory_crud); non-admin auth returns 403"
+  - "All endpoints enforce per-user rate limit: 60 mutations / min, 600 reads / min"
+  - "Audit-flag surfaces (F1/F4/F13/F18) are computed server-side from row metadata; UI shows a flag badge for any unresolved flagged row"
+
+invariants:
+  - name: weight_floor_enforced_on_promote
+    description: "promote() to REGRET/AFFIRMATION/WISDOM tiers rejects rows whose current weight is below the destination floor"
+    kind: precondition
+    expression: "row.weight >= destination_tier.floor() OR response.status == 422"
+    severity: critical
+
+  - name: burn_requires_reason
+    description: "burn() endpoint rejects requests without a non-empty `reason` string"
+    kind: precondition
+    expression: "len(request.reason.strip()) > 0 OR response.status == 400"
+    severity: critical
+
+  - name: audit_entry_on_every_mutation
+    description: "Every 2xx response to PATCH/POST produces exactly one new AuditLog entry"
+    kind: postcondition
+    expression: "audit_log.count() == audit_log.count() + 1 after mutation"
+    severity: critical
+
+  - name: audit_log_immutable
+    description: "Existing audit entries cannot be modified or deleted via the API"
+    kind: state_invariant
+    expression: "no endpoint mutates or deletes AuditLog rows"
+    severity: critical
+
+  - name: admin_only
+    description: "Every endpoint returns 403 when the caller lacks the memory_crud permission"
+    kind: precondition
+    expression: "'memory_crud' in caller.permissions OR response.status == 403"
+    severity: critical
+
+  - name: warden_scan_on_content_edit
+    description: "PATCH with a content change Warden-scans the new content before persist; BLOCK verdicts return 400 with reason"
+    kind: precondition
+    expression: "warden.scan(new_content).verdict != BLOCK OR response.status == 400"
+    severity: critical
+
+  - name: cursor_server_signed
+    description: "Pagination cursors are opaque + HMAC-signed; tampered cursors return 400"
+    kind: precondition
+    expression: "cursor.verify() == True OR response.status == 400"
+    severity: high
+
+  - name: soft_delete_preserves_row
+    description: "expire() sets expired_at but the row remains readable via GET /rows/{id}"
+    kind: postcondition
+    expression: "get(id).expired_at is not None AND get(id).content == original_content"
+    severity: critical

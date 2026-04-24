@@ -1,0 +1,78 @@
+# Spec 1183: Notebook live vault — wire Notebook.html to the Obsidian vault
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Replaces the designer's in-memory stub notebook with a live, read-only-
+# by-default view of Turing's vault. Editing is handler-authorised and
+# goes through the same ObsidianStore (spec 1178) Turing writes with —
+# so handler and Turing are editing the same files, but from opposite
+# sides of the wire.
+
+issue_number: 1183
+title: "Notebook live vault — handler-facing read/write over Turing's Obsidian vault"
+status: active
+complexity: M
+
+protocols_touched:
+  - ObsidianStore
+
+files_touched:
+  - src/stronghold/api/routes/notebook.py
+  - src/stronghold/dashboard/components/notebook.jsx
+  - src/stronghold/types/notebook_api.py
+  - tests/api/test_notebook_routes.py
+
+acceptance_criteria:
+  - "GET /api/notebook/tree?folder=... returns {folders: [...], notes: [{path, title, modified_at, size_bytes, frontmatter_excerpt}]} for the requested folder; does not recurse"
+  - "GET /api/notebook/note?path=... returns {path, content, frontmatter, backlinks[], outgoing_links[], modified_at}"
+  - "PUT /api/notebook/note?path=... writes content via ObsidianStore.write; requires admin permission; every write is audit-logged with {actor, path, before_hash, after_hash}"
+  - "POST /api/notebook/note/append?path=... appends content via ObsidianStore.append; same permission + audit requirements"
+  - "GET /api/notebook/search?q=...&limit=... proxies ObsidianStore.search and returns the ranked results"
+  - "GET /api/notebook/graph returns the note-graph as {nodes: [...], edges: [...]} for the graph-view UI; cached 30s"
+  - "Six canonical sections (daily, scratchpad, outbox, art, self-todo, passions) appear as top-level folders in the vault; the tree endpoint returns them even when empty, with synthesized placeholder entries"
+  - "Notebook.jsx mounts the live endpoints; the file tree re-polls every 15s when the page is visible; WebSocket-based live-update is out of scope for this spec"
+  - "Handler writes are Warden-scanned before persist; BLOCK verdicts return 400"
+  - "Every path parameter is validated via the same guard as ObsidianStore — '..' / absolute / symlink-escape attempts return 400 before touching disk"
+  - "The notebook API never exposes the absolute filesystem path of the vault; all paths in responses are vault-relative"
+
+invariants:
+  - name: vault_relative_paths_only
+    description: "No endpoint response contains an absolute filesystem path"
+    kind: postcondition
+    expression: "not any(p.startswith('/') or ':' in p for p in response_paths)"
+    severity: critical
+
+  - name: write_audit_always
+    description: "Every 2xx PUT/POST to /api/notebook produces exactly one new audit entry"
+    kind: postcondition
+    expression: "audit_log.count() + 1 after every successful write"
+    severity: critical
+
+  - name: admin_only_writes
+    description: "PUT/POST endpoints return 403 when the caller lacks the notebook_write permission"
+    kind: precondition
+    expression: "'notebook_write' in caller.permissions OR response.status == 403"
+    severity: critical
+
+  - name: warden_scan_on_handler_write
+    description: "Handler-supplied content is Warden-scanned before ObsidianStore.write"
+    kind: precondition
+    expression: "warden.scan(body.content).verdict != BLOCK OR response.status == 400"
+    severity: critical
+
+  - name: six_canonical_sections_present
+    description: "The tree endpoint always returns the six canonical section folders, even if the vault filesystem is empty"
+    kind: postcondition
+    expression: "set(folder.name for folder in tree.folders) >= {'daily', 'scratchpad', 'outbox', 'art', 'self-todo', 'passions'}"
+    severity: high
+
+  - name: traversal_rejected
+    description: "Any path containing '..' or starting with '/' returns 400 without filesystem access"
+    kind: precondition
+    expression: "valid_vault_path(path) OR response.status == 400"
+    severity: critical
+
+  - name: graph_cache_bound
+    description: "Graph endpoint cache respects a 30s TTL; older cache entries are discarded before serving"
+    kind: postcondition
+    expression: "time.now() - cache.built_at < 30s"
+    severity: high

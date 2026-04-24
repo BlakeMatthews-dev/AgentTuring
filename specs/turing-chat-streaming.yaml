@@ -1,0 +1,73 @@
+# Spec 1182: Chat streaming — wire the Chat surface to route_request()
+#
+# Parent: PR #1177 (Agent Turing field console UI).
+# Wires Chat.html to the Conduit (container.route_request) via SSE.
+# Honors the designer's Chat mechanics: daily initiation budget (Turing
+# begins at most one thread per day), typewriter reveal, inline memory
+# citations under replies, Turing-initiated threads marked alongside
+# handler-initiated threads.
+
+issue_number: 1182
+title: "Chat streaming — SSE endpoint + daily initiation budget + memory citations"
+status: active
+complexity: L
+
+protocols_touched:
+  - (no new protocols — uses existing Conduit, SessionStore, EpisodicMemoryStore)
+
+files_touched:
+  - src/stronghold/api/routes/chat.py
+  - src/stronghold/dashboard/components/chat.jsx
+  - src/stronghold/types/chat_stream.py
+  - tests/api/test_chat_streaming.py
+
+acceptance_criteria:
+  - "POST /api/chat/messages opens an SSE stream; each event is one of {token, memory_citation, tool_start, tool_end, done, error} with a typed payload"
+  - "token events carry delta text; the client concatenates and reveals via typewriter animation at a configurable speed"
+  - "memory_citation events carry {tier, memory_id, weight, label}; emitted when the agent's context builder injects a retrieved memory into the prompt"
+  - "done events carry {session_id, final_text, citations[]}; error events carry {code, message} and terminate the stream"
+  - "GET /api/chat/threads returns handler's threads newest-first, each with {id, title, initiated_by: 'handler'|'turing', last_message_at, unread_count}"
+  - "GET /api/chat/initiation-budget returns {remaining: int, resets_at: iso-datetime, last_used_at: iso-datetime|null} — 1 initiation per handler per UTC day"
+  - "POST /api/chat/initiate is callable only by Turing (internal route, authenticated via Conduit-scoped token); decrements the handler's budget atomically"
+  - "If Turing attempts to initiate with budget_remaining == 0, the endpoint returns 429 and writes an audit-log entry; no message is posted"
+  - "Handler-facing POST /api/chat/messages never checks the initiation budget — only Turing-initiated threads consume it"
+  - "Chat.jsx consumes the SSE stream via EventSource, renders tokens with a cursor block (<span class='cursor'>) until the done event arrives, then drops the cursor"
+  - "Every retrieved memory citation renders as a chip under Turing's reply (tier · id · weight · label); clicking a chip scrolls to the Memory page row in a new tab"
+  - "Stream errors (network, 5xx, warden BLOCK) surface in the UI as a toast with the error code, then the cursor is dropped and input is re-enabled"
+
+invariants:
+  - name: one_initiation_per_day
+    description: "No more than one Turing-initiated thread is created per handler per UTC day"
+    kind: postcondition
+    expression: "count(threads where initiated_by='turing' AND created_at.date() == today) <= 1"
+    severity: critical
+
+  - name: budget_decrement_atomic
+    description: "Concurrent initiate calls can only succeed once per day — no double-spend"
+    kind: postcondition
+    expression: "successful_initiates <= 1 under concurrent load within a UTC day"
+    severity: critical
+
+  - name: citation_points_to_real_row
+    description: "Every memory_citation event references a memory_id that exists in the 7-tier store at emission time"
+    kind: postcondition
+    expression: "for c in citations: memory_store.get(c.memory_id) is not None"
+    severity: high
+
+  - name: sse_stream_is_well_formed
+    description: "Every stream terminates with exactly one `done` or `error` event; no stream leaves a hanging state"
+    kind: postcondition
+    expression: "last_event.type in {'done', 'error'}"
+    severity: critical
+
+  - name: no_raw_llm_errors_leak
+    description: "LLM provider exceptions are wrapped in StreamError before emission; raw stack traces never hit the client"
+    kind: postcondition
+    expression: "'Traceback' not in any sse_event.payload"
+    severity: critical
+
+  - name: initiate_requires_turing
+    description: "The /api/chat/initiate endpoint rejects non-Turing callers"
+    kind: precondition
+    expression: "caller.identity == 'turing' OR response.status == 403"
+    severity: critical

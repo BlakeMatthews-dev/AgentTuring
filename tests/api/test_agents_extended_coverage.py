@@ -159,7 +159,7 @@ def ext_agents_app() -> FastAPI:
 
         return Container(
             config=config,
-            auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+            auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
             permission_table=PermissionTable.from_config({"admin": ["*"]}),
             router=RouterEngine(InMemoryQuotaTracker()),
             classifier=ClassifierEngine(),
@@ -187,7 +187,7 @@ def ext_agents_app() -> FastAPI:
             agents=agents_dict,
         )
 
-    container = asyncio.get_event_loop().run_until_complete(setup())
+    container = asyncio.run(setup())
     app.state.container = container
     return app
 
@@ -338,13 +338,13 @@ class TestImportAgentFromUrl:
 
     @respx.mock
     def test_import_url_non_200_returns_502(self, ext_agents_app: FastAPI) -> None:
-        respx.get("https://example.com/missing.zip").mock(
+        respx.get("https://codeload.github.com/acme/widget/zip/main").mock(
             return_value=HttpxResponse(404, text="Not Found")
         )
         with TestClient(ext_agents_app) as client:
             resp = client.post(
                 "/v1/stronghold/agents/import-url",
-                json={"url": "https://example.com/missing.zip"},
+                json={"url": "https://codeload.github.com/acme/widget/zip/main"},
                 headers=AUTH_HEADER,
             )
         assert resp.status_code == 502
@@ -352,13 +352,13 @@ class TestImportAgentFromUrl:
     @respx.mock
     def test_import_url_too_small_response_returns_400(self, ext_agents_app: FastAPI) -> None:
         """Response that is too small to be a valid zip returns 400."""
-        respx.get("https://example.com/tiny.zip").mock(
+        respx.get("https://codeload.github.com/acme/widget/zip/tiny").mock(
             return_value=HttpxResponse(200, content=b"PK")
         )
         with TestClient(ext_agents_app) as client:
             resp = client.post(
                 "/v1/stronghold/agents/import-url",
-                json={"url": "https://example.com/tiny.zip"},
+                json={"url": "https://codeload.github.com/acme/widget/zip/tiny"},
                 headers=AUTH_HEADER,
             )
         assert resp.status_code == 400
@@ -367,13 +367,13 @@ class TestImportAgentFromUrl:
     def test_import_url_fetch_error_returns_502(self, ext_agents_app: FastAPI) -> None:
         import httpx as _httpx
 
-        respx.get("https://example.com/fail.zip").mock(
+        respx.get("https://codeload.github.com/acme/widget/zip/fail").mock(
             side_effect=_httpx.ConnectError("connection reset")
         )
         with TestClient(ext_agents_app) as client:
             resp = client.post(
                 "/v1/stronghold/agents/import-url",
-                json={"url": "https://example.com/fail.zip"},
+                json={"url": "https://codeload.github.com/acme/widget/zip/fail"},
                 headers=AUTH_HEADER,
             )
         assert resp.status_code == 502
@@ -382,7 +382,7 @@ class TestImportAgentFromUrl:
         with TestClient(ext_agents_app) as client:
             resp = client.post(
                 "/v1/stronghold/agents/import-url",
-                json={"url": "https://example.com/agent.zip"},
+                json={"url": "https://codeload.github.com/acme/widget/zip/agent"},
             )
         assert resp.status_code == 401
 

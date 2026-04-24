@@ -148,7 +148,7 @@ def fake_app() -> FastAPI:
             agents={"arbiter": default_agent, "artificer": artificer_agent},
         )
 
-    container = asyncio.get_event_loop().run_until_complete(setup())
+    container = asyncio.run(setup())
     app.state.container = container
     return app
 

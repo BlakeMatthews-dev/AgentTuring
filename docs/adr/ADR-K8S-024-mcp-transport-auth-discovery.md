@@ -1,6 +1,6 @@
 # ADR-K8S-024 — MCP transport, auth, and discovery
 
-**Status:** Proposed
+**Status:** Accepted (2026-04-23 — Streamable HTTP transport mounted at /mcp/v1/ in phase I; OAuth 2.1 scaffolding in src/stronghold/mcp/oauth/ awaiting real SSO wiring)
 **Date:** 2026-04-09
 **Deciders:** Stronghold core team
 

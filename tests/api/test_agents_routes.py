@@ -132,7 +132,7 @@ def agents_app() -> FastAPI:
 
         return Container(
             config=config,
-            auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+            auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
             permission_table=PermissionTable.from_config({"admin": ["*"]}),
             router=RouterEngine(InMemoryQuotaTracker()),
             classifier=ClassifierEngine(),
@@ -160,7 +160,7 @@ def agents_app() -> FastAPI:
             agents=agents_dict,
         )
 
-    container = asyncio.get_event_loop().run_until_complete(setup())
+    container = asyncio.run(setup())
     app.state.container = container
     return app
 

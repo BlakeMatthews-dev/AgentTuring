@@ -262,13 +262,26 @@ class TestSessionIDValidation:
 class TestAdminLearningWardenScan:
     """Regression: add_learning must Warden-scan learning text before storing."""
 
+    @staticmethod
+    def _make_app() -> "FastAPI":  # type: ignore[name-defined]
+        import asyncio
+
+        from stronghold.api.app import create_app
+        from stronghold.config.loader import load_config
+        from stronghold.container import create_container
+        from stronghold.security.auth_static import StaticKeyAuthProvider
+
+        app = create_app()
+        container = asyncio.run(create_container(load_config()))
+        container.auth_provider = StaticKeyAuthProvider(api_key="sk-example-stronghold", read_only=False)  # type: ignore[assignment]
+        app.state.container = container
+        return app
+
     def test_malicious_learning_text_rejected(self) -> None:
         """Prompt injection in learning text must be blocked (400)."""
         from fastapi.testclient import TestClient
 
-        from stronghold.api.app import create_app
-
-        app = create_app()
+        app = self._make_app()
         with TestClient(app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/learnings",
@@ -286,9 +299,7 @@ class TestAdminLearningWardenScan:
         """Non-malicious learning text should be stored successfully."""
         from fastapi.testclient import TestClient
 
-        from stronghold.api.app import create_app
-
-        app = create_app()
+        app = self._make_app()
         with TestClient(app) as client:
             resp = client.post(
                 "/v1/stronghold/admin/learnings",
@@ -486,10 +497,13 @@ class TestErrorMessageSanitization:
         # the test client issues any requests. The ensure_test_container
         # middleware only creates a container when none is attached yet,
         # so pre-attaching ours means the forge endpoint will use it.
-        container = asyncio.get_event_loop().run_until_complete(
+        container = asyncio.run(
             create_container(load_config())
         )
+        from stronghold.security.auth_static import StaticKeyAuthProvider
+
         container.llm = _RaisingLLM(sensitive)
+        container.auth_provider = StaticKeyAuthProvider(api_key="sk-example-stronghold", read_only=False)  # type: ignore[assignment]
         app.state.container = container
 
         with TestClient(app) as client:
@@ -554,9 +568,12 @@ class TestLimitParameterBounds:
 
         # Force container startup synchronously so we can seed + attach
         # spies before the first request.
-        container = asyncio.get_event_loop().run_until_complete(
+        container = asyncio.run(
             create_container(load_config())
         )
+        from stronghold.security.auth_static import StaticKeyAuthProvider
+
+        container.auth_provider = StaticKeyAuthProvider(api_key="sk-example-stronghold", read_only=False)  # type: ignore[assignment]
         app.state.container = container
 
         # Seed > 500 audit entries so clamp=500 has something to cap.
@@ -572,7 +589,7 @@ class TestLimitParameterBounds:
                     )
                 )
 
-        asyncio.get_event_loop().run_until_complete(_seed_audit())
+        asyncio.run(_seed_audit())
 
         # Seed 2 tasks so the zero/negative clamp (-> 1) distinguishes
         # itself from the all-tasks view.
@@ -580,7 +597,7 @@ class TestLimitParameterBounds:
             await container.task_queue.submit({"id": "a", "org_id": "__system__"})
             await container.task_queue.submit({"id": "b", "org_id": "__system__"})
 
-        asyncio.get_event_loop().run_until_complete(_seed_tasks())
+        asyncio.run(_seed_tasks())
 
         # Spy wrappers that record the clamped limit the handler forwarded.
         recorded: dict[str, list[int]] = {"audit": [], "tasks": []}

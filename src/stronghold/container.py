@@ -17,6 +17,7 @@ from stronghold.events import Reactor
 from stronghold.memory.learnings.extractor import ToolCorrectionExtractor
 from stronghold.memory.learnings.store import InMemoryLearningStore
 from stronghold.memory.outcomes import InMemoryOutcomeStore
+from stronghold.playbooks.registry import InMemoryPlaybookRegistry
 from stronghold.prompts.store import InMemoryPromptManager
 from stronghold.quota.tracker import InMemoryQuotaTracker
 from stronghold.router.selector import RouterEngine
@@ -73,6 +74,7 @@ class Container:
     llm: LiteLLMClient
     tool_registry: InMemoryToolRegistry
     tool_dispatcher: ToolDispatcher
+    playbook_registry: InMemoryPlaybookRegistry = field(default_factory=InMemoryPlaybookRegistry)
     tool_policy: ToolPolicyProtocol | None = None
     checkpoint_store: Any = None  # CheckpointStore protocol (S1.3)
     tool_catalog: Any = None
@@ -328,6 +330,10 @@ async def create_container(config: StrongholdConfig) -> Container:
     tool_registry = InMemoryToolRegistry()
     tool_dispatcher = ToolDispatcher(tool_registry)
 
+    # Agent-oriented playbook registry (peer of tool_registry).
+    # Empty at startup; playbooks register themselves from phase D onward.
+    playbook_registry = InMemoryPlaybookRegistry()
+
     # Tool policy (Casbin-based, ADR-K8S-019)
     try:
         tool_policy: ToolPolicyProtocol | None = create_tool_policy()
@@ -505,6 +511,7 @@ async def create_container(config: StrongholdConfig) -> Container:
         llm=llm,
         tool_registry=tool_registry,
         tool_dispatcher=tool_dispatcher,
+        playbook_registry=playbook_registry,
         tool_policy=tool_policy,
         tool_catalog=tool_catalog,
         skill_catalog=skill_catalog,

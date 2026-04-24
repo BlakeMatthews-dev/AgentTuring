@@ -137,10 +137,11 @@ async def pg_pool():
         return
 
     async with pool.acquire() as conn:
-        await conn.execute("DROP TABLE IF EXISTS coin_ledger_entries CASCADE")
-        await conn.execute("DROP TABLE IF EXISTS coin_wallets CASCADE")
-        await conn.execute("DROP TABLE IF EXISTS coin_config CASCADE")
-        await conn.execute(_SCHEMA_SQL)
+        async with conn.transaction():
+            await conn.execute("DROP TABLE IF EXISTS coin_ledger_entries CASCADE")
+            await conn.execute("DROP TABLE IF EXISTS coin_wallets CASCADE")
+            await conn.execute("DROP TABLE IF EXISTS coin_config CASCADE")
+            await conn.execute(_SCHEMA_SQL)
     yield pool
     async with pool.acquire() as conn:
         await conn.execute("DROP TABLE IF EXISTS coin_ledger_entries CASCADE")

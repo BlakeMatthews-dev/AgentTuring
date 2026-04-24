@@ -157,7 +157,7 @@ def _build_container(
 
     return Container(
         config=cfg,
-        auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+        auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
         permission_table=PermissionTable.from_config({"admin": ["*"]}),
         router=RouterEngine(InMemoryQuotaTracker()),
         classifier=ClassifierEngine(),
@@ -294,7 +294,7 @@ def agents_import_app() -> FastAPI:
 
     container = Container(
         config=cfg,
-        auth_provider=StaticKeyAuthProvider(api_key="sk-test"),
+        auth_provider=StaticKeyAuthProvider(api_key="sk-test", read_only=False),
         permission_table=PermissionTable.from_config({"admin": ["*"]}),
         router=RouterEngine(InMemoryQuotaTracker()),
         classifier=ClassifierEngine(),

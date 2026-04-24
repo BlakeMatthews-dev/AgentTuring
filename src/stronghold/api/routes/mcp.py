@@ -20,6 +20,98 @@ logger = logging.getLogger("stronghold.api.mcp")
 router = APIRouter(prefix="/v1/stronghold/mcp")
 
 
+_ENV_METACHARS = (";", "|", "&", "`", "$(", "${", "\n", "\r", "\0")
+_ENV_KEY_MAX_LEN = 64
+_ENV_VAL_MAX_LEN = 4096
+
+
+def _sanitize_env(raw: dict[str, Any]) -> dict[str, str]:
+    """Validate env vars for custom MCP images — closes BACKLOG D5 (env)."""
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="env must be a mapping")
+    cleaned: dict[str, str] = {}
+    for key, val in raw.items():
+        if not isinstance(key, str) or not key:
+            raise HTTPException(status_code=400, detail="env keys must be non-empty strings")
+        if len(key) > _ENV_KEY_MAX_LEN:
+            raise HTTPException(status_code=400, detail=f"env key too long: {key!r}")
+        if not all(c.isalnum() or c == "_" for c in key):
+            raise HTTPException(
+                status_code=400,
+                detail=f"env key must be alphanumeric + underscore: {key!r}",
+            )
+        val_s = str(val)
+        if len(val_s) > _ENV_VAL_MAX_LEN:
+            raise HTTPException(status_code=400, detail=f"env value too long for {key!r}")
+        for meta in _ENV_METACHARS:
+            if meta in val_s:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"env value for {key!r} contains forbidden metacharacter {meta!r}",
+                )
+        cleaned[key] = val_s
+    return cleaned
+
+
+def _sanitize_secrets(raw: dict[str, Any], auth_ctx: Any) -> dict[str, str]:
+    """Restrict secret references to the caller's namespace — BACKLOG D5 (secrets)."""
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="secrets must be a mapping")
+    roles = getattr(auth_ctx, "roles", None) or frozenset()
+    is_super = "super_admin" in roles
+    org_id = getattr(auth_ctx, "org_id", "") or ""
+    tenant_prefix = f"stronghold-{org_id}-" if org_id else "stronghold-"
+    shared_prefix = "stronghold-shared-"
+    cleaned: dict[str, str] = {}
+    for key, ref in raw.items():
+        if not isinstance(key, str) or not key:
+            raise HTTPException(
+                status_code=400,
+                detail="secret keys must be non-empty strings",
+            )
+        ref_s = str(ref)
+        # ref is like "my-secret:key" or "secretRef/my-secret/key"
+        secret_name = ref_s.split(":", 1)[0].split("/")[0] or ref_s
+        if is_super and secret_name.startswith(shared_prefix):
+            cleaned[key] = ref_s
+            continue
+        if not secret_name.startswith(tenant_prefix):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"secret {secret_name!r} not in tenant namespace "
+                    f"(must start with {tenant_prefix!r})"
+                ),
+            )
+        cleaned[key] = ref_s
+    return cleaned
+
+
+def _require_org_match(server: Any, auth_ctx: Any) -> None:
+    """Cross-tenant guard for mutation endpoints — closes BACKLOG C6/H12.
+
+    Super-admins (role includes 'super_admin') bypass the check so they
+    can manage built-in / global servers. Everyone else must be acting
+    on a server in their own org.
+    """
+    roles = getattr(auth_ctx, "roles", None) or frozenset()
+    if "super_admin" in roles:
+        return
+    server_org = getattr(server, "org_id", "") or ""
+    caller_org = getattr(auth_ctx, "org_id", "") or ""
+    if not server_org:
+        # Built-in / global servers require super-admin to mutate.
+        raise HTTPException(
+            status_code=403,
+            detail="super_admin role required to mutate global MCP servers",
+        )
+    if server_org != caller_org:
+        raise HTTPException(
+            status_code=403,
+            detail=f"MCP server '{getattr(server, 'name', '?')}' belongs to another org",
+        )
+
+
 def _check_csrf(request: Request) -> None:
     """Verify CSRF defense header on cookie-authenticated mutations.
 
@@ -205,6 +297,15 @@ async def deploy_server(request: Request) -> JSONResponse:
     name = body.get("name")
     image = body.get("image")
     if name and image:
+        # BACKLOG D5 fix: custom-image deploy requires admin role.
+        # Catalog deploys (Option 1 above) remain open to engineers.
+        caller_roles = getattr(auth_ctx, "roles", None) or frozenset()
+        if "admin" not in caller_roles and "super_admin" not in caller_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="admin role required for custom MCP image deployment",
+            )
+
         import re as _re  # noqa: PLC0415
 
         from stronghold.mcp.types import MCPServerSpec  # noqa: PLC0415
@@ -244,13 +345,23 @@ async def deploy_server(request: Request) -> JSONResponse:
         if not (1024 <= port <= 65535):  # noqa: PLR2004
             raise HTTPException(status_code=400, detail="port must be 1024-65535")
 
+        # BACKLOG D5 fix: env var + secret allowlist for custom image deploy.
+        # - env: reject any value containing shell metachars; cap key length.
+        # - secrets: restrict secretKeyRef to the caller's tenant namespace
+        #   (stronghold-<org_id>). Super-admins can reference shared secrets
+        #   prefixed `stronghold-shared-`.
+        raw_env = body.get("env", {}) or {}
+        raw_secrets = body.get("secrets", {}) or {}
+        env = _sanitize_env(raw_env)
+        secrets = _sanitize_secrets(raw_secrets, auth_ctx)
+
         spec = MCPServerSpec(
             name=name,
             image=image_str,
             description=str(body.get("description", ""))[:200],
             port=port,
-            env=body.get("env", {}),
-            secrets=body.get("secrets", {}),
+            env=env,
+            secrets=secrets,
             trust_tier=trust_tier,
             # args are NOT user-controllable — always use transport default
         )
@@ -305,13 +416,16 @@ async def stop_server(name: str, request: Request) -> JSONResponse:
     container = request.app.state.container
     auth_header = request.headers.get("authorization")
     try:
-        await container.auth_provider.authenticate(auth_header, headers=dict(request.headers))
+        auth_ctx = await container.auth_provider.authenticate(
+            auth_header, headers=dict(request.headers)
+        )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     server = container.mcp_registry.get(name)
     if not server:
         raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
+    _require_org_match(server, auth_ctx)  # BACKLOG H12 fix
 
     if container.mcp_deployer:
         server = await container.mcp_deployer.stop(server)
@@ -326,13 +440,16 @@ async def start_server(name: str, request: Request) -> JSONResponse:
     container = request.app.state.container
     auth_header = request.headers.get("authorization")
     try:
-        await container.auth_provider.authenticate(auth_header, headers=dict(request.headers))
+        auth_ctx = await container.auth_provider.authenticate(
+            auth_header, headers=dict(request.headers)
+        )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     server = container.mcp_registry.get(name)
     if not server:
         raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
+    _require_org_match(server, auth_ctx)  # BACKLOG H12 fix
 
     if container.mcp_deployer:
         server = await container.mcp_deployer.start(server)
@@ -347,13 +464,16 @@ async def remove_server(name: str, request: Request) -> JSONResponse:
     container = request.app.state.container
     auth_header = request.headers.get("authorization")
     try:
-        await container.auth_provider.authenticate(auth_header, headers=dict(request.headers))
+        auth_ctx = await container.auth_provider.authenticate(
+            auth_header, headers=dict(request.headers)
+        )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     server = container.mcp_registry.get(name)
     if not server:
         raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
+    _require_org_match(server, auth_ctx)  # BACKLOG C6 fix
 
     if container.mcp_deployer:
         await container.mcp_deployer.remove(server)

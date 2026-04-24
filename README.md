@@ -8,26 +8,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
 ---
 
-## Project Turing — Research Track
+## Project Turing — Research Track (Separate Branch)
 
-**→ Start here: [project_turing.research.md](project_turing.research.md)** — research arc across CoinSwarm, mAIstro, Stronghold, and Turing; the two principles the portfolio applies; and an honest read of where the Turing sketch breaks (with pointers to the 34-finding audit).
+Project Turing is a **separate research project** that lives as a pseudo-fork on a dedicated research trunk. It is not part of the Stronghold `integration` branch and does not share `main`'s multi-tenant posture. All Turing-specific code, specs, and implementations live on the `project_Turing` branch.
 
-> **An autonoetic Conduit.** The central routing pipeline carries a persistent, self-indexed memory and routes from first-person experience — personality, mood, passions, skills, and todos — rather than stateless classification. One global self, no tenant scoping. Structurally incompatible with `main`'s multi-tenant posture; lives as a pseudo-fork on its own branch.
+**→ Current state, specs, and implementation:** Check the `project_Turing` branch. That branch has 70+ individually reviewable specs (covering invariants, acceptance criteria, and edge cases across Tranches 1–10), a runnable SQLite sketch, DESIGN.md, and all implementation work.
 
-**Branches:** `project_Turing` (integration / "main" of the pseudo-fork) · `research/project-turing` (active research) · `claude/autonoetic-self-tranche-6` (example feature branch) — feature work flows `feature → research/project-turing → project_Turing → main`.
+**→ Research context:** [project_turing.research.md](project_turing.research.md) — research arc across CoinSwarm, mAIstro, Stronghold, and Turing; the two principles the portfolio applies; and an honest read of where the Turing sketch breaks (with pointers to the 34-finding audit).
 
-**What it is:**
-- A near-fork experiment that promotes the Conduit from noetic router (classify → route → forget) into an autonoetic reasoning layer (remembers its own prior routings as first-person experience, projects itself into future routings, can regret, can commit).
-- A 7-tier episodic memory (OBSERVATION → HYPOTHESIS → OPINION → LESSON → REGRET → AFFIRMATION → WISDOM) extended with a self-model: HEXACO-24 personality with weekly re-test, passions / hobbies / interests / skills (with decay) / preferences, mood vector, self-authored todos with required provenance, and an activation graph whose edges the self itself authors.
-- 30 specs covering invariants, acceptance criteria, and edge cases; a runnable SQLite sketch with 370 green tests (209 memory/runtime + 161 self-model).
+**What it is:** An autonoetic Conduit — the central routing pipeline carries a persistent, self-indexed memory and routes from first-person experience (personality, mood, passions, skills, and todos) rather than stateless classification. One global self, no tenant scoping. 7-tier episodic memory (OBSERVATION → HYPOTHESIS → OPINION → LESSON → REGRET → AFFIRMATION → WISDOM) extended with a self-model: HEXACO-24 personality, activation graph, mood vector, and scheduler.
 
-**What it is not:** a roadmap item, a competitor to the enterprise codebase, or a claim that any of this is production-ready. Findings may or may not feed back to `main`; if anything works, it gets redesigned for multi-tenancy before landing in `src/`.
-
-**Reading order:**
-1. [`research/project-turing/DESIGN.md`](research/project-turing/DESIGN.md) — thesis, Tulving-taxonomy mapping, what the Conduit becomes when it has a self.
-2. [`research/project-turing/autonoetic-self.md`](research/project-turing/autonoetic-self.md) — the content of the self the Conduit carries.
-3. [`research/project-turing/specs/`](research/project-turing/specs/) — 30 individually reviewable specs, read in order.
-4. [`research/project-turing/sketches/`](research/project-turing/sketches/) — runnable scaffold + tests.
+**What it is not:** A roadmap item, a competitor to the enterprise codebase, or production-ready. Findings may feed back to `main` after redesign for multi-tenancy.
 
 **Lineage:** CoinSwarm (Nov 2025) → 7-tier crystallization (Jan 15, 2026) → Stronghold import (Mar 25, 2026) → Project Turing (Apr 2026).
 

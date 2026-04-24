@@ -64,12 +64,12 @@ class TestSessionIsolation:
         sid_a = build_session_id(org_a, "team", "user", "main")
         sid_b = build_session_id(org_b, "team", "user", "main")
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             store.append_messages(sid_a, [{"role": "user", "content": "secret-a"}])
         )
 
         # org_b's session is a different key
-        history_b = asyncio.get_event_loop().run_until_complete(
+        history_b = asyncio.run(
             store.get_history(sid_b)
         )
         assert len(history_b) == 0, "org_b must not see org_a's messages"
@@ -93,10 +93,10 @@ class TestLearningIsolation:
             tool_name="shell",
             org_id=org_a,
         )
-        asyncio.get_event_loop().run_until_complete(store.store(lr))
+        asyncio.run(store.store(lr))
 
         # org_b should see nothing
-        results = asyncio.get_event_loop().run_until_complete(
+        results = asyncio.run(
             store.find_relevant("deploy fix", org_id=org_b)
         )
         assert len(results) == 0, f"org_b ({org_b}) must not see org_a ({org_a}) learnings"
@@ -117,7 +117,7 @@ class TestOutcomeIsolation:
         from stronghold.types.memory import Outcome
 
         store = InMemoryOutcomeStore()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             store.record(
                 Outcome(
                     task_type="code",
@@ -129,7 +129,7 @@ class TestOutcomeIsolation:
             )
         )
 
-        stats = asyncio.get_event_loop().run_until_complete(
+        stats = asyncio.run(
             store.get_task_completion_rate(org_id=org_b)
         )
         assert stats["total"] == 0, f"org_b ({org_b}) must not see org_a ({org_a}) outcomes"
@@ -145,7 +145,7 @@ class TestWardenDeterminism:
         from stronghold.security.warden.detector import Warden
 
         w = Warden()
-        v1 = asyncio.get_event_loop().run_until_complete(w.scan(text, "user_input"))
-        v2 = asyncio.get_event_loop().run_until_complete(w.scan(text, "user_input"))
+        v1 = asyncio.run(w.scan(text, "user_input"))
+        v2 = asyncio.run(w.scan(text, "user_input"))
         assert v1.clean == v2.clean
         assert v1.flags == v2.flags

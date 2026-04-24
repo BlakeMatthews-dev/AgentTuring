@@ -21,8 +21,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from turing.repo import Repo
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import (
     DEFAULT_DECAY_RATES,
     Hobby,
@@ -46,30 +44,6 @@ from turing.self_nodes import (
     note_skill,
     practice_skill,
 )
-from turing.self_repo import SelfRepo
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
-
-
-@pytest.fixture
-def new_id():
-    counter = {"n": 0}
-
-    def _mk(prefix: str) -> str:
-        counter["n"] += 1
-        return f"{prefix}:{counter['n']}"
-
-    return _mk
 
 
 def _seed_facet(srepo, self_id) -> str:

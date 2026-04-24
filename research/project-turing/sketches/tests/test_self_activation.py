@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from turing.repo import Repo
 from turing.self_activation import (
     ActivationContext,
     RETRIEVAL_TTL,
@@ -20,7 +19,6 @@ from turing.self_activation import (
     active_now,
     source_state,
 )
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import (
     ActivationContributor,
     ContributorOrigin,
@@ -37,22 +35,9 @@ from turing.self_model import (
     Trait,
     facet_node_id,
 )
-from turing.self_repo import SelfRepo
 
 
 # --------- fixtures ----------------------------------------------------------
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
 
 
 @pytest.fixture

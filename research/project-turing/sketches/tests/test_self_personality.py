@@ -7,8 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from turing.repo import Repo
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import (
     ALL_FACETS,
     CANONICAL_FACETS,
@@ -29,29 +27,6 @@ from turing.self_personality import (
     sample_retest_items,
 )
 from turing.self_repo import SelfRepo
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
-
-
-@pytest.fixture
-def new_id():
-    counter = {"n": 0}
-
-    def _mk(prefix: str) -> str:
-        counter["n"] += 1
-        return f"{prefix}:{counter['n']}"
-
-    return _mk
 
 
 def _seed_facets(srepo: SelfRepo, self_id: str, score: float = 3.0) -> None:

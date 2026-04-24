@@ -7,8 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from turing.repo import Repo
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import Mood
 from turing.self_mood import (
     DECAY_RATE,
@@ -24,18 +22,6 @@ from turing.self_mood import (
     tick_mood_decay,
 )
 from turing.self_repo import SelfRepo
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
 
 
 def _seed_mood(

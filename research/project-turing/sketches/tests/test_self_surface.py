@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from turing.repo import Repo
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import (
     ALL_FACETS,
     Mood,
@@ -23,18 +21,6 @@ from turing.self_surface import (
     recall_self,
     render_minimal_block,
 )
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
 
 
 def _seed_minimal_self(srepo: SelfRepo, self_id: str, facet_score: float = 3.0) -> None:

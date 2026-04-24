@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from turing.repo import Repo
-from turing.self_identity import bootstrap_self_id
 from turing.self_model import Passion, TodoStatus
 from turing.self_repo import SelfRepo
 from turing.self_todos import (
@@ -17,29 +15,6 @@ from turing.self_todos import (
     write_self_todo,
 )
 from datetime import UTC, datetime
-
-
-@pytest.fixture
-def srepo() -> SelfRepo:
-    r = Repo(None)
-    yield SelfRepo(r.conn)
-    r.close()
-
-
-@pytest.fixture
-def self_id(srepo: SelfRepo) -> str:
-    return bootstrap_self_id(srepo.conn)
-
-
-@pytest.fixture
-def new_id():
-    counter = {"n": 0}
-
-    def _mk(prefix: str) -> str:
-        counter["n"] += 1
-        return f"{prefix}:{counter['n']}"
-
-    return _mk
 
 
 @pytest.fixture

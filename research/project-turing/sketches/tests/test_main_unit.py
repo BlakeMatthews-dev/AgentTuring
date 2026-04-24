@@ -31,7 +31,6 @@ from unittest.mock import patch
 
 import pytest
 
-from turing.repo import Repo
 from turing.runtime.config import RuntimeConfig
 from turing.runtime.embedding_index import EmbeddingIndex
 from turing.runtime.main import (
@@ -48,21 +47,8 @@ from turing.runtime.main import (
     _think_about_rss_item,
 )
 from turing.runtime.providers.fake import FakeProvider
-from turing.self_identity import bootstrap_self_id
 from turing.types import EpisodicMemory, MemoryTier, SourceKind
 from turing.working_memory import WorkingMemory
-
-
-@pytest.fixture
-def repo() -> Repo:
-    r = Repo(None)
-    yield r
-    r.close()
-
-
-@pytest.fixture
-def self_id(repo: Repo) -> str:
-    return bootstrap_self_id(repo.conn)
 
 
 class TestResolveScenarioPath:

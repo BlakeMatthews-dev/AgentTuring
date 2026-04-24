@@ -162,7 +162,7 @@ bypass all application-level security controls.
 - [ ] **C3: PgAgentRegistry.upsert() name collision** — ON CONFLICT (name) overwrites cross-org (`pg_agents.py:56`). Fix: UNIQUE(name, org_id)
 - [ ] **C4: PgPromptManager zero org_id** — all queries use name+label, no org column. Cross-org prompt poisoning (`pg_prompts.py` entire file)
 - [ ] **C5: Learning approve/reject by integer ID** — no org_id check on approve/reject. Admin Org-A approves Org-B's learnings (`admin.py:~270`)
-- [ ] **C6: MCP server DELETE no auth/org check** — any authenticated user can delete any org's MCP server by name. No admin role required (`mcp.py:~350`)
+- [x] **C6: MCP server DELETE no auth/org check** — any authenticated user can delete any org's MCP server by name. No admin role required (`mcp.py:~350`). *Closed 2026-04-23: `_require_org_match` guard added to DELETE, super-admin required for global servers. See tests/api/test_mcp_routes_security.py.*
 - [ ] **C7: update_user_roles no org_id in SQL** — `UPDATE users SET roles WHERE id=$2`, no `AND org_id`. Cross-tenant privilege escalation (`admin.py:398`)
 
 #### HIGH — Security Layer Bypasses
@@ -177,7 +177,7 @@ bypass all application-level security controls.
 - [ ] **H9: InMemoryAgentStore.get() empty org_id bypass** — empty caller org_id sees all org-scoped agents (`store.py:117`)
 - [ ] **H10: Session prefix collision** — org_id containing `/` enables `startswith` prefix attack (`sessions/store.py:43`)
 - [ ] **H11: Strike remove/unlock/enable no org_id** — cross-tenant strike manipulation (`admin.py:1485-1529`)
-- [ ] **H12: MCP server start/stop no org_id** — any user starts/stops any org's MCP servers (`mcp.py:301-340`)
+- [x] **H12: MCP server start/stop no org_id** — any user starts/stops any org's MCP servers (`mcp.py:301-340`). *Closed 2026-04-23: same `_require_org_match` guard applied to start + stop. See tests/api/test_mcp_routes_security.py.*
 - [ ] **H13: PgQuotaTracker global** — no org_id dimension; one org exhausts all providers for all orgs (`pg_quota.py`)
 - [ ] **H14: XSS via marked.parse()** — quota.html line 537: AI response rendered as raw HTML via innerHTML. CSP allows unsafe-inline
 - [ ] **H15: Agent trust AI/admin review global** — trust tier mutations operate by name with no org_id (`admin.py:~1400`)
@@ -221,7 +221,7 @@ bypass all application-level security controls.
 - [ ] **D2: No lock file — supply chain attack surface** — no requirements.txt, poetry.lock, or uv.lock. All deps use floor-only `>=` specifiers. Every build resolves fresh from PyPI. Dependency confusion and transitive drift are both possible. **Fix:** generate `requirements.txt` with `pip-compile --generate-hashes`, use `--require-hashes` in Dockerfile
 - [ ] **D3: CDN scripts unpinned, no SRI hashes** — `cdn.tailwindcss.com` has NO version at all (dev-only CDN). Chart.js `@4` and marked.js `@15` pinned to major only. Zero `integrity=` attributes on any `<script>` tag. CDN compromise = arbitrary JS on every dashboard page. **Fix:** self-host Tailwind (production build), pin exact versions with SRI hashes, add `crossorigin="anonymous"`
 - [ ] **D4: 18 known CVEs across 9 packages** — pip-audit found HIGH vulns in urllib3 (2.3.0→2.6.3), requests (2.32.3→2.33.0), h2 (4.2.0→4.3.0), pip (25.1.1→26.0), plus MEDIUM in pygments, markdown, wheel, jaraco-context. **Fix:** `pip install --upgrade urllib3 requests h2`
-- [ ] **D5: MCP deployer accepts arbitrary env vars** — `body.get("env", {})` and `body.get("secrets", {})` passed directly to K8s pod spec. Any authenticated user (no admin required) can inject env vars or reference K8s secrets. **Fix:** whitelist env var names, restrict secret references, require admin role for MCP deploy
+- [x] **D5: MCP deployer accepts arbitrary env vars** — `body.get("env", {})` and `body.get("secrets", {})` passed directly to K8s pod spec. *Closed 2026-04-23: admin role required for custom-image deploy (catalog deploy remains open to engineers); `_sanitize_env` rejects shell metacharacters / non-alphanumeric keys / oversize values; `_sanitize_secrets` restricts secret refs to the caller's tenant namespace (`stronghold-<org_id>-*`) with `stronghold-shared-*` reserved for super-admins. See tests/api/test_mcp_routes_security.py.*
 - [ ] **D6: `/greathall` and `/prompts` served without server-side auth** — served as static files in app.py lines 167-175 without `_check_auth()`. Other dashboard routes (skills, etc.) properly gate behind auth. **Fix:** move to dashboard router with auth check
 
 #### Confirmed Non-Issues (bandit false positives)

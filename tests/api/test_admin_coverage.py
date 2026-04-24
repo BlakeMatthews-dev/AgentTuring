@@ -200,7 +200,7 @@ def _build_container(
     audit_log = InMemoryAuditLog()
 
     # Seed the soul prompt synchronously
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         prompts.upsert("agent.arbiter.soul", "You are helpful.", label="production")
     )
 
@@ -1039,8 +1039,7 @@ class TestGetAgentTrust:
 class TestStrikeManagement:
     def _make_tracker_with_strikes(self) -> InMemoryStrikeTracker:
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="bad-user",
                 org_id="__system__",
@@ -1116,8 +1115,7 @@ class TestStrikeManagement:
     def test_remove_strikes_specific_count(self) -> None:
         tracker = self._make_tracker_with_strikes()
         # Add a second violation
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="bad-user",
                 org_id="__system__",
@@ -1151,14 +1149,13 @@ class TestStrikeManagement:
 
     def test_unlock_user_success(self) -> None:
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
         # 2 strikes = locked
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="locked-user", org_id="__system__", flags=("x",), boundary="user_input"
             )
         )
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="locked-user", org_id="__system__", flags=("x",), boundary="user_input"
             )
@@ -1187,10 +1184,9 @@ class TestStrikeManagement:
 
     def test_enable_user_success(self) -> None:
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
         # 3 strikes = disabled
         for _ in range(3):
-            loop.run_until_complete(
+            asyncio.run(
                 tracker.record_violation(
                     user_id="disabled-user",
                     org_id="__system__",
@@ -1228,13 +1224,12 @@ class TestRequireAdminOrRole:
     def test_team_admin_can_unlock(self) -> None:
         """User with team_admin role (not admin) can unlock."""
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="locked-user", org_id="org1", flags=("x",), boundary="user_input"
             )
         )
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="locked-user", org_id="org1", flags=("x",), boundary="user_input"
             )
@@ -1283,9 +1278,8 @@ class TestRequireAdminOrRole:
     def test_org_admin_can_enable(self) -> None:
         """User with org_admin role can enable disabled accounts."""
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
         for _ in range(3):
-            loop.run_until_complete(
+            asyncio.run(
                 tracker.record_violation(
                     user_id="disabled-user",
                     org_id="org1",
@@ -1350,8 +1344,7 @@ class TestRequireAdminOrRole:
 class TestAppeals:
     def test_submit_appeal_success(self) -> None:
         tracker = InMemoryStrikeTracker()
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             tracker.record_violation(
                 user_id="admin-user",
                 org_id="__system__",
@@ -1512,8 +1505,7 @@ class TestQuotaEnrichment:
         )
         container = _build_container(config=config)
         # Record usage that exceeds free tokens
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             container.quota_tracker.record_usage("exhausted", "monthly", 100, 100)
         )
         app = _app_with_container(container)
@@ -1534,8 +1526,7 @@ class TestAuditLogFiltering:
         """Non-system auth should only see own org's entries."""
         container = _build_container()
         # Add some audit entries with different org_ids
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             container.audit_log.log(
                 AuditEntry(
                     boundary="user_input",
@@ -1545,7 +1536,7 @@ class TestAuditLogFiltering:
                 )
             )
         )
-        loop.run_until_complete(
+        asyncio.run(
             container.audit_log.log(
                 AuditEntry(
                     boundary="user_input",
@@ -1577,13 +1568,12 @@ class TestAuditLogFiltering:
     def test_audit_log_system_sees_all(self) -> None:
         """System auth sees all org entries."""
         container = _build_container()
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             container.audit_log.log(
                 AuditEntry(boundary="user_input", user_id="u1", org_id="org-a")
             )
         )
-        loop.run_until_complete(
+        asyncio.run(
             container.audit_log.log(
                 AuditEntry(boundary="user_input", user_id="u2", org_id="org-b")
             )
@@ -1600,9 +1590,8 @@ class TestAuditLogFiltering:
         """limit=9999 is clamped to at most 500 entries in the response."""
         container = _build_container()
         # Seed 600 entries so we can verify the clamp truncates.
-        loop = asyncio.get_event_loop()
         for i in range(600):
-            loop.run_until_complete(
+            asyncio.run(
                 container.audit_log.log(
                     AuditEntry(
                         boundary="user_input",
@@ -1627,8 +1616,7 @@ class TestAuditLogFiltering:
     def test_audit_log_limit_zero_clamped_to_minimum(self) -> None:
         """limit=0 is clamped to at least 1 entry (if any exist)."""
         container = _build_container()
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(
+        asyncio.run(
             container.audit_log.log(
                 AuditEntry(
                     boundary="user_input",

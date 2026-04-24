@@ -258,7 +258,7 @@ class TestHistory:
         import asyncio
         import time as _time
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             store.record_execution(
                 task_id,
                 TaskExecution(

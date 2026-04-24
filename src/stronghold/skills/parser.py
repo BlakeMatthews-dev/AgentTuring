@@ -38,7 +38,7 @@ def _split_frontmatter(content: str) -> tuple[str, str] | None:
     end = content.find("\n---\n", 4)
     if end == -1:
         return None
-    return content[4:end], content[end + 5:]
+    return content[4:end], content[end + 5 :]
 
 
 _VALID_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,50}$")

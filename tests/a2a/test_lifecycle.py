@@ -24,7 +24,7 @@ from stronghold.a2a.lifecycle import (
 class TestTaskQueue:
     def test_enqueue_returns_id(self) -> None:
         q = TaskQueue()
-        tid = asyncio.get_event_loop().run_until_complete(q.enqueue({"task": "a"}))
+        tid = asyncio.run(q.enqueue({"task": "a"}))
         assert isinstance(tid, str)
 
     def test_dequeue_highest_priority_first(self) -> None:
@@ -40,7 +40,7 @@ class TestTaskQueue:
             assert task is not None
             assert task["name"] == "mid"
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_dequeue_specific_priority(self) -> None:
         async def _test() -> None:
@@ -51,14 +51,14 @@ class TestTaskQueue:
             assert task is not None
             assert task["name"] == "b"
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_dequeue_empty_returns_none(self) -> None:
         async def _test() -> None:
             q = TaskQueue()
             assert await q.dequeue() is None
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_size_counts_all_priorities(self) -> None:
         async def _test() -> None:
@@ -67,7 +67,7 @@ class TestTaskQueue:
             await q.enqueue({"b": 2}, priority="P3")
             assert q.size() == 2
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_size_by_priority(self) -> None:
         async def _test() -> None:
@@ -77,7 +77,7 @@ class TestTaskQueue:
             assert q.size_by_priority("P0") == 2
             assert q.size_by_priority("P3") == 0
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_dequeue_removes_item(self) -> None:
         async def _test() -> None:
@@ -86,7 +86,7 @@ class TestTaskQueue:
             await q.dequeue()
             assert q.size() == 0
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
 
 class TestWorkerPool:
@@ -96,7 +96,7 @@ class TestWorkerPool:
             await pool.submit("t1", {"data": "a"})
             assert "t1" in pool.get_active_tasks()
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_submit_exceeds_capacity_raises(self) -> None:
         async def _test() -> None:
@@ -105,7 +105,7 @@ class TestWorkerPool:
             with pytest.raises(RuntimeError, match="capacity"):
                 await pool.submit("t2", {"data": "b"})
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_get_status(self) -> None:
         async def _test() -> None:
@@ -114,7 +114,7 @@ class TestWorkerPool:
             assert "active_tasks" in status
             assert "max_workers" in status
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
 
 class TestTaskLifecycle:
@@ -126,7 +126,7 @@ class TestTaskLifecycle:
             assert status is not None
             assert "task_id" in status
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_get_queue_status(self) -> None:
         async def _test() -> None:
@@ -134,4 +134,4 @@ class TestTaskLifecycle:
             qs = await lc.get_queue_status()
             assert isinstance(qs, dict)
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())

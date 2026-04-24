@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Run the Stronghold MCP server over stdio.
+
+Usage: `stronghold-mcp-stdio` (no args). Reads STRONGHOLD_CONFIG from env.
+
+This bridges a local MCP client (Claude Desktop, operator shell) to the
+in-process playbook registry. For external clients use the Streamable HTTP
+transport (Phase I).
+"""
+
+from __future__ import annotations
+
+import anyio
+
+from stronghold.config.loader import load_config
+from stronghold.container import create_container
+from stronghold.mcp_server.stdio import run_stdio_server
+
+
+async def _main() -> None:
+    config = load_config()
+    container = await create_container(config)
+    await run_stdio_server(container)
+
+
+if __name__ == "__main__":
+    anyio.run(_main)

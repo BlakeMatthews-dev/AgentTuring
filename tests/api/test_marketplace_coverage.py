@@ -157,7 +157,7 @@ def marketplace_app() -> FastAPI:
         c.skill_registry = InMemorySkillRegistry()  # type: ignore[attr-defined]
         return c
 
-    container = asyncio.get_event_loop().run_until_complete(setup())
+    container = asyncio.run(setup())
     app.state.container = container
     return app
 
@@ -292,7 +292,7 @@ class TestBrowseSkills:
         # Delist one skill
         url_to_delist = "https://clawhub.ai/skills/community/web-search"
         for _ in range(_DELIST_THRESHOLD):
-            asyncio.get_event_loop().run_until_complete(_record_fix_failure(url_to_delist))
+            asyncio.run(_record_fix_failure(url_to_delist))
 
         with TestClient(marketplace_app) as client:
             resp = client.get(

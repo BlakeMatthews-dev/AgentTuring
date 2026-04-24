@@ -422,7 +422,7 @@ class TestAuthMissing:
         with TestClient(app) as client:
             resp = client.get("/protected")
             assert resp.status_code == 401
-            assert "Missing" in resp.json()["detail"]
+            assert resp.json()["detail"] == "Authentication failed"
 
 
 class TestAuthInvalid:
@@ -436,7 +436,7 @@ class TestAuthInvalid:
                 headers={"Authorization": "Bearer wrong-key"},
             )
             assert resp.status_code == 401
-            assert "Invalid" in resp.json()["detail"]
+            assert resp.json()["detail"] == "Authentication failed"
 
     def test_no_bearer_prefix_returns_401(self) -> None:
         app = _auth_app()
@@ -446,7 +446,7 @@ class TestAuthInvalid:
                 headers={"Authorization": API_KEY},
             )
             assert resp.status_code == 401
-            assert "Invalid" in resp.json()["detail"]
+            assert resp.json()["detail"] == "Authentication failed"
 
     def test_empty_bearer_returns_401(self) -> None:
         app = _auth_app()
@@ -456,4 +456,4 @@ class TestAuthInvalid:
                 headers={"Authorization": "Bearer "},
             )
             assert resp.status_code == 401
-            assert "Invalid" in resp.json()["detail"]
+            assert resp.json()["detail"] == "Authentication failed"

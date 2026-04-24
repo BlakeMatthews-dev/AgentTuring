@@ -292,16 +292,29 @@ Verdict: `clean | sanitized | blocked` with structured flags.
 ### 3.3 Sentinel (Policy Enforcement)
 
 **Job:** Enforce correctness and policy at every boundary crossing.
-**Implementation:** LiteLLM guardrail plugin (pre-call and post-call hooks).
+**Implementation:** in-process pre/post wrap around every tool /
+playbook execution in `agents/strategies/react.py:140-211`. (Earlier
+drafts described this as a LiteLLM guardrail plugin; the code has
+always run in-process — see ADR-K8S-020.)
 
 Capabilities:
-- **Schema validation** — validate LLM tool_call arguments against MCP server's declared inputSchema.
-- **Schema repair** — fuzzy match hallucinated arg names to real field names, coerce types, apply defaults. Repairs feed back into learnings.
-- **Policy enforcement** — per-agent tool permissions via LiteLLM per-key configuration.
-- **Token optimization** — compress bloated tool results (strip K8s metadata, truncate search results, compact JSON) before re-injection into LLM context.
-- **Audit logging** — every boundary crossing logged to PostgreSQL + Arize trace span.
-- **Rate limiting** — protocol connection to LiteLLM's rate limiting, controllable via LiteLLM UI or eventually Stronghold UI.
-- **PII filtering** — scan outbound responses for leaked API keys, internal IPs, system prompt content.
+- **Schema validation** — validate LLM tool_call arguments against the
+  declared inputSchema (from `@tool` or `@playbook`).
+- **Schema repair** — fuzzy match hallucinated arg names to real field
+  names, coerce types, apply defaults. Repairs feed back into learnings.
+- **Policy enforcement** — per-agent tool permissions via the Casbin
+  tool policy layer (ADR-K8S-019), evaluated in-process. Replaces the
+  earlier LiteLLM per-key scheme.
+- **Token optimization** — compress bloated tool results before
+  re-injection into LLM context. Briefs from playbooks (§5.2) hit the
+  size budget server-side, so post-call compression is mostly a safety
+  net for legacy tools and `*_raw` escape hatches.
+- **Audit logging** — every boundary crossing logged to PostgreSQL +
+  Arize trace span.
+- **Rate limiting** — Redis-backed `InMemoryRateLimiter` / distributed
+  rate limiter in Stronghold (not LiteLLM).
+- **PII filtering** — scan outbound responses for leaked API keys,
+  internal IPs, system prompt content.
 
 **Addresses Conductor gaps:** #4 (no rate limiting), #5 (JWT audience), #6 (hardcoded roles), #12 (infra_action no allowlist), #13 (CoinSwarm spawn no bound), #22 (no body size limit), #29 (routing metadata leaks), #31 (error responses unfiltered), #47 (skill import from any URL).
 
@@ -418,35 +431,80 @@ Request arrives with user text
 
 ## 5. Tool Architecture
 
-### 5.1 MCP Via LiteLLM
+### 5.1 MCP — Stronghold as Server, Gateway, and Orchestrator
 
-LiteLLM is the MCP gateway. Stronghold does not implement its own MCP gateway.
+Stronghold serves MCP directly. LiteLLM is LLM-proxy-only — model
+routing, per-key spend tracking, fallback on 429/5xx. The MCP subsystem
+lives in `src/stronghold/mcp_server/` and is mounted at `/mcp/v1/` on
+the Stronghold-API pod (Streamable HTTP primary, stdio for local
+clients). See ADR-K8S-020 and ADR-K8S-024.
 
-LiteLLM handles:
-- MCP protocol (Streamable HTTP, SSE, stdio)
-- OpenAPI-to-MCP auto-conversion (point at any OpenAPI spec, get MCP tools)
-- Per-key/team tool permissions (allowed_tools, disallowed_tools, allowed_params)
-- Semantic tool filtering (embedding-based, top-K relevant tools per request)
-- OAuth mediation for MCP servers
-- Tool call cost tracking
-- A2A agent permissions
+Three roles from one pod:
 
-### 5.2 Sentinel As LiteLLM Guardrail
+- **Server** — exposes `tools/list`, `tools/call` (and `prompts/*`,
+  `resources/*` as they come online). Tools surfaced are agent-oriented
+  **playbooks** that compose multiple backend API calls server-side and
+  return a markdown **Brief** shaped for reasoning LLMs, not raw JSON.
+  See §5.2.
+- **Gateway** — proxies `*_raw` calls to external MCP guest servers or
+  upstream REST APIs. Governance at every hop: Casbin tool policy
+  check, Sentinel schema repair, credential injection from the vault,
+  Warden output scan, Phoenix audit log.
+- **Orchestrator** — agent strategies (`react`, `plan_execute`,
+  `delegate`) compose multi-playbook chains. The model proposes; the
+  runtime executes. The agent loop in `agents/strategies/react.py`
+  calls playbooks through the same `tool_executor` callback it used
+  for thin tools — no wire change.
 
-Sentinel registers as a LiteLLM guardrail (pre-call + post-call):
+**Authentication.** OAuth 2.1 + PKCE + DCR for desktop clients
+(discovery at `/.well-known/oauth-authorization-server`). Static API
+tokens are the fallback. Per-user tokens carry `tenant_id` + `user_id`
++ `scopes`, propagated into every `PlaybookContext`.
 
-**Pre-call:** Schema validation + repair on tool arguments. Fuzzy match hallucinated field names. Coerce types. Apply defaults from MCP inputSchema.
+**Tool shape.** Target ≤20 primary playbooks. Task-oriented names
+(`review_pull_request(url, focus)`, not `get_pr` + 5 calls), NL-friendly
+inputs, markdown Briefs under 6 KB (12 KB with `allow_large=True`),
+inline next-action hints, dry-run for writes, one `*_raw` escape hatch
+per integration.
 
-**Post-call:** Warden scan on tool results (indirect injection detection). Token optimization (compress bloated results). Audit logging.
+### 5.2 Playbook + Brief
+
+Every playbook is an async function registered via `@playbook(name, …)`
+that accepts `(inputs: dict, ctx: PlaybookContext)` and returns a
+`Brief`. The `Brief` dataclass (`src/stronghold/playbooks/brief.py`)
+renders to markdown with:
+
+- `title` (H1)
+- `summary` (≤400 chars, the TL;DR)
+- `sections` (named body sections, each Warden-scanned)
+- `flags` (warnings the reasoner should notice — merge conflicts,
+  failing checks, prompt injection in upstream content)
+- `next_actions` (suggested follow-up playbook calls with args and a
+  one-line reason)
+- `source_calls` (audit trail of backend operations composed)
+
+The adapter `PlaybookToolExecutor` translates `Brief.to_markdown()` into
+`ToolResult.content` so the existing agent loop (`react.py:165`) sees a
+playbook as any other tool.
+
+**Escape hatches.** `github_raw`, `fs_raw`, `exec_raw`, `mcp_raw` exist
+for the 1% of cases no playbook covers. Gated by Casbin policy, T1
+trust tier, and per-agent allowlist. Audit-logged.
+
+**Sentinel.** Pre-call schema validation/repair and post-call Warden
++ PII + token optimization run **in-process** around every playbook
+execution (they always have — the LiteLLM-guardrail framing in earlier
+drafts never matched the actual code path at `react.py:140-211`).
 
 ### 5.3 Tool Backends
 
 | Backend | Protocol | Provided By |
 |---------|----------|-------------|
-| MCP servers | MCP native | Community servers (HA, filesystem, git, etc.) |
-| OpenAPI endpoints | Auto-converted to MCP | LiteLLM OpenAPI-to-MCP |
-| Kubernetes | MCP | K8s MCP servers (Red Hat, Azure, Flux159) |
-| Legacy HTTP | Direct HTTP | Migration wrapper for Conductor tools |
+| Playbooks | In-process | `src/stronghold/playbooks/` — agent-oriented compose + Brief |
+| Escape hatches | In-process | `github_raw`, `fs_raw`, `exec_raw`, `mcp_raw` |
+| MCP guest servers | MCP native proxy | Stronghold gateway proxies via `mcp_raw` (community servers) |
+| Kubernetes | In-process / MCP | Future playbooks + external K8s MCP servers |
+| Legacy HTTP | Direct HTTP | Wrapped by playbooks' shared clients (e.g. GitHubClient) |
 
 ### 5.4 Forge Tool/Agent Creation
 

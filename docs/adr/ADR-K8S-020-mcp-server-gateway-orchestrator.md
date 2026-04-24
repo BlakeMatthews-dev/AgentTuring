@@ -1,6 +1,6 @@
 # ADR-K8S-020 — Stronghold as MCP server, gateway, and orchestrator
 
-**Status:** Proposed
+**Status:** Accepted (2026-04-23 — implemented in the agent-oriented MCP redesign; see ARCHITECTURE.md §5.1)
 **Date:** 2026-04-09
 **Deciders:** Stronghold core team
 

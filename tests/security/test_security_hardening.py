@@ -486,7 +486,7 @@ class TestErrorMessageSanitization:
         # the test client issues any requests. The ensure_test_container
         # middleware only creates a container when none is attached yet,
         # so pre-attaching ours means the forge endpoint will use it.
-        container = asyncio.get_event_loop().run_until_complete(
+        container = asyncio.run(
             create_container(load_config())
         )
         container.llm = _RaisingLLM(sensitive)
@@ -554,7 +554,7 @@ class TestLimitParameterBounds:
 
         # Force container startup synchronously so we can seed + attach
         # spies before the first request.
-        container = asyncio.get_event_loop().run_until_complete(
+        container = asyncio.run(
             create_container(load_config())
         )
         app.state.container = container
@@ -572,7 +572,7 @@ class TestLimitParameterBounds:
                     )
                 )
 
-        asyncio.get_event_loop().run_until_complete(_seed_audit())
+        asyncio.run(_seed_audit())
 
         # Seed 2 tasks so the zero/negative clamp (-> 1) distinguishes
         # itself from the all-tasks view.
@@ -580,7 +580,7 @@ class TestLimitParameterBounds:
             await container.task_queue.submit({"id": "a", "org_id": "__system__"})
             await container.task_queue.submit({"id": "b", "org_id": "__system__"})
 
-        asyncio.get_event_loop().run_until_complete(_seed_tasks())
+        asyncio.run(_seed_tasks())
 
         # Spy wrappers that record the clamped limit the handler forwarded.
         recorded: dict[str, list[int]] = {"audit": [], "tasks": []}

@@ -480,17 +480,25 @@ class TestContentSecurityPolicy:
     def test_csp_allows_unpkg_for_react_babel(self) -> None:
         """The Phosphor-Noir bundle loads React + Babel from unpkg.com
         with integrity hashes. The CSP must explicitly whitelist unpkg
-        as a full origin token — not as a substring (which would pass for
-        attacker-controlled hosts like ``https://unpkg.com.evil.com``)."""
+        as a full origin token — parsed via urlsplit and matched by
+        exact host equality, not substring containment (which would
+        also pass for attacker-controlled hosts like
+        ``https://unpkg.com.evil.com``)."""
+        from urllib.parse import urlsplit
+
         resp = _serve_page("login.html")
         csp = resp.headers.get("content-security-policy", "")
         # Split on ';' (directive boundary) and whitespace (source boundary),
-        # then assert unpkg.com appears as a whole source token.
-        tokens: set[str] = set()
+        # parse each http(s) source as a URL, and assert exact host equality.
+        whitelisted_hosts: set[str] = set()
         for directive in csp.split(";"):
-            tokens.update(directive.strip().split())
-        assert "https://unpkg.com" in tokens, (
-            f"CSP does not whitelist https://unpkg.com as a source token; got tokens={tokens!r}"
+            for token in directive.strip().split():
+                if token.startswith(("http://", "https://")):
+                    parts = urlsplit(token)
+                    if parts.scheme == "https" and parts.path in ("", "/"):
+                        whitelisted_hosts.add(parts.netloc)
+        assert any(host == "unpkg.com" for host in whitelisted_hosts), (
+            f"CSP does not whitelist the exact host unpkg.com; got {whitelisted_hosts!r}"
         )
 
     def test_csp_allows_unsafe_eval_for_babel_jsx(self) -> None:

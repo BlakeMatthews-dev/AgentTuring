@@ -128,6 +128,36 @@ CREATE INDEX IF NOT EXISTS idx_working_memory_self
     ON working_memory (self_id, priority DESC, created_at DESC);
 
 
+-- Voice section: a single self-owned string the agent writes via the
+-- voice-section-maintenance loop and that appears in every chat prompt.
+-- Starts empty; Turing earns its voice by writing it.
+CREATE TABLE IF NOT EXISTS voice_section (
+    self_id     TEXT PRIMARY KEY,
+    content     TEXT NOT NULL DEFAULT '',
+    max_chars   INTEGER NOT NULL DEFAULT 600,
+    updated_at  TEXT NOT NULL
+);
+
+
+-- Conversation turns: per-session user/assistant history for in-session
+-- context retrieval. Embeddings populated lazily by the retrieval layer.
+CREATE TABLE IF NOT EXISTS conversation_turn (
+    turn_id         TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    self_id         TEXT NOT NULL,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    embedding       BLOB
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_convo
+    ON conversation_turn (conversation_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_self
+    ON conversation_turn (self_id, created_at DESC);
+
+
 -- -------------------------------------------------------------- self-model --
 --
 -- Tables implementing specs 22-30 (Tranche 6). One global self per research
@@ -381,3 +411,31 @@ CREATE TABLE IF NOT EXISTS self_bootstrap_seeds (
     used_by_self_id  TEXT NOT NULL,
     used_at          TEXT NOT NULL
 );
+
+
+-- -------------------------------------------------------------- rewards --
+--
+-- Human feedback reward system. Every interface where the agent produces
+-- content that a human can see earns points:
+--   creation   — agent created content a human looked at
+--   thumbs_up  — human gave positive feedback
+--   thumbs_down — human gave negative feedback
+--
+-- Chat:    creation=5, thumbs_up=10, thumbs_down=-20
+-- Default: creation=5, thumbs_up=100, thumbs_down=-200
+
+CREATE TABLE IF NOT EXISTS reward_events (
+    event_id    TEXT PRIMARY KEY,
+    self_id     TEXT NOT NULL,
+    interface   TEXT NOT NULL,
+    item_id     TEXT NOT NULL,
+    event_type  TEXT NOT NULL CHECK (event_type IN ('creation', 'thumbs_up', 'thumbs_down')),
+    points      INTEGER NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reward_events_self
+    ON reward_events (self_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reward_events_item
+    ON reward_events (item_id, event_type);

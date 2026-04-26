@@ -3,7 +3,12 @@ from .emotional_producer import EmotionalResponseProducer
 from .blog_producer import BlogProducer
 from .hobby_producer import HobbyEngagementProducer
 from .self_reflection_producer import SelfReflectionProducer
-from .concept_skill_producers import ConceptInventor
+from .concept_skill_producers import (
+    ConceptInventor,
+    SkillBuilder,
+    SkillExecutor,
+    SkillRefiner,
+)
 
 __all__ = [
     "CuriosityProducer",
@@ -12,4 +17,7 @@ __all__ = [
     "HobbyEngagementProducer",
     "SelfReflectionProducer",
     "ConceptInventor",
+    "SkillBuilder",
+    "SkillExecutor",
+    "SkillRefiner",
 ]

@@ -46,6 +46,7 @@ class SkillKind(StrEnum):
     PHYSICAL = "physical"
     HABIT = "habit"
     SOCIAL = "social"
+    CREATIVE = "creative"
 
 
 class PreferenceKind(StrEnum):

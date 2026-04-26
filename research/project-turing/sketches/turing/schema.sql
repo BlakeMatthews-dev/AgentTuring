@@ -277,7 +277,7 @@ CREATE TABLE IF NOT EXISTS self_skills (
     node_id              TEXT PRIMARY KEY,
     self_id              TEXT NOT NULL,
     name                 TEXT NOT NULL,
-    kind                 TEXT NOT NULL CHECK (kind IN ('intellectual', 'physical', 'habit', 'social')),
+    kind                 TEXT NOT NULL CHECK (kind IN ('intellectual', 'physical', 'habit', 'social', 'creative')),
     stored_level         REAL NOT NULL CHECK (stored_level BETWEEN 0.0 AND 1.0),
     decay_rate_per_day   REAL NOT NULL CHECK (decay_rate_per_day > 0.0),
     last_practiced_at    TEXT NOT NULL,

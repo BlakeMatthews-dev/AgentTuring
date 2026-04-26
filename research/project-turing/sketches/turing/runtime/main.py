@@ -1258,6 +1258,9 @@ def build_and_run(argv: list[str] | None = None) -> int:
             EmotionalResponseProducer,
             HobbyEngagementProducer,
             SelfReflectionProducer,
+            SkillBuilder,
+            SkillExecutor,
+            SkillRefiner,
         )
         from ..drives import select_hobbies
         from ..self_repo import SelfRepo as _SelfRepo
@@ -1342,8 +1345,36 @@ def build_and_run(argv: list[str] | None = None) -> int:
             facet_scores=_facet_map,
             provider=_cheapest,
         )
+        SkillBuilder(
+            motivation=motivation,
+            reactor=reactor,
+            repo=repo,
+            self_repo=_srepo,
+            self_id=self_id,
+            facet_scores=_facet_map,
+            provider=_cheapest,
+        )
+        SkillExecutor(
+            motivation=motivation,
+            reactor=reactor,
+            repo=repo,
+            self_repo=_srepo,
+            self_id=self_id,
+            facet_scores=_facet_map,
+            provider=_cheapest,
+        )
+        SkillRefiner(
+            motivation=motivation,
+            reactor=reactor,
+            repo=repo,
+            self_repo=_srepo,
+            self_id=self_id,
+            facet_scores=_facet_map,
+            provider=_cheapest,
+        )
         logger.info(
-            "autonomous producers registered (curiosity, anxiety, blog, hobby, self-reflection, concepts)"
+            "autonomous producers registered (curiosity, anxiety, blog, hobby, "
+            "self-reflection, concepts, skills)"
         )
     else:
         logger.info("no personality profile — autonomous producers not registered")

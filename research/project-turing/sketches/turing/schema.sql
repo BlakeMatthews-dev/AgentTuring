@@ -398,14 +398,15 @@ CREATE TABLE IF NOT EXISTS self_contributor_pending (
     weight          REAL NOT NULL CHECK (weight BETWEEN -1.0 AND 1.0),
     origin          TEXT NOT NULL DEFAULT 'self',
     rationale       TEXT,
-    staged_at       TEXT NOT NULL,
-    ack_at          TEXT,
+    expires_at      TEXT,
+    proposed_at     TEXT NOT NULL,
+    review_decision TEXT,
     reviewed_by     TEXT,
-    context         TEXT
+    reviewed_at     TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_contributor_pending_staged
-    ON self_contributor_pending (self_id, staged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contributor_pending_proposed
+    ON self_contributor_pending (self_id, proposed_at DESC);
 
 
 CREATE TABLE IF NOT EXISTS self_bootstrap_seeds (

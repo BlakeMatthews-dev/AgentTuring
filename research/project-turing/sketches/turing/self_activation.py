@@ -6,12 +6,17 @@ See specs/activation-graph.md.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from .self_mood import mood_descriptor  # noqa: F401  (re-exported convenience)
 from .self_model import current_level
 from .self_repo import SelfRepo
+
+if TYPE_CHECKING:
+    from .repo import Repo as MemoryRepo
 
 
 SCALE: float = 2.0
@@ -26,11 +31,10 @@ class ActivationContext:
     self_id: str
     now: datetime
     retrieval_similarity: dict[str, float] = field(default_factory=dict)
+    memory_repo: MemoryRepo | None = None
 
     @property
     def hash(self) -> str:
-        # Context cache key; we don't cache in this in-process sketch.
-        # Included to match the spec interface.
         return f"{self_id_or_none(self.self_id)}|{self.now.isoformat()}"
 
 
@@ -83,17 +87,17 @@ def source_state(repo: SelfRepo, source_id: str, source_kind: str, ctx: Activati
         m = repo.get_mood(ctx.self_id)
         return (m.valence + 1.0) / 2.0
     if source_kind == "memory":
-        from .repo import Repo as _Repo
-
-        mem = repo.conn.execute(
-            "SELECT weight, superseded_by FROM durable_memory WHERE memory_id = ? "
-            "UNION ALL "
-            "SELECT weight, superseded_by FROM episodic_memory WHERE memory_id = ?",
-            (source_id, source_id),
-        ).fetchone()
-        if mem is None:
-            return 0.0
-        return max(0.0, min(1.0, mem[0]))
+        if ctx.memory_repo is not None:
+            mem = ctx.memory_repo.get(source_id)
+            if mem is None or mem.deleted:
+                raise KeyError(source_id)
+            return max(0.0, min(1.0, mem.weight))
+        warnings.warn(
+            "ActivationContext.memory_repo is None; using legacy 0.5 for memory source_state",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return 0.5
     if source_kind == "rule":
         return 1.0
     if source_kind == "retrieval":

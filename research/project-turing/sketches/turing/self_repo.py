@@ -36,6 +36,10 @@ from .self_model import (
 )
 
 
+class CrossSelfAccess(Exception):
+    pass
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat()
 
@@ -99,8 +103,16 @@ class SelfRepo:
         return f
 
     def update_facet_score(
-        self, self_id: str, facet_id: str, new_score: float, revised_at: datetime
+        self,
+        self_id: str,
+        facet_id: str,
+        new_score: float,
+        revised_at: datetime,
+        *,
+        acting_self_id: str | None = None,
     ) -> None:
+        if acting_self_id is not None and self_id != acting_self_id:
+            raise CrossSelfAccess(f"{self_id} vs {acting_self_id}")
         if not 1.0 <= new_score <= 5.0:
             raise ValueError(f"facet score out of range: {new_score}")
         now = _iso(datetime.now(UTC))
@@ -343,7 +355,9 @@ class SelfRepo:
             updated_at=_parse_req(row[7]),
         )
 
-    def update_passion(self, p: Passion) -> None:
+    def update_passion(self, p: Passion, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and p.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{p.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_passions SET text = ?, strength = ?, rank = ?, "
             "updated_at = ? WHERE node_id = ?",
@@ -410,7 +424,9 @@ class SelfRepo:
             for r in rows
         ]
 
-    def update_hobby(self, h: Hobby) -> None:
+    def update_hobby(self, h: Hobby, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and h.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{h.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_hobbies SET name = ?, description = ?, "
             "last_engaged_at = ?, updated_at = ? WHERE node_id = ?",
@@ -547,7 +563,9 @@ class SelfRepo:
         ).fetchall()
         return [self._row_to_skill(r) for r in rows]
 
-    def update_skill(self, s: Skill) -> None:
+    def update_skill(self, s: Skill, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and s.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{s.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_skills SET stored_level = ?, decay_rate_per_day = ?, "
             "last_practiced_at = ?, updated_at = ? WHERE node_id = ?",
@@ -631,7 +649,9 @@ class SelfRepo:
         rows = self._conn.execute(q, (self_id, motivator_id)).fetchall()
         return [self._row_to_todo(r) for r in rows]
 
-    def update_todo(self, t: SelfTodo) -> None:
+    def update_todo(self, t: SelfTodo, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and t.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{t.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_todos SET text = ?, status = ?, outcome_text = ?, "
             "updated_at = ? WHERE node_id = ?",
@@ -645,7 +665,14 @@ class SelfRepo:
         )
         self._conn.commit()
 
-    def insert_todo_revision(self, r: SelfTodoRevision) -> SelfTodoRevision:
+    def insert_todo_revision(
+        self,
+        r: SelfTodoRevision,
+        *,
+        acting_self_id: str | None = None,
+    ) -> SelfTodoRevision:
+        if acting_self_id is not None and r.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{r.self_id} vs {acting_self_id}")
         self._conn.execute(
             """INSERT INTO self_todo_revisions
                (node_id, self_id, todo_id, revision_num, text_before, text_after,
@@ -729,7 +756,9 @@ class SelfRepo:
         self._conn.commit()
         return m
 
-    def update_mood(self, m: Mood) -> None:
+    def update_mood(self, m: Mood, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and m.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{m.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_mood SET valence = ?, arousal = ?, focus = ?, "
             "last_tick_at = ?, updated_at = ? WHERE self_id = ?",
@@ -767,7 +796,14 @@ class SelfRepo:
 
     # ------------------------------------------------ activation graph ------
 
-    def insert_contributor(self, c: ActivationContributor) -> ActivationContributor:
+    def insert_contributor(
+        self,
+        c: ActivationContributor,
+        *,
+        acting_self_id: str | None = None,
+    ) -> ActivationContributor:
+        if acting_self_id is not None and c.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{c.self_id} vs {acting_self_id}")
         self._conn.execute(
             """INSERT INTO self_activation_contributors
                (node_id, self_id, target_node_id, target_kind,
@@ -815,6 +851,18 @@ class SelfRepo:
             (retracted_by, _iso(datetime.now(UTC)), contributor_node_id),
         )
         self._conn.commit()
+
+    def get_contributor(self, node_id: str) -> ActivationContributor | None:
+        row = self._conn.execute(
+            "SELECT node_id, self_id, target_node_id, target_kind, "
+            "source_id, source_kind, weight, origin, rationale, "
+            "expires_at, retracted_by, created_at, updated_at "
+            "FROM self_activation_contributors WHERE node_id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_contributor(row)
 
     def _row_to_contributor(self, r: tuple) -> ActivationContributor:
         return ActivationContributor(

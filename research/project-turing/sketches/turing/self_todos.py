@@ -15,6 +15,7 @@ from .self_model import (
     guess_node_kind,
 )
 from .self_repo import SelfRepo
+from .self_surface import _require_ready
 
 
 class TodoNotActive(Exception):
@@ -36,6 +37,7 @@ def write_self_todo(
     motivated_by_node_id: str,
     new_id: Callable[[str], str],
 ) -> SelfTodo:
+    _require_ready(repo, self_id)
     if len(text) > 500:
         raise TodoTextTooLong()
     if not motivated_by_node_id:
@@ -60,6 +62,7 @@ def revise_self_todo(
     reason: str,
     new_id: Callable[[str], str],
 ) -> SelfTodo:
+    _require_ready(repo, self_id)
     t = repo.get_todo(todo_id)
     if t.self_id != self_id:
         raise PermissionError("cross-self revise forbidden")
@@ -94,6 +97,7 @@ def complete_self_todo(
     new_id: Callable[[str], str],
     affirmation_memory_id: str | None = None,
 ) -> SelfTodo:
+    _require_ready(repo, self_id)
     if not outcome_text.strip():
         raise ValueError("outcome_text is required on completion")
     t = repo.get_todo(todo_id)
@@ -124,6 +128,7 @@ def complete_self_todo(
 
 
 def archive_self_todo(repo: SelfRepo, self_id: str, todo_id: str, reason: str) -> SelfTodo:
+    _require_ready(repo, self_id)
     t = repo.get_todo(todo_id)
     if t.self_id != self_id:
         raise PermissionError("cross-self archive forbidden")

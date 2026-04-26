@@ -24,6 +24,7 @@ from .self_model import (
     guess_node_kind,
 )
 from .self_repo import SelfRepo
+from .self_surface import _require_ready
 
 
 def _now() -> datetime:
@@ -38,6 +39,7 @@ def note_passion(
     new_id: Callable[[str], str],
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Passion:
+    _require_ready(repo, self_id)
     _reject_dupe_text(repo.list_passions(self_id), lambda p: p.text, text, kind="passion")
     rank = repo.max_passion_rank(self_id) + 1
     p = Passion(
@@ -61,6 +63,7 @@ def note_hobby(
     new_id: Callable[[str], str],
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Hobby:
+    _require_ready(repo, self_id)
     _reject_dupe_text(repo.list_hobbies(self_id), lambda h: h.name, name, kind="hobby")
     h = Hobby(
         node_id=new_id("hobby"),
@@ -84,6 +87,7 @@ def note_interest(
     new_id: Callable[[str], str],
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Interest:
+    _require_ready(repo, self_id)
     _reject_dupe_text(repo.list_interests(self_id), lambda i: i.topic, topic, kind="interest")
     i = Interest(
         node_id=new_id("interest"),
@@ -109,7 +113,7 @@ def note_preference(
     new_id: Callable[[str], str],
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Preference:
-    # Uniqueness enforced by DB on (self_id, kind, target); catch for a friendlier error.
+    _require_ready(repo, self_id)
     existing = [p for p in repo.list_preferences(self_id) if p.kind == kind and p.target == target]
     if existing:
         raise ValueError(f"duplicate preference: ({kind}, {target})")
@@ -136,6 +140,7 @@ def note_skill(
     decay_rate_per_day: float | None = None,
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Skill:
+    _require_ready(repo, self_id)
     existing = [
         s for s in repo.list_skills(self_id) if s.name.strip().lower() == name.strip().lower()
     ]
@@ -164,6 +169,7 @@ def practice_skill(
     new_level: float | None = None,
     notes: str = "",
 ) -> Skill:
+    _require_ready(repo, self_id)
     s = repo.get_skill(skill_id)
     if s.self_id != self_id:
         raise PermissionError("cross-self practice forbidden")
@@ -185,6 +191,7 @@ def downgrade_skill(
     new_level: float,
     reason: str,
 ) -> Skill:
+    _require_ready(repo, self_id)
     s = repo.get_skill(skill_id)
     if s.self_id != self_id:
         raise PermissionError("cross-self downgrade forbidden")
@@ -202,6 +209,7 @@ def rerank_passions(
     self_id: str,
     ordered_ids: list[str],
 ) -> list[Passion]:
+    _require_ready(repo, self_id)
     existing = repo.list_passions(self_id)
     existing_ids = {p.node_id for p in existing}
     order_set = set(ordered_ids)

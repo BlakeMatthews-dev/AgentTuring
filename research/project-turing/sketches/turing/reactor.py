@@ -13,7 +13,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import Future
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Reactor(Protocol):
+    tick_count: int
+
+    def register(self, handler: Callable[[int], None]) -> None: ...
+    def spawn(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]: ...
 
 
 class FakeReactor:

@@ -39,7 +39,7 @@ from uuid import uuid4
 import yaml
 
 from ..motivation import BacklogItem, Motivation, PipelineState
-from ..reactor import FakeReactor
+from ..reactor import Reactor
 from ..repo import Repo
 from ..scheduler import Scheduler, ScheduledItem
 from ..tiers import WEIGHT_BOUNDS
@@ -59,7 +59,7 @@ logger = logging.getLogger("turing.runtime.workload")
 
 @dataclass(frozen=True)
 class StreamSpec:
-    kind: str                                  # "p1_chat" | "p3_wait" | ...
+    kind: str  # "p1_chat" | "p3_wait" | ...
     class_: int
     every_seconds: float
     jitter_seconds: float = 0.0
@@ -128,7 +128,7 @@ class WorkloadDriver:
         *,
         scenario: Scenario,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         scheduler: Scheduler | None,
         repo: Repo,
         self_id: str,
@@ -149,9 +149,7 @@ class WorkloadDriver:
         for stream in scenario.streams:
             # Emit on the first tick, then advance by the stream's interval.
             self._next_emit_at[stream.kind] = self._start_at
-            motivation.register_dispatch(
-                stream.kind, self._make_handler(stream)
-            )
+            motivation.register_dispatch(stream.kind, self._make_handler(stream))
         for idx, injection in enumerate(scenario.contradictions):
             self._contradiction_deadline[idx] = self._start_at + timedelta(
                 seconds=injection.after_seconds
@@ -269,6 +267,4 @@ class WorkloadDriver:
             created_at=base + timedelta(milliseconds=2),
         )
         self._repo.insert(resolution)
-        logger.info(
-            "injected contradiction triple intent=%r", inj.intent
-        )
+        logger.info("injected contradiction triple intent=%r", inj.intent)

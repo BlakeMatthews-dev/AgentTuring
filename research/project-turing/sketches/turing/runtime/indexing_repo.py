@@ -20,16 +20,21 @@ from .embedding_index import EmbeddingIndex
 logger = logging.getLogger("turing.runtime.indexing_repo")
 
 
-class IndexingRepo:
-    """Thin wrapper that mirrors inserts into an EmbeddingIndex."""
+class IndexingRepo(Repo):
+    """Repo that also maintains an EmbeddingIndex on writes.
+
+    Wraps a Repo's existing connection; does not open a new one.
+    Every insert of an I_DID memory is mirrored into the EmbeddingIndex
+    so semantic retrieval can find it.
+    """
 
     def __init__(self, *, inner: Repo, index: EmbeddingIndex) -> None:
+        # Bypass Repo.__init__ to reuse inner's connection — no second DB handle.
+        self._path = inner._path
+        self._lock = inner._lock
+        self._conn = inner._conn
         self._inner = inner
         self._index = index
-
-    # Delegate to inner repo; shadow insert to also index.
-    def __getattr__(self, name: str):
-        return getattr(self._inner, name)
 
     def insert(self, memory: EpisodicMemory) -> str:
         memory_id = self._inner.insert(memory)
@@ -46,6 +51,7 @@ class IndexingRepo:
                 "tier": memory.tier.value,
                 "source": memory.source.value,
                 "intent_at_time": memory.intent_at_time,
+                "created_at": memory.created_at.isoformat(),
             },
         )
 

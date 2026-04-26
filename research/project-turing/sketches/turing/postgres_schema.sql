@@ -106,3 +106,32 @@ DROP TRIGGER IF EXISTS durable_memory_wisdom_requires_origin ON durable_memory;
 CREATE TRIGGER durable_memory_wisdom_requires_origin
     BEFORE INSERT ON durable_memory
     FOR EACH ROW EXECUTE FUNCTION check_wisdom_origin();
+
+
+-- Voice section: a single self-owned string the agent writes via the
+-- voice-section-maintenance loop and that appears in every chat prompt.
+CREATE TABLE IF NOT EXISTS voice_section (
+    self_id     TEXT PRIMARY KEY,
+    content     TEXT NOT NULL DEFAULT '',
+    max_chars   INTEGER NOT NULL DEFAULT 600,
+    updated_at  TIMESTAMPTZ NOT NULL
+);
+
+
+-- Conversation turns: per-session user/assistant history for in-session
+-- context retrieval.
+CREATE TABLE IF NOT EXISTS conversation_turn (
+    turn_id         TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    self_id         TEXT NOT NULL,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL,
+    embedding       BYTEA
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_convo
+    ON conversation_turn (conversation_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_self
+    ON conversation_turn (self_id, created_at DESC);

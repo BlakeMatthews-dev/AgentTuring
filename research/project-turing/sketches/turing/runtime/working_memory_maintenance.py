@@ -21,7 +21,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..motivation import BacklogItem, Motivation
-from ..reactor import FakeReactor
+from ..reactor import Reactor
 from ..repo import Repo
 from ..types import MemoryTier, SourceKind
 from ..working_memory import WorkingMemory
@@ -31,7 +31,7 @@ from .providers.base import Provider
 logger = logging.getLogger("turing.runtime.working_memory_maintenance")
 
 
-DEFAULT_WM_MAINTENANCE_TICKS: int = 12_000     # every ~2 min at 100Hz
+DEFAULT_WM_MAINTENANCE_TICKS: int = 12_000  # every ~2 min at 100Hz
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ class WorkingMemoryMaintenance:
         self,
         *,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         repo: Repo,
         working_memory: WorkingMemory,
         provider: Provider,
@@ -113,10 +113,11 @@ class WorkingMemoryMaintenance:
         return "\n".join(lines[:20])
 
     def _compose_prompt(self, *, current: list, recent: str) -> str:
+        from .style import STYLE_GUARD
+
         if current:
             current_block = "\n".join(
-                f"- [id:{e.entry_id} priority:{e.priority:.2f}] {e.content}"
-                for e in current
+                f"- [id:{e.entry_id} priority:{e.priority:.2f}] {e.content}" for e in current
             )
         else:
             current_block = "(empty)"
@@ -124,6 +125,7 @@ class WorkingMemoryMaintenance:
             "You are Project Turing, maintaining your own working memory.\n"
             "Working memory is your scratch space — what you want to keep\n"
             "front-of-mind across conversations and routings. Be selective.\n"
+            f"{STYLE_GUARD}\n"
             "\n"
             "## Current working memory\n"
             f"{current_block}\n"
@@ -169,8 +171,6 @@ class WorkingMemoryMaintenance:
             self._working_memory.remove(self._self_id, entry_id)
         for content, priority in update.adds:
             try:
-                self._working_memory.add(
-                    self._self_id, content, priority=priority
-                )
+                self._working_memory.add(self._self_id, content, priority=priority)
             except Exception:
                 logger.exception("wm add failed for %r", content[:40])

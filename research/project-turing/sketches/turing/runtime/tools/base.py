@@ -28,8 +28,7 @@ class Tool(Protocol):
     name: str
     mode: ToolMode
 
-    def invoke(self, **kwargs: Any) -> Any:
-        raise NotImplementedError
+    def invoke(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class ToolNotPermitted(RuntimeError):
@@ -55,9 +54,7 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool:
         if name not in self._tools:
-            raise ToolNotPermitted(
-                f"tool {name!r} is not registered; operator has not approved it"
-            )
+            raise ToolNotPermitted(f"tool {name!r} is not registered; operator has not approved it")
         return self._tools[name]
 
     def names(self) -> list[str]:

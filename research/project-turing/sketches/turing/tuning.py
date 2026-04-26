@@ -27,7 +27,7 @@ from .motivation import (
     Motivation,
     priority_base,
 )
-from .reactor import FakeReactor
+from .reactor import Reactor
 from .repo import Repo
 from .tiers import WEIGHT_BOUNDS
 from .types import EpisodicMemory, MemoryTier, SourceKind
@@ -38,6 +38,7 @@ COEFFICIENT_COMMITMENT_PREFIX: str = "coefficient_commitment:"
 
 
 # --- CoefficientTable -----------------------------------------------------
+
 
 @dataclass(frozen=True)
 class CoefficientTable:
@@ -104,6 +105,7 @@ class CoefficientTable:
 
 # --- Parsing & updating ---------------------------------------------------
 
+
 @dataclass(frozen=True)
 class CoefficientUpdate:
     name: str
@@ -116,7 +118,7 @@ class CoefficientUpdate:
 def parse_coefficient_commitment(content: str) -> CoefficientUpdate:
     if not content.startswith(COEFFICIENT_COMMITMENT_PREFIX):
         raise ValueError(f"not a coefficient commitment: {content!r}")
-    body = content[len(COEFFICIENT_COMMITMENT_PREFIX):].strip()
+    body = content[len(COEFFICIENT_COMMITMENT_PREFIX) :].strip()
     name, sep, value_str = body.partition("=")
     if not sep:
         raise ValueError(f"missing '=' in commitment: {body!r}")
@@ -133,9 +135,7 @@ def parse_coefficient_commitment(content: str) -> CoefficientUpdate:
     return CoefficientUpdate(name=name, value=parsed)
 
 
-def apply_update(
-    table: CoefficientTable, update: CoefficientUpdate
-) -> CoefficientTable:
+def apply_update(table: CoefficientTable, update: CoefficientUpdate) -> CoefficientTable:
     field_names = {f.name for f in fields(table)}
     if update.name not in field_names:
         raise ValueError(f"unknown coefficient: {update.name!r}")
@@ -177,6 +177,7 @@ def validate_table(table: CoefficientTable) -> bool:
 
 # --- Tuner ----------------------------------------------------------------
 
+
 class CoefficientTuner:
     """A P15 RASO producer that proposes coefficient AFFIRMATIONs.
 
@@ -186,16 +187,19 @@ class CoefficientTuner:
     via the standard write-paths handler.
     """
 
+    MIN_OBSERVATIONS_BEFORE_SUBMIT: int = 50
+
     def __init__(
         self,
         *,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         repo: Repo,
         self_id: str,
-        cadence_ticks: int = 60,
+        cadence_ticks: int = 60_000,
         min_observations: int = 50,
         significance_effect: float = 2.0,
+        min_observations_before_submit: int | None = None,
     ) -> None:
         self._motivation = motivation
         self._reactor = reactor
@@ -204,6 +208,11 @@ class CoefficientTuner:
         self._cadence_ticks = cadence_ticks
         self._min_observations = min_observations
         self._significance_effect = significance_effect
+        self._min_observations_before_submit = (
+            min_observations_before_submit
+            if min_observations_before_submit is not None
+            else self.MIN_OBSERVATIONS_BEFORE_SUBMIT
+        )
         self._last_submitted_tick = 0
         self._signal_fns: list[Callable[[list[DispatchObservation]], list[CoefficientUpdate]]] = [
             self._analyze_pool_utilization,
@@ -216,6 +225,8 @@ class CoefficientTuner:
 
     def on_tick(self, tick: int) -> None:
         self._collect_completed()
+        if len(self._motivation.observations) < self._min_observations_before_submit:
+            return
         if tick - self._last_submitted_tick >= self._cadence_ticks:
             self._last_submitted_tick = tick
             self._motivation.insert(self._build_candidate())
@@ -260,6 +271,10 @@ class CoefficientTuner:
                 continue
             for p in proposals:
                 prior = self._find_prior(p.name)
+                if prior is not None:
+                    existing_val = parse_coefficient_commitment(prior.content).value
+                    if abs(existing_val - p.value) < 0.01:
+                        continue
                 handle_affirmation(
                     self._repo,
                     self._self_id,
@@ -301,9 +316,7 @@ class CoefficientTuner:
     ) -> list[CoefficientUpdate]:
         if len(observations) < self._min_observations:
             return []
-        daydream_count = sum(
-            1 for o in observations if o.kind == "daydream_candidate"
-        )
+        daydream_count = sum(1 for o in observations if o.kind == "daydream_candidate")
         rate = daydream_count / len(observations)
         if rate > 0.5:
             return [CoefficientUpdate(name="daydream_fire_floor", value=20.0)]

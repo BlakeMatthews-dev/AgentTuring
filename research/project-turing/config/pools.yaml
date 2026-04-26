@@ -1,0 +1,114 @@
+# Project Turing — production pools config
+#
+# Wired to the homelab LiteLLM proxy at :4000.
+# One virtual key, one base URL, many pools.
+# Each pool = a model + its free-tier window + quality_weight + role.
+#
+# Pools by purpose:
+#   chat-cheapest  — bootstrap 200 Likert answers, bulk daydream
+#   chat-fast      — daydreaming, journal summarization, RSS thinking
+#   chat-quality   — chat replies, working memory maintenance, retest
+#   chat-premium   — contradiction detection, deep reflection
+#   embedding      — semantic retrieval (all memory queries)
+
+pools:
+  # --- Chat: cheapest (bootstrap, bulk daydream) ---------------------------
+  - pool_name: chat-cheapest-groq
+    model: groq-llama31-8b-instant
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 131072
+    quality_weight: 0.3
+    role: chat
+
+  - pool_name: chat-cheapest-cloudflare
+    model: cloudflare-@cf/meta/llama31-8b-fp8
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 100000
+    quality_weight: 0.3
+    role: chat
+
+  # --- Chat: fast (daydreaming, journal, RSS) ------------------------------
+  - pool_name: chat-fast-sambanova
+    model: sambanova-llama33-70b
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 10000000
+    quality_weight: 0.6
+    role: chat
+
+  - pool_name: chat-fast-groq
+    model: groq-llama33-70b
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 131072
+    quality_weight: 0.6
+    role: chat
+
+  # --- Chat: quality (chat replies, working memory, retest) ----------------
+  - pool_name: chat-quality-gemini
+    model: google-gemini-2.5-flash
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 250000
+    quality_weight: 1.0
+    role: chat
+
+  - pool_name: chat-quality-gemma
+    model: google-gemma-3-27b
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 15000
+    quality_weight: 0.9
+    role: chat
+
+  - pool_name: chat-quality-sambanova-qwen
+    model: sambanova-qwen3-32b
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 6666666
+    quality_weight: 0.85
+    role: chat
+
+  # --- Chat: premium (contradiction, deep reflection, dreaming) ------------
+  - pool_name: chat-premium-gemini-pro
+    model: google-gemini-2.5-pro
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 100000
+    quality_weight: 1.5
+    role: chat
+
+  - pool_name: chat-premium-deepseek
+    model: deepseek-deepseek
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 25000000
+    quality_weight: 1.3
+    role: chat
+
+  - pool_name: chat-premium-sambanova-r1
+    model: sambanova-deepseek-r1-0528
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 6666666
+    quality_weight: 1.4
+    role: chat
+
+  - pool_name: chat-premium-mistral
+    model: mistral-mistral-medium
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 55555555
+    quality_weight: 1.2
+    role: chat
+
+  # --- Embedding (semantic retrieval) --------------------------------------
+  - pool_name: embedding-mistral
+    model: mistral-codestral-embed
+    window_kind: monthly
+    window_duration_seconds: 2592000
+    tokens_allowed: 100000
+    quality_weight: 1.0
+    role: embedding

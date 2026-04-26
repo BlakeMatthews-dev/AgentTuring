@@ -21,7 +21,7 @@ from uuid import uuid4
 logger = logging.getLogger("turing.detectors.contradiction")
 
 from ..motivation import BacklogItem, Motivation, PipelineState
-from ..reactor import FakeReactor
+from ..reactor import Reactor
 from ..repo import Repo
 from ..tiers import WEIGHT_BOUNDS, clamp_weight
 from ..types import DURABLE_TIERS, EpisodicMemory, MemoryTier, SourceKind
@@ -31,6 +31,7 @@ CONTRADICTION_INDEX_MAX_PER_FAMILY: int = 200
 
 
 # --- Structural checks ----------------------------------------------------
+
 
 def _claims_opposed(a_content: str, b_content: str) -> bool:
     """Simple content-shape check. High precision, low recall, by design.
@@ -59,6 +60,7 @@ def _supports_one_side(c_content: str, a_content: str, b_content: str) -> bool:
 
 # --- Payload & LLM stand-in -----------------------------------------------
 
+
 @dataclass(frozen=True)
 class ContradictionPayload:
     a_memory_id: str
@@ -80,9 +82,7 @@ class DraftLessonFn:
     deterministic function so tests are reproducible.
     """
 
-    def __call__(
-        self, a: EpisodicMemory, b: EpisodicMemory, c: EpisodicMemory
-    ) -> DraftLesson:
+    def __call__(self, a: EpisodicMemory, b: EpisodicMemory, c: EpisodicMemory) -> DraftLesson:
         return DraftLesson(
             content=f"resolution via {c.memory_id}: {c.content}",
             initial_weight=clamp_weight(MemoryTier.LESSON, 0.7),
@@ -90,12 +90,13 @@ class DraftLessonFn:
         )
 
 
-default_draft_lesson: Callable[
-    [EpisodicMemory, EpisodicMemory, EpisodicMemory], DraftLesson
-] = DraftLessonFn()
+default_draft_lesson: Callable[[EpisodicMemory, EpisodicMemory, EpisodicMemory], DraftLesson] = (
+    DraftLessonFn()
+)
 
 
 # --- Detector -------------------------------------------------------------
+
 
 class ContradictionDetector:
     """Cheap pairwise scan over durable memory; proposes LESSON-minting work.
@@ -110,7 +111,7 @@ class ContradictionDetector:
         *,
         repo: Repo,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         self_id: str,
         draft_lesson: Callable[
             [EpisodicMemory, EpisodicMemory, EpisodicMemory], DraftLesson
@@ -121,12 +122,10 @@ class ContradictionDetector:
         self._reactor = reactor
         self._self_id = self_id
         self._draft_lesson = draft_lesson
-        self._family_index: dict[str, list[str]] = {}       # intent → [memory_id, ...]
+        self._family_index: dict[str, list[str]] = {}  # intent → [memory_id, ...]
         self._submitted_keys: set[str] = set()
         self._last_scan_at: datetime | None = None
-        self._pending: list[
-            tuple[Future[Any], EpisodicMemory, EpisodicMemory, EpisodicMemory]
-        ] = []
+        self._pending: list[tuple[Future[Any], EpisodicMemory, EpisodicMemory, EpisodicMemory]] = []
 
         motivation.register_dispatch("raso_contradiction", self._on_dispatch)
         reactor.register(self.on_tick)
@@ -188,13 +187,9 @@ class ContradictionDetector:
             if key in self._submitted_keys:
                 continue
             self._submitted_keys.add(key)
-            self._motivation.insert(
-                self._build_candidate(m, other, resolution)
-            )
+            self._motivation.insert(self._build_candidate(m, other, resolution))
 
-    def _find_resolution(
-        self, a: EpisodicMemory, b: EpisodicMemory
-    ) -> EpisodicMemory | None:
+    def _find_resolution(self, a: EpisodicMemory, b: EpisodicMemory) -> EpisodicMemory | None:
         newest = max(a.created_at, b.created_at)
         for c in self._repo.find(
             self_id=self._self_id,
@@ -207,9 +202,7 @@ class ContradictionDetector:
                 return c
         return None
 
-    def _dedup_key(
-        self, a: EpisodicMemory, b: EpisodicMemory, c: EpisodicMemory
-    ) -> str:
+    def _dedup_key(self, a: EpisodicMemory, b: EpisodicMemory, c: EpisodicMemory) -> str:
         parts = sorted([a.memory_id, b.memory_id, c.memory_id])
         return "|".join(parts)
 
@@ -238,15 +231,14 @@ class ContradictionDetector:
 
     # ---- Dispatch execution
 
-    def _on_dispatch(
-        self, item: BacklogItem, chosen_pool: str
-    ) -> None:
+    def _on_dispatch(self, item: BacklogItem, chosen_pool: str) -> None:
         payload: ContradictionPayload = item.payload
         a = self._repo.get(payload.a_memory_id)
         b = self._repo.get(payload.b_memory_id)
         c = self._repo.get(payload.c_memory_id)
         if any(m is None for m in (a, b, c)):
             return
+        assert a is not None and b is not None and c is not None
         if a.superseded_by is not None or b.superseded_by is not None:
             return
 
@@ -257,9 +249,7 @@ class ContradictionDetector:
         self._collect_completed()
 
     def _collect_completed(self) -> None:
-        remaining: list[
-            tuple[Future[Any], EpisodicMemory, EpisodicMemory, EpisodicMemory]
-        ] = []
+        remaining: list[tuple[Future[Any], EpisodicMemory, EpisodicMemory, EpisodicMemory]] = []
         for future, a, b, c in self._pending:
             if not future.done():
                 remaining.append((future, a, b, c))

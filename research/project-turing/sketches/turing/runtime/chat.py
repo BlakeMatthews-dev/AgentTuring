@@ -69,10 +69,20 @@ class ChatBridge:
 TURING_MODEL_ID: str = "turing-conduit"
 
 
-SENTINEL_KINDS = frozenset({
-    "journal", "notebook", "blog", "draft", "letter",
-    "voice", "remember", "opinion", "goal", "hypothesis",
-})
+SENTINEL_KINDS = frozenset(
+    {
+        "journal",
+        "notebook",
+        "blog",
+        "draft",
+        "letter",
+        "voice",
+        "remember",
+        "opinion",
+        "goal",
+        "hypothesis",
+    }
+)
 
 _SENTINEL_RE = re.compile(
     r"```(" + "|".join(SENTINEL_KINDS) + r")\n(.*?)```",
@@ -303,21 +313,39 @@ def make_chat_handler(
             def _sse(obj: dict[str, Any]) -> bytes:
                 return ("data: " + json.dumps(obj) + "\n\n").encode("utf-8")
 
-            role_chunk = _sse({
-                "id": chunk_id, "object": "chat.completion.chunk",
-                "created": created, "model": TURING_MODEL_ID,
-                "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
-            })
-            content_chunk = _sse({
-                "id": chunk_id, "object": "chat.completion.chunk",
-                "created": created, "model": TURING_MODEL_ID,
-                "choices": [{"index": 0, "delta": {"content": reply}, "finish_reason": None}],
-            })
-            finish_chunk = _sse({
-                "id": chunk_id, "object": "chat.completion.chunk",
-                "created": created, "model": TURING_MODEL_ID,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            })
+            role_chunk = _sse(
+                {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": TURING_MODEL_ID,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+            content_chunk = _sse(
+                {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": TURING_MODEL_ID,
+                    "choices": [{"index": 0, "delta": {"content": reply}, "finish_reason": None}],
+                }
+            )
+            finish_chunk = _sse(
+                {
+                    "id": chunk_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": TURING_MODEL_ID,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+            )
             done_line = b"data: [DONE]\n\n"
 
             self.send_response(200)
@@ -325,20 +353,30 @@ def make_chat_handler(
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
             self.end_headers()
-            for part in (role_chunk, content_chunk, finish_chunk, done_line):
-                self.wfile.write(part)
-            self.wfile.flush()
+            try:
+                for part in (role_chunk, content_chunk, finish_chunk, done_line):
+                    self.wfile.write(part)
+                self.wfile.flush()
+            except BrokenPipeError:
+                logger.debug("client disconnected during stream")
 
         def _respond_stream_error(self, message: str) -> None:
-            error_chunk = ("data: " + json.dumps({"error": {"message": message, "type": "server_error"}}) + "\n\n").encode("utf-8")
+            error_chunk = (
+                "data: "
+                + json.dumps({"error": {"message": message, "type": "server_error"}})
+                + "\n\n"
+            ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
             self.end_headers()
-            self.wfile.write(error_chunk)
-            self.wfile.write(b"data: [DONE]\n\n")
-            self.wfile.flush()
+            try:
+                self.wfile.write(error_chunk)
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+            except BrokenPipeError:
+                logger.debug("client disconnected during stream error")
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path.rstrip("/") == "/v1/models":
@@ -422,7 +460,10 @@ def make_chat_handler(
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except BrokenPipeError:
+                logger.debug("client disconnected before response sent")
 
         def _serve_html(self) -> None:
             data = _CHAT_HTML.encode("utf-8")
@@ -430,7 +471,10 @@ def make_chat_handler(
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except BrokenPipeError:
+                logger.debug("client disconnected before html sent")
 
         def _serve_prompt_editor(self) -> None:
             current = _read_prompt_file(base_prompt_path)
@@ -443,7 +487,10 @@ def make_chat_handler(
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except BrokenPipeError:
+                logger.debug("client disconnected before prompt editor sent")
 
         def _handle_save_prompt(self) -> None:
             if not base_prompt_path:

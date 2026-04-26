@@ -169,8 +169,14 @@ class WorkingMemoryMaintenance:
     def _apply_update(self, current: list, update: WMUpdate) -> None:
         for entry_id in update.removes:
             self._working_memory.remove(self._self_id, entry_id)
+        existing_content = {e.content[:60].lower() for e in current}
         for content, priority in update.adds:
+            key = content[:60].lower()
+            if key in existing_content:
+                logger.debug("skipping duplicate wm entry: %r", content[:40])
+                continue
             try:
                 self._working_memory.add(self._self_id, content, priority=priority)
+                existing_content.add(key)
             except Exception:
                 logger.exception("wm add failed for %r", content[:40])

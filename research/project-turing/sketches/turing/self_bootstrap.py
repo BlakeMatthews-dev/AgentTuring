@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from .self_model import (
     ALL_FACETS,
@@ -57,13 +58,9 @@ def ensure_items_loaded(
     if existing == 200:
         return
     if existing != 0:
-        raise BootstrapValidationError(
-            f"item bank has {existing} rows, expected 0 or 200"
-        )
+        raise BootstrapValidationError(f"item bank has {existing} rows, expected 0 or 200")
     if len(item_bank) != 200:
-        raise BootstrapValidationError(
-            f"item bank fixture has {len(item_bank)} rows, expected 200"
-        )
+        raise BootstrapValidationError(f"item bank fixture has {len(item_bank)} rows, expected 200")
     for spec in item_bank:
         repo.insert_item(
             PersonalityItem(
@@ -87,7 +84,7 @@ def draw_and_persist_facets(
     rng = random.Random(seed)
     profile = draw_bootstrap_profile(rng, overrides=overrides)
     now = datetime.now(UTC)
-    for (trait, facet) in ALL_FACETS:
+    for trait, facet in ALL_FACETS:
         key = facet_node_id(trait, facet)
         repo.insert_facet(
             PersonalityFacet(
@@ -129,7 +126,9 @@ def generate_likert_answers(
         repo.update_bootstrap_progress(self_id, item.item_number)
 
 
-def _ask_with_retry(ask: AnswerLlm, item: PersonalityItem, profile: dict[str, float]) -> tuple[int, str]:
+def _ask_with_retry(
+    ask: AnswerLlm, item: PersonalityItem, profile: dict[str, float]
+) -> tuple[int, str]:
     last_err: Exception | None = None
     for _ in range(3):
         try:
@@ -142,7 +141,17 @@ def _ask_with_retry(ask: AnswerLlm, item: PersonalityItem, profile: dict[str, fl
     raise BootstrapRuntimeError(str(last_err) if last_err else "answer generation failed")
 
 
-def finalize(repo: SelfRepo, self_id: str) -> None:
+def finalize(
+    repo: SelfRepo,
+    self_id: str,
+    reactor: Any | None = None,
+    mirror_fn: Any | None = None,
+) -> None:
+    from datetime import timedelta
+
+    from .reactor import FakeReactor
+    from .self_mood import tick_mood_decay
+
     now = datetime.now(UTC)
     repo.insert_mood(
         Mood(
@@ -153,6 +162,26 @@ def finalize(repo: SelfRepo, self_id: str) -> None:
             last_tick_at=now,
         )
     )
+    if mirror_fn is not None:
+        mirror_fn(
+            self_id=self_id,
+            content=f"I was bootstrapped on {now.date().isoformat()}.",
+            intent_at_time="self bootstrap complete",
+        )
+    if reactor is not None:
+        reactor.register_interval_trigger(
+            name=f"mood-decay:{self_id}",
+            interval=timedelta(hours=1),
+            handler=lambda: tick_mood_decay(repo, self_id, datetime.now(UTC)),
+            idempotent=True,
+        )
+        reactor.register_interval_trigger(
+            name=f"personality-retest:{self_id}",
+            interval=timedelta(days=7),
+            first_fire_at=now + timedelta(days=7),
+            handler=lambda: None,
+            idempotent=True,
+        )
     repo.delete_bootstrap_progress(self_id)
 
 
@@ -178,16 +207,11 @@ def run_bootstrap(
         if progress is None:
             raise BootstrapValidationError("nothing to resume")
         # Reconstruct profile from stored facets.
-        profile = {
-            facet_node_id(f.trait, f.facet_id): f.score
-            for f in repo.list_facets(self_id)
-        }
+        profile = {facet_node_id(f.trait, f.facet_id): f.score for f in repo.list_facets(self_id)}
         ensure_items_loaded(repo, self_id, item_bank, new_id)
         start_at = progress + 1
 
-    generate_likert_answers(
-        repo, self_id, profile, ask=ask, new_id=new_id, start_at=start_at
-    )
+    generate_likert_answers(repo, self_id, profile, ask=ask, new_id=new_id, start_at=start_at)
     finalize(repo, self_id)
     verify_final_state(repo, self_id)
     return profile

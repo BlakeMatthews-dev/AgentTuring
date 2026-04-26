@@ -232,7 +232,7 @@ class TestChatHTTPAdditional:
         port, _ = chat_server
         response = urllib.request.urlopen(f"http://127.0.0.1:{port}/index.html", timeout=2.0)
         assert response.status == 200
-        assert "Project Turing" in response.read().decode("utf-8")
+        assert "Turing" in response.read().decode("utf-8")
 
     def test_v1_models_trailing_slash(self, chat_server) -> None:
         port, _ = chat_server

@@ -83,7 +83,7 @@ def test_post_chat_resolves_via_dispatch(chat_setup) -> None:
     result_holder: list[str] = []
     sender = threading.Thread(target=lambda: result_holder.append(_send()))
     sender.start()
-    time.sleep(0.05)              # let the POST register
+    time.sleep(0.05)  # let the POST register
     drive()
     sender.join(timeout=5.0)
 
@@ -95,9 +95,11 @@ def test_post_chat_resolves_via_dispatch(chat_setup) -> None:
 
 def test_get_thoughts_returns_list(chat_setup) -> None:
     port, _ = chat_setup
-    response = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/thoughts", timeout=2.0
-    ).read().decode("utf-8")
+    response = (
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/thoughts", timeout=2.0)
+        .read()
+        .decode("utf-8")
+    )
     body = json.loads(response)
     assert "thoughts" in body
     assert isinstance(body["thoughts"], list)
@@ -105,9 +107,11 @@ def test_get_thoughts_returns_list(chat_setup) -> None:
 
 def test_get_identity_returns_self_id(chat_setup) -> None:
     port, _ = chat_setup
-    response = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/identity", timeout=2.0
-    ).read().decode("utf-8")
+    response = (
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/identity", timeout=2.0)
+        .read()
+        .decode("utf-8")
+    )
     body = json.loads(response)
     assert "self_id" in body
     assert body["wisdom"] == []
@@ -116,27 +120,21 @@ def test_get_identity_returns_self_id(chat_setup) -> None:
 def test_unknown_path_returns_404(chat_setup) -> None:
     port, _ = chat_setup
     with pytest.raises(urllib.error.HTTPError) as exc_info:
-        urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/nope", timeout=2.0
-        )
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/nope", timeout=2.0)
     assert exc_info.value.code == 404
 
 
 def test_root_serves_html(chat_setup) -> None:
     port, _ = chat_setup
-    response = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/", timeout=2.0
-    )
+    response = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2.0)
     assert response.status == 200
     body = response.read().decode("utf-8")
-    assert "<title>Project Turing — chat</title>" in body
+    assert "<title>Turing" in body
 
 
 def test_v1_models_lists_turing_conduit(chat_setup) -> None:
     port, _ = chat_setup
-    response = urllib.request.urlopen(
-        f"http://127.0.0.1:{port}/v1/models", timeout=2.0
-    )
+    response = urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=2.0)
     body = json.loads(response.read().decode("utf-8"))
     assert body["object"] == "list"
     ids = [m["id"] for m in body["data"]]
@@ -163,9 +161,7 @@ def test_v1_chat_completions_openai_shape(chat_setup) -> None:
             ).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        result_holder.append(
-            urllib.request.urlopen(req, timeout=5.0).read().decode("utf-8")
-        )
+        result_holder.append(urllib.request.urlopen(req, timeout=5.0).read().decode("utf-8"))
 
     sender = threading.Thread(target=_send)
     sender.start()

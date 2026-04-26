@@ -23,7 +23,7 @@ class RuntimeConfig:
 
     # Logging / observability
     log_level: str = "INFO"
-    log_format: str = "plain"               # "plain" | "json"
+    log_format: str = "plain"  # "plain" | "json"
     metrics_port: int | None = None
     metrics_bind: str = "127.0.0.1"
 
@@ -39,6 +39,9 @@ class RuntimeConfig:
     # Tools (outward-facing)
     obsidian_vault_dir: str | None = None
     rss_feeds: tuple[str, ...] = ()
+    wordpress_site_url: str | None = None
+    wordpress_username: str | None = None
+    wordpress_app_password: str | None = None
 
     # Chat HTTP
     chat_port: int | None = None
@@ -48,6 +51,22 @@ class RuntimeConfig:
     # by the self. Working memory (self-controlled) is composed alongside
     # this in every chat prompt.
     base_prompt_path: str | None = None
+
+    # Voice section — the self-owned text block Turing writes to describe
+    # how it sounds. Starts empty by default; populated over time by the
+    # voice-section-maintenance loop.
+    # - voice_section_path: operator seed file (optional; overrides the DB
+    #   value only on the very first boot if the DB row is empty).
+    # - voice_self_edit_enabled: gates the maintenance loop.
+    # - voice_section_max_chars: hard cap on the content length.
+    # - voice_maintenance_ticks: how often the maintenance loop fires.
+    voice_section_path: str | None = None
+    voice_self_edit_enabled: bool = True
+    voice_section_max_chars: int = 600
+    voice_maintenance_ticks: int = 50_000
+
+    # Embedding
+    skip_embedding_rebuild: bool = False
 
     # Self identity
     self_label: str = "default"
@@ -91,9 +110,7 @@ def load_config_from_env(
     if "TURING_TICK_RATE_HZ" in env:
         cfg_kwargs["tick_rate_hz"] = _parse_int(env["TURING_TICK_RATE_HZ"], 100)
     if "TURING_EXECUTOR_WORKERS" in env:
-        cfg_kwargs["executor_workers"] = _parse_int(
-            env["TURING_EXECUTOR_WORKERS"], 8
-        )
+        cfg_kwargs["executor_workers"] = _parse_int(env["TURING_EXECUTOR_WORKERS"], 8)
     if "TURING_DB_PATH" in env:
         cfg_kwargs["db_path"] = env["TURING_DB_PATH"]
     if "TURING_JOURNAL_DIR" in env:
@@ -122,14 +139,30 @@ def load_config_from_env(
         cfg_kwargs["rss_feeds"] = tuple(
             f.strip() for f in env["TURING_RSS_FEEDS"].split(",") if f.strip()
         )
+    if "TURING_WORDPRESS_SITE_URL" in env:
+        cfg_kwargs["wordpress_site_url"] = env["TURING_WORDPRESS_SITE_URL"]
+    if "TURING_WORDPRESS_USERNAME" in env:
+        cfg_kwargs["wordpress_username"] = env["TURING_WORDPRESS_USERNAME"]
+    if "TURING_WORDPRESS_APP_PASSWORD" in env:
+        cfg_kwargs["wordpress_app_password"] = env["TURING_WORDPRESS_APP_PASSWORD"]
     if "TURING_CHAT_PORT" in env:
         cfg_kwargs["chat_port"] = _parse_int(env["TURING_CHAT_PORT"], 0) or None
     if "TURING_CHAT_BIND" in env:
         cfg_kwargs["chat_bind"] = env["TURING_CHAT_BIND"]
     if "TURING_BASE_PROMPT_PATH" in env:
         cfg_kwargs["base_prompt_path"] = env["TURING_BASE_PROMPT_PATH"]
+    if "TURING_VOICE_SECTION_PATH" in env:
+        cfg_kwargs["voice_section_path"] = env["TURING_VOICE_SECTION_PATH"]
+    if "TURING_VOICE_SELF_EDIT_ENABLED" in env:
+        cfg_kwargs["voice_self_edit_enabled"] = _parse_bool(env["TURING_VOICE_SELF_EDIT_ENABLED"])
+    if "TURING_VOICE_SECTION_MAX_CHARS" in env:
+        cfg_kwargs["voice_section_max_chars"] = _parse_int(env["TURING_VOICE_SECTION_MAX_CHARS"], 600)
+    if "TURING_VOICE_MAINTENANCE_TICKS" in env:
+        cfg_kwargs["voice_maintenance_ticks"] = _parse_int(env["TURING_VOICE_MAINTENANCE_TICKS"], 50_000)
     if "TURING_SELF_LABEL" in env:
         cfg_kwargs["self_label"] = env["TURING_SELF_LABEL"]
+    if "TURING_SKIP_EMBEDDING_REBUILD" in env:
+        cfg_kwargs["skip_embedding_rebuild"] = _parse_bool(env["TURING_SKIP_EMBEDDING_REBUILD"])
 
     cfg = RuntimeConfig(**cfg_kwargs)
     if overrides:

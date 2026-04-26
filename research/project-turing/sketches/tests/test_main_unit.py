@@ -196,7 +196,7 @@ class TestBuildChatPrompt:
             base_prompt="base",
             working_memory=wm,
         )
-        assert "self-maintained" in prompt
+        assert "What I'm keeping in mind" in prompt
         assert "remember this" in prompt
 
     def test_with_history(self, repo, self_id) -> None:
@@ -217,7 +217,8 @@ class TestBuildChatPrompt:
         assert "user: hi" in prompt
         assert "assistant: hello" in prompt
 
-    def test_truncates_history_to_six(self, repo, self_id) -> None:
+    def test_truncates_history_to_twenty(self, repo, self_id) -> None:
+        # History window is 20 turns; 10 items all fit, so all appear.
         history = [{"role": "user", "content": f"msg{i}"} for i in range(10)]
         prompt = _build_chat_prompt(
             message="current",
@@ -228,9 +229,23 @@ class TestBuildChatPrompt:
             base_prompt="base",
             working_memory=None,
         )
-        assert "msg0" not in prompt
-        assert "msg4" in prompt
+        assert "msg0" in prompt
         assert "msg9" in prompt
+        # Items beyond 20 are dropped: send 25 items, oldest 5 should not appear.
+        long_history = [{"role": "user", "content": f"longmsg{i}"} for i in range(25)]
+        long_prompt = _build_chat_prompt(
+            message="current",
+            history=long_history,
+            repo=repo,
+            self_id=self_id,
+            index=None,
+            base_prompt="base",
+            working_memory=None,
+        )
+        assert "longmsg0" not in long_prompt
+        assert "longmsg4" not in long_prompt
+        assert "longmsg5" in long_prompt
+        assert "longmsg24" in long_prompt
 
     def test_with_wisdom_memories(self, repo, self_id) -> None:
         ancestor = EpisodicMemory(
@@ -272,7 +287,7 @@ class TestBuildChatPrompt:
             base_prompt="base",
             working_memory=None,
         )
-        assert "WISDOM" in prompt
+        assert "What I know about myself" in prompt
         assert "I value honesty" in prompt
 
     def test_with_index_and_memories(self, repo, self_id) -> None:

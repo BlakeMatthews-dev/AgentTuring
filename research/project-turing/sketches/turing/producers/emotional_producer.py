@@ -18,7 +18,7 @@ from ..reactor import Reactor
 from ..repo import Repo
 from ..runtime.providers.base import Provider
 from ..self_model import Mood, SelfTodo, TodoStatus
-from ..self_repo import SelfRepo
+from ..self_repo import SelfRepo, get_mood_or_default
 from ..types import EpisodicMemory, MemoryTier, SourceKind
 
 logger = logging.getLogger("turing.producers.emotional_response")
@@ -64,31 +64,11 @@ class EmotionalResponseProducer:
         motivation.register_dispatch("emotional_response", self._on_dispatch)
         reactor.register(self.on_tick)
 
-    def _current_mood(self) -> Mood:
-        try:
-            return self._self_repo.get_mood(self._self_id)
-        except KeyError:
-            return Mood(
-                self_id=self._self_id,
-                valence=0.0,
-                arousal=0.3,
-                focus=0.5,
-                last_tick_at=datetime.now(UTC),
-            )
-
-    def _dominant_drive(self, drives: dict[str, float]) -> tuple[str, float]:
-        best_name = ""
-        best_val = 0.0
-        for name, val in drives.items():
-            if val > best_val:
-                best_name = name
-                best_val = val
-        return best_name, best_val
-
     def on_tick(self, tick: int) -> None:
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
-        dominant_name, dominant_val = self._dominant_drive(drives)
+        dominant_name = max(drives, key=lambda d: drives[d])
+        dominant_val = drives[dominant_name]
         if dominant_val < DRIVE_FLOOR:
             return
         effective_cadence = int(BASE_CADENCE_TICKS / (dominant_val * 1.5))
@@ -112,13 +92,17 @@ class EmotionalResponseProducer:
         payload = item.payload or {}
         drive_name = payload.get("drive", "restlessness")
         intensity = payload.get("intensity", 0.5)
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
 
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
         recent = list(
             self._repo.find(
                 self_id=self._self_id,
                 source=SourceKind.I_DID,
                 include_superseded=False,
+                created_after=cutoff,
             )
         )
         recent_summaries = (
@@ -176,9 +160,8 @@ class EmotionalResponseProducer:
 
                 journal = Path(self._journal_dir)
                 journal.mkdir(parents=True, exist_ok=True)
-                (journal / "reflections.md").open("a").write(
-                    f"\n## {datetime.now(UTC).isoformat()} ({drive_name})\n\n{content}\n"
-                )
+                with (journal / "reflections.md").open("a") as f:
+                    f.write(f"\n## {datetime.now(UTC).isoformat()} ({drive_name})\n\n{content}\n")
 
             logger.info("emotional response written (drive=%s)", drive_name)
         except Exception:

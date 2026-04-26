@@ -53,6 +53,19 @@ def _parse_req(s: str | None) -> datetime:
     return parsed
 
 
+def get_mood_or_default(self_repo: SelfRepo, self_id: str) -> Mood:
+    try:
+        return self_repo.get_mood(self_id)
+    except KeyError:
+        return Mood(
+            self_id=self_id,
+            valence=0.0,
+            arousal=0.3,
+            focus=0.5,
+            last_tick_at=datetime.now(UTC),
+        )
+
+
 class SelfRepo:
     """Self-model repository. Shares the connection with the memory `Repo`."""
 
@@ -360,14 +373,15 @@ class SelfRepo:
     def insert_hobby(self, h: Hobby) -> Hobby:
         self._conn.execute(
             """INSERT INTO self_hobbies
-               (node_id, self_id, name, description, last_engaged_at,
+               (node_id, self_id, name, description, strength, last_engaged_at,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 h.node_id,
                 h.self_id,
                 h.name,
                 h.description,
+                h.strength,
                 _iso(h.last_engaged_at) if h.last_engaged_at else None,
                 _iso(h.created_at),
                 _iso(h.updated_at),
@@ -378,7 +392,7 @@ class SelfRepo:
 
     def list_hobbies(self, self_id: str) -> list[Hobby]:
         rows = self._conn.execute(
-            "SELECT node_id, self_id, name, description, last_engaged_at, "
+            "SELECT node_id, self_id, name, description, strength, last_engaged_at, "
             "created_at, updated_at FROM self_hobbies WHERE self_id = ?",
             (self_id,),
         ).fetchall()
@@ -388,9 +402,10 @@ class SelfRepo:
                 self_id=r[1],
                 name=r[2],
                 description=r[3],
-                last_engaged_at=_parse(r[4]),
-                created_at=_parse_req(r[5]),
-                updated_at=_parse_req(r[6]),
+                strength=float(r[4]) if r[4] is not None else 0.5,
+                last_engaged_at=_parse(r[5]),
+                created_at=_parse_req(r[6]),
+                updated_at=_parse_req(r[7]),
             )
             for r in rows
         ]

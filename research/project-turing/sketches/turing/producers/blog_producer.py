@@ -20,7 +20,7 @@ from ..rewards import RewardTracker
 from ..runtime.providers.base import Provider
 from ..runtime.tools.wordpress import WordPressWriter
 from ..self_model import Mood
-from ..self_repo import SelfRepo
+from ..self_repo import SelfRepo, get_mood_or_default
 from ..types import EpisodicMemory, MemoryTier, SourceKind
 
 logger = logging.getLogger("turing.producers.blog")
@@ -70,20 +70,8 @@ class BlogProducer:
         motivation.register_dispatch("blog_post", self._on_dispatch)
         reactor.register(self.on_tick)
 
-    def _current_mood(self) -> Mood:
-        try:
-            return self._self_repo.get_mood(self._self_id)
-        except KeyError:
-            return Mood(
-                self_id=self._self_id,
-                valence=0.0,
-                arousal=0.3,
-                focus=0.5,
-                last_tick_at=datetime.now(UTC),
-            )
-
     def on_tick(self, tick: int) -> None:
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
         creative = drives["creative_urge"]
         if creative < CREATIVE_FLOOR:
@@ -106,7 +94,7 @@ class BlogProducer:
         )
 
     def _on_dispatch(self, item: BacklogItem, chosen_pool: str) -> None:
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
         try:
             prompt = self._build_prompt(mood)
             reply = self._provider.complete(prompt, max_tokens=800)
@@ -148,11 +136,15 @@ class BlogProducer:
             logger.exception("blog post failed")
 
     def _build_prompt(self, mood: Mood) -> str:
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(hours=48)
         recent = list(
             self._repo.find(
                 self_id=self._self_id,
                 source=SourceKind.I_DID,
                 include_superseded=False,
+                created_after=cutoff,
             )
         )
         recent_text = (

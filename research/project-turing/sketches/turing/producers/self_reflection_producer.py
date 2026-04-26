@@ -24,7 +24,7 @@ from ..runtime.embedding_index import EmbeddingIndex
 from ..runtime.providers.base import EmbeddingProvider
 from ..runtime.providers.base import Provider
 from ..self_model import Mood
-from ..self_repo import SelfRepo
+from ..self_repo import SelfRepo, get_mood_or_default
 from ..types import EpisodicMemory, MemoryTier, SourceKind
 
 logger = logging.getLogger("turing.producers.self_reflection")
@@ -150,20 +150,8 @@ class SelfReflectionProducer:
         motivation.register_dispatch("self_reflection", self._on_dispatch)
         reactor.register(self.on_tick)
 
-    def _current_mood(self) -> Mood:
-        try:
-            return self._self_repo.get_mood(self._self_id)
-        except KeyError:
-            return Mood(
-                self_id=self._self_id,
-                valence=0.0,
-                arousal=0.3,
-                focus=0.5,
-                last_tick_at=datetime.now(UTC),
-            )
-
     def on_tick(self, tick: int) -> None:
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
         diligence = drives["diligence"]
         if diligence < DILIGENCE_FLOOR:

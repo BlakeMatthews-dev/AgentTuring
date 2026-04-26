@@ -1685,7 +1685,7 @@ def build_and_run(argv: list[str] | None = None) -> int:
             # every 10th tick to avoid DB thrash.
             if tick % 10 == 0:
                 for tier in ("regret", "accomplishment", "affirmation", "wisdom"):
-                    n = repo.conn.execute(
+                    n = raw_repo._conn.execute(
                         "SELECT COUNT(*) FROM durable_memory WHERE tier = ?",
                         (tier,),
                     ).fetchone()[0]

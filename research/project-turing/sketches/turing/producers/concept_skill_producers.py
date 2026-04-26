@@ -17,7 +17,7 @@ from ..reactor import Reactor
 from ..repo import Repo
 from ..runtime.providers.base import Provider
 from ..self_model import Mood
-from ..self_repo import SelfRepo
+from ..self_repo import SelfRepo, get_mood_or_default
 from ..types import EpisodicMemory, MemoryTier, SourceKind
 
 logger = logging.getLogger("turing.producers.concept_inventor")
@@ -59,20 +59,8 @@ class ConceptInventor:
         motivation.register_dispatch("concept_invention", self._on_dispatch)
         reactor.register(self.on_tick)
 
-    def _current_mood(self) -> Mood:
-        try:
-            return self._self_repo.get_mood(self._self_id)
-        except KeyError:
-            return Mood(
-                self_id=self._self_id,
-                valence=0.0,
-                arousal=0.3,
-                focus=0.5,
-                last_tick_at=datetime.now(UTC),
-            )
-
     def on_tick(self, tick: int) -> None:
-        mood = self._current_mood()
+        mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
         best_drive = max(drives, key=lambda d: drives[d])
         best_val = drives[best_drive]
@@ -257,7 +245,7 @@ class SkillBuilder:
             "to practice it.\n\n"
             "Respond in this exact format:\n"
             "SKILL: [2-4 word skill name]\n"
-            "KIND: [one of: intellectual, social, creative, practical]\n"
+            "KIND: [one of: intellectual, social, creative, physical, habit]\n"
             "DESCRIPTION: [1-2 sentences describing the skill]\n"
             "APPROACHES:\n"
             "1. [approach]\n"
@@ -285,7 +273,8 @@ class SkillBuilder:
             "intellectual": SkillKind.INTELLECTUAL,
             "social": SkillKind.SOCIAL,
             "creative": SkillKind.CREATIVE,
-            "practical": SkillKind.HABIT,
+            "physical": SkillKind.PHYSICAL,
+            "habit": SkillKind.HABIT,
         }
         skill_kind = kind_map.get(kind_str, SkillKind.INTELLECTUAL)
         node_id = f"skill-{uuid4()}"

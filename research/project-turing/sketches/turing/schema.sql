@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS self_hobbies (
     self_id            TEXT NOT NULL,
     name               TEXT NOT NULL,
     description        TEXT NOT NULL,
+    strength           REAL NOT NULL DEFAULT 0.5 CHECK (strength BETWEEN 0.0 AND 1.0),
     last_engaged_at    TEXT,
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
@@ -281,6 +282,7 @@ CREATE TABLE IF NOT EXISTS self_skills (
     stored_level         REAL NOT NULL CHECK (stored_level BETWEEN 0.0 AND 1.0),
     decay_rate_per_day   REAL NOT NULL CHECK (decay_rate_per_day > 0.0),
     last_practiced_at    TEXT NOT NULL,
+    practice_count       INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL,
     UNIQUE (self_id, name)

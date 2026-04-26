@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 # Non-root user.
-RUN useradd --create-home --shell /bin/bash turing
+RUN useradd --create-home --shell /bin/bash turing \
+    && mkdir -p /data && chown turing:turing /data
 
 WORKDIR /app
 

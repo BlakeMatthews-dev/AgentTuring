@@ -305,21 +305,25 @@ class TestBuildStrategy:
         strategy = _build_strategy(identity)
         assert type(strategy) is DirectStrategy
 
-    def test_strategy_with_broken_init_falls_back(self) -> None:
-        """Strategy class whose __init__ raises TypeError falls back to DirectStrategy."""
+    def test_strategy_with_broken_init_raises_config_error(self) -> None:
+        """A registered strategy whose __init__ requires extra args is a config error.
+
+        Previously this silently downgraded to DirectStrategy, masking misregistered
+        strategies (notably DelegateStrategy, which requires a routing_table).
+        Strict failure means the operator finds the bug at boot, not at request time.
+        """
+        from stronghold.types.errors import ConfigError
 
         class BrokenStrategy:
             def __init__(self, required_arg: str) -> None:
                 pass
 
-        # Register then test
         register_strategy("broken", BrokenStrategy)
         try:
             identity = AgentIdentity(name="test", reasoning_strategy="broken")
-            strategy = _build_strategy(identity)
-            assert type(strategy) is DirectStrategy
+            with pytest.raises(ConfigError, match="strategy 'broken'"):
+                _build_strategy(identity)
         finally:
-            # Clean up the registry
             _STRATEGY_REGISTRY.pop("broken", None)
 
 
@@ -759,7 +763,7 @@ class TestRegisterCustomStrategies:
     """Test that _register_custom_strategies loads all available strategies."""
 
     def test_registers_available_strategies(self) -> None:
-        from stronghold.agents.factory import _register_custom_strategies, _STRATEGY_REGISTRY
+        from stronghold.agents.factory import _STRATEGY_REGISTRY, _register_custom_strategies
 
         _register_custom_strategies()
         # After registration, react and delegate should be available

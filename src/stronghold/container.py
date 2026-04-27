@@ -426,6 +426,20 @@ async def create_container(config: StrongholdConfig) -> Container:
 
     coin_ledger = PgCoinLedger(db_pool, config) if db_pool else NoOpCoinLedger()
 
+    # Learning approval gate + promoter must exist before create_agents so each
+    # Agent receives the promoter at construction. Wiring them after create_agents
+    # leaves agent._learning_promoter as None and the auto-promotion path in
+    # Agent.handle silently no-ops.
+    from stronghold.memory.learnings.approval import LearningApprovalGate  # noqa: PLC0415
+    from stronghold.memory.learnings.promoter import LearningPromoter  # noqa: PLC0415
+
+    approval_gate = LearningApprovalGate()
+    learning_promoter = LearningPromoter(
+        learning_store,
+        threshold=config.learnings.promotion_threshold,
+        approval_gate=approval_gate,
+    )
+
     agents = await create_agents(
         agents_dir=agents_dir,
         prompt_manager=prompt_manager,
@@ -442,6 +456,8 @@ async def create_container(config: StrongholdConfig) -> Container:
         tracer=tracer,
         tool_executor=_tool_exec,
         sa_engine=sa_engine,
+        learning_promoter=learning_promoter,
+        tool_registry=tool_registry,
     )
 
     reactor = Reactor()

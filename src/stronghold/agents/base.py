@@ -108,8 +108,26 @@ _TOOL_SCHEMAS: dict[str, dict[str, object]] = {
 }
 
 
-def _build_tool_schema(name: str) -> dict[str, object]:
-    """Build an OpenAI-compatible tool definition for a named tool."""
+def _build_tool_schema(name: str, *, registry: Any = None) -> dict[str, object]:
+    """Build an OpenAI-compatible tool definition for a named tool.
+
+    Resolution order:
+      1. Live tool registry (the source of truth for executor + parameters)
+      2. Inline `_TOOL_SCHEMAS` table (legacy: quality-gate convenience tools)
+      3. Stub with empty params (last-resort fallback so the LLM still sees the tool)
+    """
+    if registry is not None:
+        defn = registry.get(name)
+        if defn is not None:
+            return {
+                "type": "function",
+                "function": {
+                    "name": defn.name,
+                    "description": defn.description,
+                    "parameters": defn.parameters,
+                },
+            }
+
     schema = _TOOL_SCHEMAS.get(name)
     if schema:
         return {
@@ -163,6 +181,7 @@ class Agent:
         coin_ledger: Any = None,
         tracer: TracingBackend | None = None,
         tool_executor: Any = None,
+        tool_registry: Any = None,
     ) -> None:
         self.identity = identity
         self._strategy = strategy
@@ -180,6 +199,7 @@ class Agent:
         self._quota_tracker = quota_tracker
         self._coin_ledger = coin_ledger
         self._tool_executor = tool_executor
+        self._tool_registry = tool_registry
         self._tracer = tracer
 
     async def handle(
@@ -282,7 +302,10 @@ class Agent:
         # 5. Build tool definitions from identity.tools
         tool_defs: list[dict[str, Any]] | None = None
         if self.identity.tools:
-            tool_defs = [_build_tool_schema(name) for name in self.identity.tools]
+            tool_defs = [
+                _build_tool_schema(name, registry=self._tool_registry)
+                for name in self.identity.tools
+            ]
 
         # 6. Run strategy (use model_override from router, or identity default)
         model = model_override or self.identity.model
@@ -316,7 +339,7 @@ class Agent:
                         {
                             "done": result.done,
                             "tool_rounds": len(result.tool_history) if result.tool_history else 0,
-                            "response_length": len(result.response),
+                            "response_length": len(result.response or ""),
                         }
                     )
             else:
@@ -500,7 +523,7 @@ class Agent:
                 {
                     "agent": self.identity.name,
                     "model": model,
-                    "response_length": str(len(result.response)),
+                    "response_length": str(len(result.response or "")),
                     "tool_calls_total": str(len(result.tool_history) if result.tool_history else 0),
                     "tool_calls_success": str(tool_success_count),
                     "tool_calls_failed": str(tool_fail_count),

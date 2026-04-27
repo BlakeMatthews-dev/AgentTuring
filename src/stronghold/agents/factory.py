@@ -30,6 +30,7 @@ import yaml
 from stronghold.agents.base import Agent
 from stronghold.agents.strategies.direct import DirectStrategy
 from stronghold.types.agent import AgentIdentity
+from stronghold.types.errors import ConfigError
 
 logger = logging.getLogger("stronghold.agents.factory")
 
@@ -149,6 +150,41 @@ def _safe_tuple(value: Any) -> tuple[Any, ...]:
     return ()
 
 
+def _strict_str_tuple(value: Any, *, field: str, agent_name: str) -> tuple[str, ...]:
+    """Strict list[str] coercion for tools/skills.
+
+    Catches the failure modes that silently produce broken identities at runtime:
+      - list of dicts (quartermaster's bug — `tools: [{name: X}]`)
+      - bare string (typo — `tools: "shell"` instead of `tools: [shell]`)
+      - other non-list scalars
+
+    Raises ConfigError naming the agent and the offending field.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        msg = (
+            f"agent '{agent_name}': field '{field}' is a string ({value!r}); "
+            f"expected a YAML list of strings (e.g. `{field}: [a, b]`)"
+        )
+        raise ConfigError(msg)
+    if not isinstance(value, (list, tuple)):
+        msg = (
+            f"agent '{agent_name}': field '{field}' has type "
+            f"{type(value).__name__}; expected list of strings"
+        )
+        raise ConfigError(msg)
+    bad = [item for item in value if not isinstance(item, str)]
+    if bad:
+        msg = (
+            f"agent '{agent_name}': field '{field}' contains non-string entries "
+            f"(types: {sorted({type(x).__name__ for x in bad})}); "
+            f"expected list of strings"
+        )
+        raise ConfigError(msg)
+    return tuple(value)
+
+
 def _build_identity_from_manifest(manifest: dict[str, Any]) -> AgentIdentity:
     name = manifest["name"]
     reasoning = manifest.get("reasoning", {}) or {}
@@ -158,11 +194,16 @@ def _build_identity_from_manifest(manifest: dict[str, Any]) -> AgentIdentity:
         description=manifest.get("description", ""),
         soul_prompt_name=f"agent.{name}.soul",
         model=manifest.get("model", "auto"),
-        model_fallbacks=_safe_tuple(manifest.get("model_fallbacks")),
+        model_fallbacks=_strict_str_tuple(
+            manifest.get("model_fallbacks"), field="model_fallbacks", agent_name=name
+        ),
         model_constraints=manifest.get("model_constraints", {}) or {},
-        tools=_safe_tuple(manifest.get("tools")),
-        skills=_safe_tuple(manifest.get("skills")),
+        tools=_strict_str_tuple(manifest.get("tools"), field="tools", agent_name=name),
+        skills=_strict_str_tuple(manifest.get("skills"), field="skills", agent_name=name),
         rules=_safe_tuple(manifest.get("rules")),
+        sub_agents=_strict_str_tuple(
+            manifest.get("sub_agents"), field="sub_agents", agent_name=name
+        ),
         trust_tier=manifest.get("trust_tier", "t2"),
         priority_tier=manifest.get("priority_tier", "P2"),
         max_tool_rounds=reasoning.get("max_subtasks", reasoning.get("max_rounds", 3)),
@@ -193,20 +234,59 @@ def _build_identity_from_record(record: Any) -> AgentIdentity:
     )
 
 
+# Default task_type → agent_name routing for DelegateStrategy. Restricted at
+# build time to whatever the delegating agent's `sub_agents` list declares.
+_DELEGATE_ROUTING_DEFAULTS: dict[str, str] = {
+    "code": "artificer",
+    "code_gen": "mason",
+    "automation": "warden-at-arms",
+    "search": "ranger",
+    "creative": "scribe",
+    "creative_image": "davinci",
+    "story": "fabulist",
+    "reasoning": "artificer",
+}
+
+
+def _build_delegate_strategy(identity: AgentIdentity) -> Any:
+    from stronghold.agents.strategies.delegate import DelegateStrategy  # noqa: PLC0415
+
+    if not identity.sub_agents:
+        msg = (
+            f"agent '{identity.name}': reasoning.strategy='delegate' requires a "
+            f"non-empty 'sub_agents' list"
+        )
+        raise ConfigError(msg)
+    available = set(identity.sub_agents)
+    routing = {tt: agent for tt, agent in _DELEGATE_ROUTING_DEFAULTS.items() if agent in available}
+    default_agent = "default" if "default" in available else identity.sub_agents[0]
+    return DelegateStrategy(routing_table=routing, default_agent=default_agent)
+
+
 def _build_strategy(identity: AgentIdentity) -> Any:
+    """Build a reasoning strategy instance from the agent's identity.
+
+    Strategies that need agent-specific construction (delegate) are handled
+    explicitly; the rest are zero-arg constructors. A registered strategy
+    that fails to construct is a config error — never silently downgrade to
+    DirectStrategy, which masks broken manifests.
+    """
     strategy_name = identity.reasoning_strategy
-    strategy_cls = _STRATEGY_REGISTRY.get(strategy_name, DirectStrategy)
-    if strategy_cls is DirectStrategy:
-        return DirectStrategy()
-    try:
-        return strategy_cls()
-    except TypeError:
+    if strategy_name == "delegate":
+        return _build_delegate_strategy(identity)
+    strategy_cls = _STRATEGY_REGISTRY.get(strategy_name)
+    if strategy_cls is None:
         logger.warning(
-            "Strategy '%s' requires init args — falling back to direct for '%s'",
+            "Unknown strategy '%s' for agent '%s' — falling back to direct",
             strategy_name,
             identity.name,
         )
         return DirectStrategy()
+    try:
+        return strategy_cls()
+    except TypeError as exc:
+        msg = f"agent '{identity.name}': strategy '{strategy_name}' could not be constructed: {exc}"
+        raise ConfigError(msg) from exc
 
 
 def _register_custom_strategies() -> None:
@@ -218,9 +298,13 @@ def _register_custom_strategies() -> None:
     except ImportError:
         pass
 
-    # Delegate strategy (Arbiter)
+    # Delegate strategy (Arbiter) — constructor needs routing_table; built via
+    # _build_delegate_strategy. We still register the class so the registry
+    # reports its presence.
     try:
-        from stronghold.agents.strategies.delegate import DelegateStrategy  # noqa: PLC0415
+        from stronghold.agents.strategies.delegate import (  # noqa: PLC0415
+            DelegateStrategy,
+        )
 
         register_strategy("delegate", DelegateStrategy)
     except ImportError:
@@ -236,11 +320,21 @@ def _register_custom_strategies() -> None:
     except ImportError:
         pass
 
-    # Artificer custom strategy
+    # Plan-execute (generic) and Artificer (code-specific) are distinct.
+    # Mapping plan_execute → ArtificerStrategy ran the TDD code workflow for
+    # writing-only agents like Scribe.
+    try:
+        from stronghold.agents.strategies.plan_execute import (  # noqa: PLC0415
+            PlanExecuteStrategy,
+        )
+
+        register_strategy("plan_execute", PlanExecuteStrategy)
+    except ImportError:
+        pass
+
     try:
         from stronghold.agents.artificer.strategy import ArtificerStrategy  # noqa: PLC0415
 
-        register_strategy("plan_execute", ArtificerStrategy)
         register_strategy("artificer", ArtificerStrategy)
     except ImportError:
         pass
@@ -279,6 +373,8 @@ async def create_agents(
     tool_executor: Any = None,
     sa_engine: Any = None,
     rca_extractor: Any = None,
+    learning_promoter: Any = None,
+    tool_registry: Any = None,
 ) -> dict[str, Agent]:
     """Load or seed agents, then instantiate runtime Agent objects.
 
@@ -303,6 +399,8 @@ async def create_agents(
         "tracer": tracer,
         "tool_executor": tool_executor,
         "rca_extractor": rca_extractor,
+        "learning_promoter": learning_promoter,
+        "tool_registry": tool_registry,
     }
 
     # ── Try loading from database first ──

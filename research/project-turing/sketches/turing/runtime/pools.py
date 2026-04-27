@@ -31,7 +31,7 @@ import yaml
 
 
 VALID_WINDOW_KINDS: set[str] = {"rpm", "daily", "monthly", "rolling_hours"}
-VALID_ROLES: set[str] = {"chat", "embedding"}
+VALID_ROLES: set[str] = {"chat", "embedding", "image_gen"}
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class PoolConfig:
     window_duration_seconds: int
     tokens_allowed: int
     quality_weight: float = 1.0
-    role: str = "chat"                 # "chat" | "embedding"
+    role: str = "chat"  # "chat" | "embedding" | "image_gen"
 
     def __post_init__(self) -> None:
         if not self.pool_name:
@@ -51,13 +51,10 @@ class PoolConfig:
             raise ValueError("model required")
         if self.window_kind not in VALID_WINDOW_KINDS:
             raise ValueError(
-                f"window_kind must be one of {sorted(VALID_WINDOW_KINDS)}; "
-                f"got {self.window_kind!r}"
+                f"window_kind must be one of {sorted(VALID_WINDOW_KINDS)}; got {self.window_kind!r}"
             )
         if self.role not in VALID_ROLES:
-            raise ValueError(
-                f"role must be one of {sorted(VALID_ROLES)}; got {self.role!r}"
-            )
+            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}; got {self.role!r}")
         if self.window_duration_seconds <= 0:
             raise ValueError("window_duration_seconds must be positive")
         if self.tokens_allowed <= 0:

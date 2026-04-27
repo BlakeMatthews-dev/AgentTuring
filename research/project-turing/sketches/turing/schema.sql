@@ -106,7 +106,10 @@ CREATE TABLE IF NOT EXISTS self_identity (
     self_id        TEXT PRIMARY KEY,
     created_at     TEXT NOT NULL,
     archived_at    TEXT,
-    archive_reason TEXT
+    archive_reason TEXT,
+    display_name   TEXT,
+    named_at       TEXT,
+    naming_source  TEXT
 );
 
 
@@ -510,3 +513,28 @@ CREATE TABLE IF NOT EXISTS self_skill_attempts (
 
 CREATE INDEX IF NOT EXISTS idx_skill_attempts_skill
     ON self_skill_attempts (skill_id, learned_at DESC);
+
+CREATE TABLE IF NOT EXISTS self_producer_prompts (
+    prompt_id TEXT PRIMARY KEY,
+    self_id TEXT NOT NULL,
+    producer TEXT NOT NULL,
+    prompt_text TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    times_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS self_name_proposals (
+    proposal_id   TEXT PRIMARY KEY,
+    self_id       TEXT NOT NULL,
+    proposed_name TEXT NOT NULL,
+    rationale     TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    proposed_at   TEXT NOT NULL,
+    reviewed_at   TEXT,
+    reviewed_by   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_name_proposals_self
+    ON self_name_proposals (self_id, status);

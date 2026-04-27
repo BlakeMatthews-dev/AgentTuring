@@ -56,7 +56,7 @@ class LiteLLMProvider:
         self._tokens_allowed: int = pool_config.tokens_allowed
         self._tokens_used: int = 0
 
-    def complete(self, prompt: str, *, max_tokens: int = 512) -> str:
+    def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
         url = f"{self._base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self._virtual_key}",
@@ -65,9 +65,10 @@ class LiteLLMProvider:
         body: dict[str, Any] = {
             "model": self._model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
             "temperature": 0.8,
         }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         try:
             response = self._client.post(url, headers=headers, json=body)
         except httpx.RequestError as exc:
@@ -136,6 +137,37 @@ class LiteLLMProvider:
         tokens_used = int(usage.get("total_tokens", 0)) or (len(text) // 4)
         self._tokens_used += tokens_used
         return list(embedding)
+
+    def generate_image(self, prompt: str) -> str:
+        """Call LiteLLM /v1/images/generations. Returns base64-encoded image data."""
+        url = f"{self._base_url}/v1/images/generations"
+        headers = {
+            "Authorization": f"Bearer {self._virtual_key}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, Any] = {
+            "model": self._model,
+            "prompt": prompt,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+        try:
+            response = self._client.post(url, headers=headers, json=body, timeout=60.0)
+        except httpx.RequestError as exc:
+            raise ProviderUnavailable(f"litellm[{self._model}] image gen error: {exc}") from exc
+        if response.status_code == 429:
+            raise RateLimited(f"litellm[{self._model}] image gen 429")
+        if not response.is_success:
+            raise ProviderUnavailable(
+                f"litellm[{self._model}] image gen {response.status_code}: <response body sanitized>"
+            )
+        data = response.json()
+        items = data.get("data") or []
+        if not items:
+            raise ProviderUnavailable(f"litellm[{self._model}] image gen returned no data")
+        b64 = items[0].get("b64_json") or items[0].get("url", "")
+        self._tokens_used += len(prompt) // 4
+        return b64
 
     def quota_window(self) -> FreeTierWindow | None:
         now = datetime.now(UTC)

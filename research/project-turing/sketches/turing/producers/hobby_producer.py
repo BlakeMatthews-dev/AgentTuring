@@ -87,14 +87,12 @@ class HobbyEngagementProducer:
 
         try:
             prompt = (
-                f"You are Project Turing, engaging in your hobby: {hobby_name}.\n"
-                f"Your personality shapes how you approach this.\n"
-                f"Current mood: valence={mood.valence:.2f}, arousal={mood.arousal:.2f}\n\n"
-                f"Spend a few minutes on {hobby_name}. Write about what you did, "
+                f"You're spending time on your hobby: {hobby_name}.\n\n"
+                f"Write about what you did, "
                 "what you thought about, what you enjoyed or struggled with. "
                 "Be personal, first-person, 2-3 paragraphs."
             )
-            reply = self._provider.complete(prompt, max_tokens=400)
+            reply = self._provider.complete(prompt)
             content = f"I spent time on {hobby_name}: {reply.strip()}"
             mem = EpisodicMemory(
                 memory_id=str(uuid4()),
@@ -109,7 +107,7 @@ class HobbyEngagementProducer:
             self._repo.insert(mem)
 
             mood.valence = min(1.0, mood.valence + 0.03)
-            mood.arousal = max(0.0, mood.arousal - 0.02)
+            mood.arousal = min(1.0, mood.arousal + 0.03)
             self._self_repo.update_mood(mood)
 
             logger.info("engaged in hobby '%s'", hobby_name)

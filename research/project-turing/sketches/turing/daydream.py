@@ -164,6 +164,7 @@ class DaydreamProducer:
         reactor: Reactor,
         repo: Repo,
         imagine: ImagineFn = default_imagine,
+        self_repo: Any = None,
     ) -> None:
         self._pool_name = pool_name
         self._self_id = self_id
@@ -171,6 +172,7 @@ class DaydreamProducer:
         self._reactor = reactor
         self._repo = repo
         self._imagine = imagine
+        self._self_repo = self_repo
         self._active_candidate_id: str | None = None
         self._pending: list[tuple[Future[Any], EpisodicMemory, str]] = []
         self._cooldown_until_tick: int = 0
@@ -320,6 +322,8 @@ class DaydreamProducer:
                     continue
                 writes += 1
             self._write_session_marker(session_id, writes=writes, seed=seed)
+            if writes > 0 and self._self_repo is not None:
+                self._nudge_arousal(writes)
         self._pending = remaining
 
     # ---- Pass helpers
@@ -377,3 +381,16 @@ class DaydreamProducer:
             created_at=datetime.now(UTC),
         )
         self._repo.insert(marker)
+
+    def _nudge_arousal(self, writes: int) -> None:
+        if self._self_repo is None:
+            return
+        try:
+            from ..self_repo import get_mood_or_default
+
+            mood = get_mood_or_default(self._self_repo, self._self_id)
+            mood.arousal = min(1.0, mood.arousal + 0.03 * writes)
+            mood.valence = min(1.0, mood.valence + 0.01 * writes)
+            self._self_repo.update_mood(mood)
+        except Exception:
+            pass

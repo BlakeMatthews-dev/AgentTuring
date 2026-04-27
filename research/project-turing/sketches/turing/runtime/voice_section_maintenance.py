@@ -74,7 +74,7 @@ class VoiceSectionMaintenance:
             current = self._voice_section.get(self._self_id)
             recent = self._recent_activity_summary()
             prompt = self._compose_prompt(current=current, recent=recent)
-            reply = self._provider.complete(prompt, max_tokens=300)
+            reply = self._provider.complete(prompt)
             proposed = self._parse_reply(reply)
             if proposed is not None:
                 self._voice_section.set(self._self_id, proposed)
@@ -101,9 +101,11 @@ class VoiceSectionMaintenance:
     def _compose_prompt(self, *, current: str, recent: str) -> str:
         from .style import STYLE_GUARD
 
-        current_block = current.strip() if current.strip() else "(empty — you haven't written anything yet)"
+        current_block = (
+            current.strip() if current.strip() else "(empty — you haven't written anything yet)"
+        )
         return (
-            "You are Project Turing. You have a short section in every conversation "
+            "You have a short section in every conversation "
             "that describes how you sound — your tone, what you find yourself saying, "
             "what you care about right now. It is yours to write and rewrite.\n"
             f"{STYLE_GUARD}\n"
@@ -135,4 +137,4 @@ class VoiceSectionMaintenance:
             return None
         if not isinstance(voice, str):
             return None
-        return voice.strip()[:self._max_chars] or None
+        return voice.strip()[: self._max_chars] or None

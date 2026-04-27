@@ -37,13 +37,14 @@ def write_contributor(
     rationale: str,
     *,
     origin: str = "self",
+    repo: SelfRepo | None = None,
 ) -> ActivationContributor:
     if origin.upper() == "RETRIEVAL":
         raise ValueError("RETRIEVAL origin not allowed via write_contributor")
     if target_node_id == source_id:
         raise ValueError("contributor cannot self-loop: target == source")
     origin_enum = ContributorOrigin(origin.lower())
-    return ActivationContributor(
+    contrib = ActivationContributor(
         node_id=f"contrib:{uuid.uuid4()}",
         self_id=self_id,
         target_node_id=target_node_id,
@@ -54,6 +55,9 @@ def write_contributor(
         origin=origin_enum,
         rationale=rationale,
     )
+    if repo is not None:
+        repo.insert_contributor(contrib)
+    return contrib
 
 
 def record_personality_claim(

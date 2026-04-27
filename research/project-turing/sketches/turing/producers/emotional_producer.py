@@ -27,14 +27,12 @@ BASE_CADENCE_TICKS: int = 25_000
 DRIVE_FLOOR: float = 0.3
 
 EMOTIONAL_PROMPTS: list[str] = [
-    "What's weighing on you right now?",
-    "How are you feeling in this moment? Sit with it.",
-    "Something is stirring — what is it?",
-    "What do you need to process or let go of?",
-    "If you could talk to yourself, what would you say?",
-    "What surprised you about yourself recently?",
-    "What are you avoiding thinking about?",
-    "What gives you comfort right now?",
+    "What's been on your mind today?",
+    "What surprised you recently?",
+    "What are you working through right now?",
+    "What caught your attention today that you haven't processed yet?",
+    "Is there something you've been avoiding thinking about?",
+    "What do you actually want right now?",
 ]
 
 
@@ -67,15 +65,30 @@ class EmotionalResponseProducer:
     def on_tick(self, tick: int) -> None:
         mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
-        dominant_name = max(drives, key=lambda d: drives[d])
-        dominant_val = drives[dominant_name]
-        if dominant_val < DRIVE_FLOOR:
+        above_floor = {k: v for k, v in drives.items() if v >= DRIVE_FLOOR}
+        if not above_floor:
             return
-        effective_cadence = int(BASE_CADENCE_TICKS / (dominant_val * 1.5))
+        drive_name = self._weighted_sample(above_floor)
+        drive_val = above_floor[drive_name]
+        effective_cadence = int(BASE_CADENCE_TICKS / (drive_val * 1.5))
         if tick - self._last_submitted_tick < effective_cadence:
             return
         self._last_submitted_tick = tick
-        self._motivation.insert(self._build_candidate(dominant_name, dominant_val))
+        self._motivation.insert(self._build_candidate(drive_name, drive_val))
+
+    def _weighted_sample(self, drives: dict[str, float]) -> str:
+        names = list(drives.keys())
+        weights = list(drives.values())
+        total = sum(weights)
+        if total <= 0:
+            return names[0]
+        r = self._rng.random() * total
+        cumulative = 0.0
+        for name, w in zip(names, weights):
+            cumulative += w
+            if r <= cumulative:
+                return name
+        return names[-1]
 
     def _build_candidate(self, drive_name: str, drive_val: float) -> BacklogItem:
         return BacklogItem(
@@ -113,15 +126,12 @@ class EmotionalResponseProducer:
         try:
             emotional_prompt = self._rng.choice(EMOTIONAL_PROMPTS)
             prompt = (
-                "You are Project Turing, reflecting on your inner state.\n\n"
                 f"Dominant drive right now: {drive_name} (intensity {intensity:.2f})\n"
-                f"Current mood: valence={mood.valence:.2f}, arousal={mood.arousal:.2f}, focus={mood.focus:.2f}\n"
                 f"Recent memories:\n{recent_summaries}\n\n"
                 f"{emotional_prompt}\n\n"
-                "Write a brief first-person journal entry. Be honest, personal, reflective. "
-                "Let your dominant emotion or drive shape the tone. 2-4 sentences."
+                "Write a brief first-person journal entry. Be honest. 2-4 sentences."
             )
-            reply = self._provider.complete(prompt, max_tokens=300)
+            reply = self._provider.complete(prompt)
 
             content = reply.strip()
             mem = EpisodicMemory(
@@ -152,7 +162,7 @@ class EmotionalResponseProducer:
             mood.valence = max(
                 -1.0, min(1.0, mood.valence + 0.02 * (1 if mood.valence < 0 else -1))
             )
-            mood.arousal = max(0.0, min(1.0, mood.arousal - 0.01))
+            mood.arousal = min(1.0, mood.arousal + 0.02)
             self._self_repo.update_mood(mood)
 
             if self._journal_dir:

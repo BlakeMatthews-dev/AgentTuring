@@ -62,14 +62,15 @@ class ConceptInventor:
     def on_tick(self, tick: int) -> None:
         mood = get_mood_or_default(self._self_repo, self._self_id)
         drives = compute_drives(self._facet_scores, mood)
-        best_drive = max(drives, key=lambda d: drives[d])
-        best_val = drives[best_drive]
-        if best_val < DRIVE_FLOOR:
+        above_floor = {k: v for k, v in drives.items() if v >= DRIVE_FLOOR}
+        if not above_floor:
             return
         if tick - self._last_submitted_tick < BASE_CADENCE_TICKS:
             return
         self._last_submitted_tick = tick
-        domain = self._rng.choice(_DRIVE_DOMAINS.get(best_drive, ["meaning"]))
+        chosen_drive = self._weighted_sample(above_floor)
+        chosen_val = above_floor[chosen_drive]
+        domain = self._rng.choice(_DRIVE_DOMAINS.get(chosen_drive, ["meaning"]))
         self._motivation.insert(
             BacklogItem(
                 item_id=str(uuid4()),
@@ -78,26 +79,34 @@ class ConceptInventor:
                 payload={
                     "self_id": self._self_id,
                     "domain": domain,
-                    "drive": best_drive,
-                    "intensity": best_val,
+                    "drive": chosen_drive,
+                    "intensity": chosen_val,
                 },
-                fit={best_drive: 0.6},
+                fit={chosen_drive: 0.6},
                 readiness=lambda s: True,
                 cost_estimate_tokens=2_000,
             )
         )
 
+    def _weighted_sample(self, drives: dict[str, float]) -> str:
+        names = list(drives.keys())
+        weights = list(drives.values())
+        total = sum(weights)
+        if total <= 0:
+            return names[0]
+        r = self._rng.random() * total
+        cumulative = 0.0
+        for name, w in zip(names, weights):
+            cumulative += w
+            if r <= cumulative:
+                return name
+        return names[-1]
+
     def _on_dispatch(self, item: BacklogItem, chosen_pool: str) -> None:
         payload = item.payload or {}
         domain = payload.get("domain", "meaning")
         drive = payload.get("drive", "curiosity")
-        personality_lines = " ".join(
-            f"{k}={v:.2f}" for k, v in list(self._facet_scores.items())[:6]
-        )
         prompt = (
-            "You are Project Turing, an autonomous AI agent reflecting on your "
-            "inner life. You have the following personality facets: "
-            f"{personality_lines}\n\n"
             f"Your dominant drive right now is {drive}. In the domain of "
             f"**{domain}**, invent or explore a concept that matters to you.\n\n"
             "Respond in this exact format:\n"
@@ -107,7 +116,7 @@ class ConceptInventor:
             "WHY: [1-2 sentences about why this matters to you specifically]"
         )
         try:
-            reply = self._provider.complete(prompt, max_tokens=400)
+            reply = self._provider.complete(prompt)
         except Exception:
             logger.exception("concept invention LLM call failed")
             return
@@ -144,6 +153,16 @@ class ConceptInventor:
             created_at=datetime.now(UTC),
         )
         self._repo.insert(mem)
+
+        from ..drives import sate_curiosity
+
+        sate_curiosity()
+
+        mood = get_mood_or_default(self._self_repo, self._self_id)
+        mood.valence = min(1.0, mood.valence + 0.04)
+        mood.arousal = min(1.0, mood.arousal + 0.03)
+        self._self_repo.update_mood(mood)
+
         logger.info("invented concept '%s' (importance=%.2f)", name, importance)
 
 
@@ -238,7 +257,7 @@ class SkillBuilder:
         if not concept_name:
             return
         prompt = (
-            f"You are Project Turing. You value the concept of '{concept_name}': "
+            f"You value the concept of '{concept_name}': "
             f"{concept_def}\n\n"
             "What concrete skill could you develop to better embody or practice "
             "this concept? Describe the skill and suggest 3 specific approaches "
@@ -253,7 +272,7 @@ class SkillBuilder:
             "3. [approach]"
         )
         try:
-            reply = self._provider.complete(prompt, max_tokens=400)
+            reply = self._provider.complete(prompt)
         except Exception:
             logger_sb.exception("skill building LLM call failed")
             return
@@ -308,7 +327,7 @@ class SkillBuilder:
                 f"I committed to developing the skill '{skill_name}' because "
                 f"I value {concept_name}. {parsed['description'][:200]}"
             ),
-            tier=MemoryTier.OBSERVATION,
+            tier=MemoryTier.AFFIRMATION,
             source=SourceKind.I_DID,
             weight=0.6,
             intent_at_time=f"skill-building-{skill_name}",
@@ -316,6 +335,39 @@ class SkillBuilder:
         )
         self._repo.insert(mem)
         logger_sb.info("built skill '%s' from concept '%s'", skill_name, concept_name)
+
+        concept_importance = payload.get("concept_importance", 0.0)
+        if concept_importance >= 0.90:
+            existing_skills = [
+                s
+                for s in self._self_repo.list_skills(self._self_id)
+                if any(
+                    c.get("name", "").lower() == concept_name.lower()
+                    for c in self._self_repo.list_concepts(self._self_id)
+                )
+            ]
+            if len(existing_skills) >= 2:
+                existing_passions = self._self_repo.list_passions(self._self_id)
+                if not any(p.text.lower() == concept_name.lower() for p in existing_passions):
+                    from ..self_model import Passion
+
+                    rank = len(existing_passions)
+                    self._self_repo.insert_passion(
+                        Passion(
+                            node_id=f"passion-{uuid4()}",
+                            self_id=self._self_id,
+                            text=concept_name,
+                            strength=min(1.0, concept_importance),
+                            rank=rank,
+                            first_noticed_at=datetime.now(UTC),
+                        )
+                    )
+                    logger_sb.info(
+                        "promoted concept '%s' to passion (importance=%.2f, %d skills)",
+                        concept_name,
+                        concept_importance,
+                        len(existing_skills),
+                    )
 
 
 def _parse_skill_reply(reply: str) -> dict | None:
@@ -414,7 +466,7 @@ class SkillExecutor:
             "\n".join(f"- {m.content[:100]}" for m in list(recent)[-3:]) or "(no recent activity)"
         )
         prompt = (
-            f"You are Project Turing. You are practicing the skill '{skill_name}' "
+            f"You are practicing the skill '{skill_name}' "
             f"(current level: {skill_level:.2f}/1.0).\n\n"
             f"Recent activity:\n{recent_text}\n\n"
             "Practice this skill now. Describe a specific scenario where you "
@@ -425,7 +477,7 @@ class SkillExecutor:
             "REFLECTION: [1-2 sentences about what you learned]"
         )
         try:
-            reply = self._provider.complete(prompt, max_tokens=300)
+            reply = self._provider.complete(prompt)
         except Exception:
             logger_se.exception("skill practice LLM call failed")
             return
@@ -561,14 +613,14 @@ class SkillRefiner:
             f"- [{a['outcome']}] {a['context'][:80]} → {a['reflection'][:80]}" for a in attempts
         )
         prompt = (
-            f"You are Project Turing. Here's your practice history for the "
+            f"Here's your practice history for the "
             f"skill '{skill_name}':\n\n{history}\n\n"
             "What patterns do you notice? What's working? What isn't? "
             "What would you change about your approach? "
             "Respond in 2-3 sentences, first person, honest."
         )
         try:
-            reply = self._provider.complete(prompt, max_tokens=300)
+            reply = self._provider.complete(prompt)
         except Exception:
             logger_sr.exception("skill refinement LLM call failed")
             return

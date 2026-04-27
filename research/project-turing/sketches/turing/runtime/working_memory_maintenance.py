@@ -84,7 +84,7 @@ class WorkingMemoryMaintenance:
             current = self._working_memory.entries(self._self_id)
             recent = self._recent_activity_summary()
             prompt = self._compose_prompt(current=current, recent=recent)
-            reply = self._provider.complete(prompt, max_tokens=400)
+            reply = self._provider.complete(prompt)
             update = self._parse_reply(reply)
             self._apply_update(current, update)
         except Exception:
@@ -122,7 +122,7 @@ class WorkingMemoryMaintenance:
         else:
             current_block = "(empty)"
         return (
-            "You are Project Turing, maintaining your own working memory.\n"
+            "You are maintaining your own working memory.\n"
             "Working memory is your scratch space — what you want to keep\n"
             "front-of-mind across conversations and routings. Be selective.\n"
             f"{STYLE_GUARD}\n"

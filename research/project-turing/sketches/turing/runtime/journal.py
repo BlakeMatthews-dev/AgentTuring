@@ -73,7 +73,7 @@ class Journal:
     def _init_narrative(self) -> None:
         if not self._narrative.exists():
             self._narrative.write_text(
-                f"# Project Turing — narrative\n\n"
+                f"# Tess — narrative\n\n"
                 f"_self_id: `{self._self_id}`_  \n"
                 f"_started: {datetime.now(UTC).isoformat()}_\n\n"
                 f"---\n\n"

@@ -44,7 +44,7 @@ class Provider(Protocol):
 
     name: str
 
-    def complete(self, prompt: str, *, max_tokens: int = 512) -> str:
+    def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
         raise NotImplementedError
 
     def quota_window(self) -> FreeTierWindow | None:
@@ -60,6 +60,20 @@ class EmbeddingProvider(Protocol):
 
     def embed(self, text: str) -> list[float]:
         """Return a vector embedding for `text`."""
+        raise NotImplementedError
+
+    def quota_window(self) -> FreeTierWindow | None:
+        raise NotImplementedError
+
+
+@runtime_checkable
+class ImageGenProvider(Protocol):
+    """A provider that can generate images from text prompts."""
+
+    name: str
+
+    def generate_image(self, prompt: str) -> str:
+        """Generate an image from a text prompt. Returns base64-encoded PNG."""
         raise NotImplementedError
 
     def quota_window(self) -> FreeTierWindow | None:

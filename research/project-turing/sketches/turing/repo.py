@@ -60,11 +60,23 @@ class Repo:
         with self._lock:
             self._conn.executescript(schema_path.read_text())
             self._conn.commit()
+            self._migrate_identity_columns()
 
     @staticmethod
     def _validate_table(table: str) -> None:
         if table not in _VALID_TABLES:
             raise RepoError(f"invalid table name: {table!r}")
+
+    def _migrate_identity_columns(self) -> None:
+        existing = {r[1] for r in self._conn.execute("PRAGMA table_info(self_identity)").fetchall()}
+        for col, typedef in [
+            ("display_name", "TEXT"),
+            ("named_at", "TEXT"),
+            ("naming_source", "TEXT"),
+        ]:
+            if col not in existing:
+                self._conn.execute(f"ALTER TABLE self_identity ADD COLUMN {col} {typedef}")
+        self._conn.commit()
 
     # ------------------------------------------------------------------ insert
 

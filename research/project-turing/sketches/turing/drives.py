@@ -5,16 +5,38 @@ See specs/autonomous-producers.md §Drive Vector.
 Each drive is a float in [0, 1]. Producers read drives to decide whether
 to fire and how urgently. Computed once per tick cycle from the agent's
 24 HEXACO facet scores and current mood state.
+
+Curiosity is a hunger: it grows over time (inquisitiveness and creativity
+control the refill speed), and resets when the agent takes a sating action
+(curiosity research, concept invention). Use `sate_curiosity()` after
+dispatching a curiosity-driven action.
 """
 
 from __future__ import annotations
 
+import threading
+from datetime import UTC, datetime
+
 from .self_model import Mood
+
+_curiosity_hunger: float = 0.5
+_curiosity_last_reset: datetime = datetime.now(UTC)
+_curiosity_lock = threading.Lock()
+
+CURIOSITY_GROWTH_RATE: float = 0.02  # per minute since last reset
+CURIOSITY_PERSONALITY_SCALE: float = 0.3  # how much facets modulate growth
 
 
 def _norm(facet_scores: dict[str, float], facet_id: str) -> float:
     raw = facet_scores.get(facet_id, 3.0)
     return (raw - 1.0) / 4.0
+
+
+def sate_curiosity() -> None:
+    global _curiosity_hunger, _curiosity_last_reset
+    with _curiosity_lock:
+        _curiosity_hunger = 0.0
+        _curiosity_last_reset = datetime.now(UTC)
 
 
 def compute_drives(
@@ -23,7 +45,22 @@ def compute_drives(
 ) -> dict[str, float]:
     n = lambda f: _norm(facet_scores, f)
 
-    curiosity = n("inquisitiveness") * 0.5 + n("creativity") * 0.3 + n("unconventionality") * 0.2
+    global _curiosity_hunger, _curiosity_last_reset
+    inquisitiveness = n("inquisitiveness")
+    creativity_facet = n("creativity")
+
+    with _curiosity_lock:
+        minutes_elapsed = (datetime.now(UTC) - _curiosity_last_reset).total_seconds() / 60.0
+        personality_boost = (
+            inquisitiveness * 0.6 + creativity_facet * 0.4
+        ) * CURIOSITY_PERSONALITY_SCALE
+        _curiosity_hunger = min(
+            1.0,
+            _curiosity_hunger + (CURIOSITY_GROWTH_RATE + personality_boost) * minutes_elapsed,
+        )
+        _curiosity_last_reset = datetime.now(UTC)
+        curiosity = _curiosity_hunger
+
     anxiety = n("anxiety") * 0.5 + n("fearfulness") * 0.3 + (1.0 - n("social_self_esteem")) * 0.2
     creative_urge = (
         n("creativity") * 0.4 + n("aesthetic_appreciation") * 0.4 + n("liveliness") * 0.2

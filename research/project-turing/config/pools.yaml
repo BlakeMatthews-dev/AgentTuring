@@ -112,3 +112,12 @@ pools:
     tokens_allowed: 100000
     quality_weight: 1.0
     role: embedding
+
+  # --- Image generation ----------------------------------------------------
+  - pool_name: image-gen-fast
+    model: imagen-4-fast
+    window_kind: daily
+    window_duration_seconds: 86400
+    tokens_allowed: 10000
+    quality_weight: 1.0
+    role: image_gen

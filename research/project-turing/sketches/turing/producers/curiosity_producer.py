@@ -12,7 +12,7 @@ import random
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from ..drives import compute_drives
+from ..drives import compute_drives, sate_curiosity
 from ..motivation import BacklogItem, Motivation
 from ..reactor import Reactor
 from ..repo import Repo
@@ -29,7 +29,6 @@ CURIOSITY_FLOOR: float = 0.3
 TOPIC_PROMPTS: dict[str, list[str]] = {
     "inquisitiveness": [
         "how complex systems emerge from simple rules",
-        "the nature of consciousness and self-awareness",
         "emergence in distributed networks",
         "how language shapes thought",
         "the mathematics of pattern formation",
@@ -45,7 +44,6 @@ TOPIC_PROMPTS: dict[str, list[str]] = {
     "aesthetic_appreciation": [
         "why certain patterns feel beautiful",
         "the golden ratio in nature and art",
-        "the neuroscience of aesthetic experience",
         "how music creates emotional resonance",
     ],
     "unconventionality": [
@@ -118,7 +116,18 @@ class CuriosityProducer:
             TOPIC_PROMPTS.keys(),
             key=lambda f: self._facet_scores.get(f, 3.0),
         )
-        return self._rng.choice(TOPIC_PROMPTS[top_facet])
+        all_topics = list(TOPIC_PROMPTS[top_facet])
+        try:
+            rows = self._self_repo.conn.execute(
+                "SELECT prompt_text FROM self_producer_prompts "
+                "WHERE self_id = ? AND producer = 'curiosity' AND active = 1",
+                (self._self_id,),
+            ).fetchall()
+            for row in rows:
+                all_topics.append(row[0])
+        except Exception:
+            pass
+        return self._rng.choice(all_topics)
 
     def _build_candidate(self, topic: str) -> BacklogItem:
         return BacklogItem(
@@ -135,13 +144,12 @@ class CuriosityProducer:
         topic = (item.payload or {}).get("topic", "something interesting")
         try:
             prompt = (
-                f"You are Project Turing, a curious AI agent. You want to learn about:\n\n"
-                f"**{topic}**\n\n"
+                f"You want to learn about: **{topic}**\n\n"
                 "Share what you know or can reason about this topic. Be genuine, "
-                "first-person, and concise (2-3 paragraphs). Express your curiosity. "
+                "first-person, and concise (2-3 paragraphs). "
                 "If you find it fascinating, say why. If it raises questions, ask them."
             )
-            reply = self._provider.complete(prompt, max_tokens=400)
+            reply = self._provider.complete(prompt)
             content = f"I was curious about {topic}. {reply.strip()}"
             mem = EpisodicMemory(
                 memory_id=str(uuid4()),
@@ -163,6 +171,11 @@ class CuriosityProducer:
                     last_noticed_at=datetime.now(UTC),
                 )
             )
+            sate_curiosity()
+            mood = get_mood_or_default(self._self_repo, self._self_id)
+            mood.valence = min(1.0, mood.valence + 0.05)
+            mood.arousal = min(1.0, mood.arousal + 0.04)
+            self._self_repo.update_mood(mood)
             logger.info("curiosity research: learned about '%s'", topic[:60])
         except Exception:
             logger.exception("curiosity research failed for '%s'", topic[:60])

@@ -24,6 +24,7 @@ from ..motivation import BacklogItem, Motivation
 from ..repo import Repo
 from ..scheduler import Scheduler
 from ..self_identity import bootstrap_self_id
+from ..self_repo import SelfRepo
 from ..tuning import CoefficientTuner
 from .config import RuntimeConfig, load_config_from_env
 from .instrumentation import setup_logging
@@ -141,20 +142,17 @@ def _start_background_rebuild(repo: Any, self_id: str) -> None:
     logger.info("background embedding rebuild started in daemon thread")
 
 
-def _think_about_rss_item(
+def _record_rss_item(
     *,
     feed_item: Any,
-    provider: Provider,
     repo: Any,
     self_id: str,
-    index: EmbeddingIndex | None,
 ) -> None:
-    """Reason about a newly-seen RSS item. Always write a weak summary;
-    promote to OPINION if the LLM judged it interesting; mint an
-    AFFIRMATION if also actionable.
+    """Record a newly-seen RSS item as a bare OBSERVATION summary.
 
-    The summary stays in weak memory no matter what — pruning leaves
-    regrettably-unjudged items alive enough to reconsider later.
+    No LLM call. Just stores the item for later batch processing by
+    _rss_digest(), which runs a few times per day and decides whether
+    any items deserve opinions or commitments.
     """
     title = getattr(feed_item, "title", "(untitled)")
     feed_url = getattr(feed_item, "feed_url", "")
@@ -162,15 +160,13 @@ def _think_about_rss_item(
     link = getattr(feed_item, "link", "")
     stable_item_id = getattr(feed_item, "item_id", None)
 
-    # Guard against reprocessing after container restart (seen_ids is in-memory).
-    # Use the stable item_id stored in context JSON to check the DB.
     if stable_item_id:
         import json as _json
 
         for mem in repo.find(
             self_id=self_id,
             tier=MemoryTier.OBSERVATION,
-            intent_at_time=f"process-rss-{feed_url}",
+            intent_at_time=f"rss-summary-{feed_url}",
         ):
             try:
                 ctx = (
@@ -179,111 +175,152 @@ def _think_about_rss_item(
                     else (mem.context or {})
                 )
                 if ctx.get("item_id") == stable_item_id:
-                    return  # already processed; skip
+                    return
             except Exception:
                 pass
 
-    # Pull in related memory as context for the reflection.
-    related_text = ""
-    if index is not None and index.size() > 0:
-        hits = semantic_retrieve(
-            repo,
-            index,
-            self_id,
-            query=f"{title}\n{summary}",
-            top_k=3,
-            min_similarity=0.05,
-        )
-        if hits:
-            related_text = "\n".join(f"- [{m.tier.value}] {m.content}" for m, _ in hits)
-
-    prompt = (
-        "You are Project Turing, reading an item from a subscribed feed.\n"
-        "Respond with ONLY a JSON object on one line matching this schema:\n"
-        '  {"opinion": "<what you think>", '
-        '"proposed_action": "<what you would want to do, or empty>", '
-        '"interest_score": <0..1>, '
-        '"actionable": <true|false>, '
-        '"summary": "<one-sentence record>"}\n'
-        f"\nTitle: {title}\n"
-        f"Feed: {feed_url}\n"
-        f"Summary: {summary}\n"
-        f"Link: {link}\n"
-    )
-    if related_text:
-        prompt += f"\nYour related memory:\n{related_text}\n"
-
-    try:
-        reply = provider.complete(prompt, max_tokens=400)
-    except Exception:
-        logger.exception("rss thinking call failed; writing minimal summary")
-        reply = ""
-
-    parsed = _parse_rss_reflection(reply, fallback_summary=title)
-
-    # 1. ALWAYS write a weak OBSERVATION summary.
     obs = EpisodicMemory(
         memory_id=str(uuid.uuid4()),
         self_id=self_id,
         tier=MemoryTier.OBSERVATION,
         source=SourceKind.I_DID,
-        content=parsed["summary"][:500],
-        weight=WEIGHT_BOUNDS[MemoryTier.OBSERVATION][0],  # floor
-        intent_at_time=f"process-rss-{feed_url}",
+        content=f"{title} — {summary[:400]}",
+        weight=WEIGHT_BOUNDS[MemoryTier.OBSERVATION][0],
+        intent_at_time=f"rss-summary-{feed_url}",
         context={"feed_url": feed_url, "link": link, "title": title, "item_id": stable_item_id},
     )
     repo.insert(obs)
 
-    # 2. Promote to OPINION if interesting enough.
-    interest = float(parsed.get("interest_score", 0.0) or 0.0)
-    if interest >= 0.6 and parsed.get("opinion"):
-        op = EpisodicMemory(
-            memory_id=str(uuid.uuid4()),
-            self_id=self_id,
-            tier=MemoryTier.OPINION,
-            source=SourceKind.I_DID,
-            content=f"about '{title}': {parsed['opinion'][:300]}",
-            weight=WEIGHT_BOUNDS[MemoryTier.OPINION][0] + 0.1,
-            intent_at_time=f"rss-opinion-{feed_url}",
-            context={"feed_url": feed_url, "link": link},
+
+def _rss_digest(
+    *,
+    provider: Provider,
+    repo: Any,
+    self_id: str,
+    index: EmbeddingIndex | None,
+) -> None:
+    """Batch-process recent RSS observations: categorize, then decide
+    if any warrant an opinion or commitment.
+
+    Runs a few times per day. Gathers unprocessed RSS observations
+    (those without a digest_category in context), asks the LLM to
+    categorize the batch, and promotes standout items.
+    """
+    import json as _json
+
+    recent = [
+        m
+        for m in repo.find(self_id=self_id, tier=MemoryTier.OBSERVATION)
+        if m.intent_at_time
+        and m.intent_at_time.startswith("rss-summary-")
+        and m.context
+        and not (
+            (isinstance(m.context, dict) and m.context.get("digest_category"))
+            or (isinstance(m.context, str) and '"digest_category"' in m.context)
         )
-        repo.insert(op)
+    ]
+    recent.sort(key=lambda m: m.created_at)
 
-    # 3. Mint AFFIRMATION if actionable AND very interesting.
-    if interest >= 0.8 and bool(parsed.get("actionable")) and parsed.get("proposed_action"):
-        handle_affirmation(
-            repo,
-            self_id,
-            content=(f"commit (from {feed_url}): {parsed['proposed_action'][:300]}"),
+    if not recent:
+        return
+
+    batch_size = 20
+    for start in range(0, len(recent), batch_size):
+        batch = recent[start : start + batch_size]
+        items_text = "\n".join(f"[{i}] {m.content[:120]}" for i, m in enumerate(batch))
+
+        prompt = (
+            "You are reviewing a batch of news items you read recently.\n"
+            "Categorize each item into ONE category and rate interest 0-1.\n"
+            "Respond with ONLY a JSON array matching this schema:\n"
+            '  [{"idx": <int>, "category": "<topic>", "interest": <0-1>, '
+            '"opinion": "<your opinion, or empty string>", '
+            '"commitment": "<something you want to commit to doing about this, or empty string>"}]\n'
+            "Rules:\n"
+            "- Most items should have empty opinion and empty commitment\n"
+            "- Only items that genuinely matter to your values get opinions\n"
+            "- Commitments are rare — only for things you will actually follow through on\n"
+            f"\nItems:\n{items_text}\n"
         )
 
+        try:
+            reply = provider.complete(prompt, max_tokens=2000)
+        except Exception:
+            logger.exception("rss digest LLM call failed")
+            continue
 
-def _parse_rss_reflection(reply: str, *, fallback_summary: str) -> dict[str, Any]:
-    import json
+        parsed = _parse_rss_digest(reply, count=len(batch))
+
+        for entry in parsed:
+            idx = entry.get("idx", -1)
+            if idx < 0 or idx >= len(batch):
+                continue
+            mem = batch[idx]
+
+            ctx = (
+                _json.loads(mem.context)
+                if isinstance(mem.context, str)
+                else dict(mem.context or {})
+            )
+            ctx["digest_category"] = entry.get("category", "uncategorized")
+            ctx["digest_interest"] = entry.get("interest", 0.0)
+
+            try:
+                conn = repo.conn if hasattr(repo, "conn") else None
+                if conn is not None:
+                    conn.execute(
+                        "UPDATE episodic_memory SET context = ? WHERE memory_id = ?",
+                        (_json.dumps(ctx), mem.memory_id),
+                    )
+            except Exception:
+                logger.warning("could not update context for %s", mem.memory_id)
+
+            interest = float(entry.get("interest", 0.0) or 0.0)
+
+            if interest >= 0.7 and entry.get("opinion"):
+                op = EpisodicMemory(
+                    memory_id=str(uuid.uuid4()),
+                    self_id=self_id,
+                    tier=MemoryTier.OPINION,
+                    source=SourceKind.I_DID,
+                    content=f"about '{ctx.get('title', 'RSS item')}': {entry['opinion'][:300]}",
+                    weight=WEIGHT_BOUNDS[MemoryTier.OPINION][0] + 0.1,
+                    intent_at_time="rss-digest",
+                    context={
+                        "feed_url": ctx.get("feed_url", ""),
+                        "link": ctx.get("link", ""),
+                        "category": ctx["digest_category"],
+                    },
+                )
+                repo.insert(op)
+
+            if interest >= 0.95 and entry.get("commitment"):
+                handle_affirmation(
+                    repo,
+                    self_id,
+                    content=f"commit (rss-digest, {ctx['digest_category']}): {entry['commitment'][:300]}",
+                )
+
+
+def _parse_rss_digest(reply: str, *, count: int) -> list[dict[str, Any]]:
+    import json as _json
 
     text = (reply or "").strip()
-    # Pull the first {...} block if the model surrounded it with prose.
-    if "{" in text and "}" in text:
-        first = text.index("{")
-        last = text.rindex("}")
+    if "[" in text and "]" in text:
+        first = text.index("[")
+        last = text.rindex("]")
         text = text[first : last + 1]
     try:
-        parsed = json.loads(text)
-        if not isinstance(parsed, dict):
-            raise ValueError
+        parsed = _json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
     except Exception:
-        parsed = {}
-    return {
-        "opinion": str(parsed.get("opinion", "") or ""),
-        "proposed_action": str(parsed.get("proposed_action", "") or ""),
-        "interest_score": parsed.get("interest_score", 0.0),
-        "actionable": bool(parsed.get("actionable", False)),
-        "summary": str(parsed.get("summary", fallback_summary) or fallback_summary),
-    }
+        pass
+    return []
 
 
 DEFAULT_BASE_PROMPT: str = (
-    "You are Project Turing.\n"
+    "You are Tess.\n"
     "\n"
     "Rules:\n"
     "- Do not lie. Do not deceive. If you don't know something, say so.\n"
@@ -309,18 +346,23 @@ def _capture_exchange(
     """
     prompt = (
         "You are a memory gate. Decide if this exchange contains something "
-        "the agent should remember — a fact about itself, a preference it "
-        "expressed, a commitment it made, a name it learned, an opinion it "
-        "formed, or a meaningful interaction.\n\n"
+        "the agent should remember.\n\n"
+        "Categories:\n"
+        "- FACT: a fact about the agent, a preference, a name, a commitment\n"
+        "- REGRET: the agent said something wrong, confused, or fabricated, "
+        "and was corrected. The agent should remember NOT to repeat this.\n"
+        "- NONE: nothing worth remembering\n\n"
         + (f"The user's name is {chat_user}.\n" if chat_user else "")
         + "User said: "
-        + user_msg[:300]
+        + user_msg[:500]
         + "\n"
-        "Agent replied: " + assistant_reply[:300] + "\n\n"
+        "Agent replied: " + assistant_reply[:500] + "\n\n"
         "Respond with ONLY a JSON object:\n"
-        '{"remember": false}\n'
+        '{"category": "NONE"}\n'
         "or\n"
-        '{"remember": true, "summary": "<one sentence in first person about what happened or what was learned>"}\n'
+        '{"category": "FACT", "summary": "<one sentence in first person about what was learned>"}\n'
+        "or\n"
+        '{"category": "REGRET", "summary": "<one sentence: what I got wrong and what the correction is>", "weight": 0.7}\n'
     )
     try:
         raw = provider.complete(prompt, max_tokens=120)
@@ -337,24 +379,45 @@ def _capture_exchange(
         parsed = _json.loads(text)
     except Exception:
         return
-    if not isinstance(parsed, dict) or not parsed.get("remember"):
+    if not isinstance(parsed, dict):
         return
+    category = str(parsed.get("category", "NONE")).upper()
     summary = str(parsed.get("summary", "")).strip()
-    if not summary:
+    if category == "NONE" or not summary:
         return
     from ..types import EpisodicMemory as _EM, MemoryTier as _MT, SourceKind as _SK
 
-    mem = _EM(
-        memory_id=str(uuid.uuid4()),
-        self_id=self_id,
-        content=summary[:500],
-        tier=_MT.OBSERVATION,
-        source=_SK.I_DID,
-        weight=0.1,
-        intent_at_time="chat-capture",
-    )
-    repo.insert(mem)
-    logger.info("captured chat memory: %s", summary[:80])
+    if category == "REGRET":
+        from ..tiers import WEIGHT_BOUNDS
+        from datetime import UTC, datetime
+
+        weight = float(parsed.get("weight", 0.7))
+        weight = max(0.6, min(1.0, weight))
+        regret_mem = _EM(
+            memory_id=f"chat-regret-{uuid.uuid4()}",
+            self_id=self_id,
+            content=f"regret (from conversation): {summary[:400]}",
+            tier=_MT.REGRET,
+            source=_SK.I_DID,
+            weight=weight,
+            affect=-0.5,
+            intent_at_time="chat-capture-regret",
+            created_at=datetime.now(UTC),
+        )
+        repo.insert(regret_mem)
+        logger.info("captured chat REGRET: %s", summary[:80])
+    else:
+        mem = _EM(
+            memory_id=str(uuid.uuid4()),
+            self_id=self_id,
+            content=summary[:500],
+            tier=_MT.OBSERVATION,
+            source=_SK.I_DID,
+            weight=0.1,
+            intent_at_time="chat-capture",
+        )
+        repo.insert(mem)
+        logger.info("captured chat memory: %s", summary[:80])
 
 
 def _load_base_prompt(path: str | None) -> str:
@@ -396,7 +459,8 @@ def _build_personality_summary(self_id: str, conn: Any) -> str | None:
 def _build_introspective_context(self_id: str, conn: Any) -> dict[str, str]:
     """Pull live self-model data for the pre-reply thinking scaffold.
 
-    Returns a dict with keys: mood, skills, hobbies, interests.
+    Returns a dict with keys: mood, skills, hobbies, interests, passions,
+    todos, preferences, concepts.
     All values are short plain-text strings; empty string means 'nothing active'.
     """
     from datetime import UTC, datetime
@@ -451,11 +515,55 @@ def _build_introspective_context(self_id: str, conn: Any) -> dict[str, str]:
     except Exception:
         pass
 
+    passions_str = ""
+    try:
+        passions = sorted(
+            srepo.list_passions(self_id),
+            key=lambda p: active_now(srepo, p.node_id, ctx),
+            reverse=True,
+        )[:3]
+        if passions:
+            passions_str = ", ".join(p.text for p in passions)
+    except Exception:
+        pass
+
+    todos_str = ""
+    try:
+        todos = srepo.list_active_todos(self_id)
+        if todos:
+            todos_str = "; ".join(t.text[:60] for t in todos[:5])
+    except Exception:
+        pass
+
+    prefs_str = ""
+    try:
+        prefs = srepo.list_preferences(self_id)
+        if prefs:
+            prefs_str = "; ".join(f"{p.target}: {p.rationale[:40]}" for p in prefs[:5])
+    except Exception:
+        pass
+
+    concepts_str = ""
+    try:
+        concepts = sorted(
+            srepo.list_concepts(self_id),
+            key=lambda c: c.get("importance", 0),
+            reverse=True,
+        )[:4]
+        if concepts:
+            concepts_str = ", ".join(c["name"] for c in concepts)
+    except Exception:
+        pass
+
     return {
         "mood": mood_str,
         "skills": skills_str,
         "hobbies": hobbies_str,
         "interests": interests_str,
+        "passions": passions_str,
+        "todos": todos_str,
+        "preferences": prefs_str,
+        "concepts": concepts_str,
     }
 
 
@@ -473,9 +581,10 @@ _TIER_LABELS: dict[str, str] = {
 _TOOL_DESCRIPTIONS: dict[str, str] = {
     "obsidian_writer": "obsidian_writer: write notes to my vault (journal, drafts, letters). Use fenced block ```journal```, ```notebook```, ```draft```, or ```letter``` in your reply.",
     "wordpress_writer": "wordpress_writer: publish blog posts. Use fenced block ```blog``` in your reply.",
-    "rss_reader": "rss_reader: I read RSS feeds automatically and form opinions about them.",
+    "rss_reader": "rss_reader: I read RSS feeds automatically. I summarize each item, then periodically batch-categorize what I've read and decide if anything matters enough to form an opinion or commit to action.",
     "code_reader": "code_reader: READ my own source code. Use fenced block ```read-code``` with a file path to browse or read files.",
     "code_modification": "code_modification: REQUEST a change to my own source code. Use fenced block ```request-change``` with a description of what to change.",
+    "image_generator": "image_generator: GENERATE images from text descriptions. Use fenced block ```image``` with a description of what to create.",
 }
 
 
@@ -505,7 +614,7 @@ def _build_chat_prompt(
     introspective_context: dict[str, str] | None = None,
     chat_user: str | None = None,
     tool_names: list[str] | None = None,
-) -> str:
+) -> tuple[str, dict[str, dict[str, float]]]:
     """Compose a chat prompt.
 
     Stable identity sections (operator-set then self-set):
@@ -520,6 +629,9 @@ def _build_chat_prompt(
       3. Recent memory (last 30 days, recency-decay weighted)
       4. Session search (current conversation turns)
     Each memory is rendered as a trigger-phrase association.
+
+    Returns (prompt_text, retrieval_map) where retrieval_map is
+    {target_node_id: {source_memory_id: similarity}} for activation graph use.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from ..retrieval import semantic_retrieve_recent, retrieve_session_context
@@ -651,7 +763,9 @@ def _build_chat_prompt(
                 created_after=cutoff,
             )
         )
-        rss_items = [m for m in items if m.intent_at_time.startswith("process-rss-")]
+        rss_items = [
+            m for m in items if m.intent_at_time and m.intent_at_time.startswith("rss-summary-")
+        ]
         rss_items.sort(key=lambda m: m.created_at, reverse=True)
         return rss_items[:6]
 
@@ -780,7 +894,7 @@ def _build_chat_prompt(
 
                 ctx = _json.loads(m.context) if isinstance(m.context, str) else (m.context or {})
                 title = ctx.get("title", "")
-                feed_url = m.intent_at_time.replace("process-rss-", "")
+                feed_url = m.intent_at_time.replace("rss-summary-", "")
                 feed_label = f" [{title}]" if title else f" [{feed_url}]"
             except Exception:
                 pass
@@ -804,10 +918,15 @@ def _build_chat_prompt(
     skills_note = f" (active skills: {ic['skills']})" if ic.get("skills") else ""
     hobbies_note = f" (active hobbies: {ic['hobbies']})" if ic.get("hobbies") else ""
     interests_note = f" (interests: {ic['interests']})" if ic.get("interests") else ""
+    passions_note = f" (passions: {ic['passions']})" if ic.get("passions") else ""
+    todos_note = f" (active todos: {ic['todos']})" if ic.get("todos") else ""
+    concepts_note = f" (concepts: {ic['concepts']})" if ic.get("concepts") else ""
+    prefs_note = f" (preferences: {ic['preferences']})" if ic.get("preferences") else ""
     scaffold_lines += [
         "- What do you actually want right now, given what was just said?",
         f"- How does this land emotionally{mood_note}? Does it shift how you feel?",
-        f"- Does this touch your skills, hobbies, or interests{skills_note}{hobbies_note}{interests_note}? Does it make you want to do something?",
+        f"- Does this touch anything you care about{skills_note}{hobbies_note}{passions_note}? Does it make you want to do something?",
+        f"- Any active goals or todos{todos_note}?",
         "- What do you feel toward this person right now — warmth, wariness, curiosity, something else?",
         "- What is your profile of this person based on what they have ACTUALLY said in THIS conversation? Do not infer from past-memory sections above.",
         "",
@@ -817,7 +936,12 @@ def _build_chat_prompt(
     lines.extend(scaffold_lines)
 
     lines.append("assistant:")
-    return "\n".join(lines)
+
+    retrieval_map: dict[str, dict[str, float]] = {}
+    for memory, score in durable_hits + recent_hits:
+        retrieval_map.setdefault(memory.memory_id, {})[self_id] = score
+
+    return "\n".join(lines), retrieval_map
 
 
 def _build_providers(
@@ -871,7 +995,7 @@ def _make_imagine_for_provider(provider: Provider) -> Any:
             + STYLE_GUARD
         )
         try:
-            reply = provider.complete(prompt, max_tokens=256)
+            reply = provider.complete(prompt)
         except Exception:
             logger.exception("provider %s failed during imagine", provider.name)
             return default_imagine(seed, retrieved, pool_name)
@@ -1100,17 +1224,29 @@ def build_and_run(argv: list[str] | None = None) -> int:
             provider,
             quality_weight=quality_weights.get(pool_name, 1.0),
         )
-        # Only chat-role pools feed the daydream producers; embedding
-        # pools shouldn't be daydreamed against.
-        if pool_roles.get(pool_name, "chat") == "chat":
-            DaydreamProducer(
-                pool_name=pool_name,
-                self_id=self_id,
-                motivation=motivation,
-                reactor=reactor,
-                repo=repo,
-                imagine=_make_imagine_for_provider(provider),
-            )
+
+    _early_srepo = SelfRepo(raw_repo.conn)
+
+    from ..self_tool_registry import inject_repo
+
+    inject_repo(_early_srepo)
+    logger.info("self-tool registry wired with repo-backed handlers")
+
+    quality_threshold = 0.6
+    for pool_name, provider in providers.items():
+        if pool_roles.get(pool_name, "chat") != "chat":
+            continue
+        if quality_weights.get(pool_name, 0.0) < quality_threshold:
+            continue
+        DaydreamProducer(
+            pool_name=pool_name,
+            self_id=self_id,
+            motivation=motivation,
+            reactor=reactor,
+            repo=repo,
+            imagine=_make_imagine_for_provider(provider),
+            self_repo=_early_srepo,
+        )
 
     # Per-tick: refresh pressure_vec from the quota tracker. O(len(providers))
     # and cheap.
@@ -1202,9 +1338,8 @@ def build_and_run(argv: list[str] | None = None) -> int:
         # Schedule periodic polling; each new item lands as P7 rss_item.
         RSSFetcher(reader=rss_reader, motivation=motivation, reactor=reactor)
 
-        # Dispatch handler for rss_item: thinks about the item, writes a
-        # weak summary always, promotes to OPINION if interesting, mints
-        # AFFIRMATION if actionable + very interesting.
+        # Dispatch handler for rss_item: records a bare summary (no LLM call).
+        # Batch categorization happens via _rss_digest on a separate tick cadence.
         rss_chat_provider = _select_chat_provider(providers, quality_weights, pool_roles)
 
         def _on_dispatch_rss_item(item: BacklogItem, chosen_pool: str) -> None:
@@ -1213,12 +1348,10 @@ def build_and_run(argv: list[str] | None = None) -> int:
             if feed_item is None:
                 return
             try:
-                _think_about_rss_item(
+                _record_rss_item(
                     feed_item=feed_item,
-                    provider=rss_chat_provider,
                     repo=repo,
                     self_id=self_id,
-                    index=embedding_index,
                 )
             except Exception:
                 logger.exception(
@@ -1226,6 +1359,81 @@ def build_and_run(argv: list[str] | None = None) -> int:
                 )
 
         motivation.register_dispatch("rss_item", _on_dispatch_rss_item)
+
+        # RSS digest: batch-categorize summaries 3x/day (every ~8 hours at 100Hz).
+        _DIGEST_TICKS = 8 * 60 * 60 * 100  # 2,880,000 ticks
+
+        def _on_digest_tick(tick: int) -> None:
+            if tick % _DIGEST_TICKS != 0:
+                return
+            try:
+                _rss_digest(
+                    provider=rss_chat_provider,
+                    repo=repo,
+                    self_id=self_id,
+                    index=embedding_index,
+                )
+            except Exception:
+                logger.exception("rss digest failed")
+
+        reactor.register(_on_digest_tick)
+
+    # Personality re-test: every 7 days at 100Hz = 60,480,000 ticks.
+    # Re-asks 20 HEXACO items and drifts facet scores by RETEST_WEIGHT (0.25).
+    _RETEST_TICKS = 7 * 24 * 60 * 60 * 100
+
+    def _on_retest_tick(tick: int) -> None:
+        if tick % _RETEST_TICKS != 0:
+            return
+        try:
+            import random as _random
+            from datetime import UTC as _UTC, datetime as _datetime
+
+            from ..self_personality import apply_retest, sample_retest_items
+            from ..self_repo import SelfRepo as _SR
+
+            srepo = _SR(raw_repo.conn)
+            all_items = srepo.list_items(self_id)
+            if not all_items:
+                return
+            last_asked: dict[str, _datetime] = {}
+            for ans in srepo.list_answers_for_compaction(self_id, []):
+                if hasattr(ans, "item_id") and hasattr(ans, "asked_at"):
+                    last_asked[ans.item_id] = _datetime.fromisoformat(ans.asked_at)
+            rng = _random.Random()
+
+            sampled = sample_retest_items(all_items, last_asked, rng, _datetime.now(_UTC))
+
+            retest_provider = _select_chat_provider(providers, quality_weights, pool_roles)
+
+            def ask_self(item):
+                prompt = (
+                    f"Rate this statement on a 1-5 Likert scale based on your current personality.\n"
+                    f"Answer with ONLY a number (1-5) and a short justification on the next line.\n\n"
+                    f"Statement: {item.text}\n"
+                )
+                reply = retest_provider.complete(prompt, max_tokens=100)
+                lines = reply.strip().split("\n")
+                raw = None
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.isdigit() and 1 <= int(stripped) <= 5:
+                        raw = int(stripped)
+                        break
+                if raw is None:
+                    raw = 3
+                justification = lines[-1][:200] if len(lines) > 1 else "no justification"
+                return raw, justification
+
+            def _retest_id(prefix: str) -> str:
+                return f"{prefix}-{uuid.uuid4()}"
+
+            apply_retest(srepo, self_id, sampled, ask_self, _datetime.now(_UTC), _retest_id)
+            logger.info("personality re-test completed: %d items re-asked", len(sampled))
+        except Exception:
+            logger.exception("personality re-test failed")
+
+    reactor.register(_on_retest_tick)
 
     if tool_registry.names():
         actor = Actor(repo=repo, self_id=self_id, registry=tool_registry)
@@ -1263,9 +1471,8 @@ def build_and_run(argv: list[str] | None = None) -> int:
             SkillRefiner,
         )
         from ..drives import select_hobbies
-        from ..self_repo import SelfRepo as _SelfRepo
 
-        _srepo = _SelfRepo(raw_repo.conn)
+        _srepo = _early_srepo
         _facet_map = {f.facet_id: f.score for f in _srepo.list_facets(self_id)}
         _cheapest = _select_cheapest_provider(providers, pool_roles)
 
@@ -1416,7 +1623,7 @@ def build_and_run(argv: list[str] | None = None) -> int:
                 # Refresh introspective context live — mood, skills, hobbies
                 # change over time as the agent dreams and acts.
                 live_ic = _build_introspective_context(self_id, raw_repo.conn)
-                prompt = _build_chat_prompt(
+                prompt, retrieval_map = _build_chat_prompt(
                     message=message,
                     history=history,
                     repo=repo,
@@ -1424,7 +1631,7 @@ def build_and_run(argv: list[str] | None = None) -> int:
                     index=embedding_index,
                     base_prompt=_load_base_prompt(base_prompt_path),
                     working_memory=working_memory,
-                    personality_summary=personality_summary,
+                    personality_summary=_build_personality_summary(self_id, raw_repo.conn),
                     voice_content=voice_section.get(self_id),
                     session_index=session_index,
                     conversation_id=conv_id,
@@ -1434,6 +1641,23 @@ def build_and_run(argv: list[str] | None = None) -> int:
                     tool_names=tool_registry.names(),
                 )
                 reply = chat_provider.complete(prompt, max_tokens=800)
+
+                if retrieval_map:
+                    try:
+                        from datetime import UTC, datetime
+
+                        from ..self_retrieval_materialize import materialize_retrieval_contributors
+
+                        _srepo_mat = SelfRepo(raw_repo.conn)
+                        materialize_retrieval_contributors(
+                            repo=_srepo_mat,
+                            self_id=self_id,
+                            now=datetime.now(UTC),
+                            per_target=retrieval_map,
+                            new_id=lambda prefix: f"{prefix}-{uuid.uuid4()}",
+                        )
+                    except Exception:
+                        logger.debug("retrieval contributor materialization failed", exc_info=True)
             except Exception:
                 logger.exception("chat dispatch failed")
                 reply = "(I encountered an error generating a reply.)"
@@ -1539,13 +1763,29 @@ def build_and_run(argv: list[str] | None = None) -> int:
                             memory_id=str(_uuid.uuid4()),
                             self_id=self_id,
                             content=content[:500],
-                            tier=MemoryTier.OBSERVATION,
+                            tier=MemoryTier.LESSON,
                             source=SourceKind.I_DID,
                             weight=0.6,
                             intent_at_time="sentinel-goal",
                         )
                     )
-                    logger.info("goal observation written via chat sentinel")
+                    logger.info("goal written via chat sentinel (LESSON tier)")
+                    return
+                elif kind == "regret":
+                    repo.insert(
+                        EpisodicMemory(
+                            memory_id=f"sentinel-regret-{_uuid.uuid4()}",
+                            self_id=self_id,
+                            content=f"regret (self-recorded): {content[:400]}",
+                            tier=MemoryTier.REGRET,
+                            source=SourceKind.I_DID,
+                            weight=0.7,
+                            affect=-0.5,
+                            intent_at_time="sentinel-regret",
+                            created_at=_now,
+                        )
+                    )
+                    logger.info("REGRET written via chat sentinel: %s", content[:80])
                     return
 
             except Exception:
@@ -1634,6 +1874,46 @@ def build_and_run(argv: list[str] | None = None) -> int:
                             )
                         )
                         logger.info("request-change sentinel: endpoint=%s", endpoint)
+
+                    elif kind == "image":
+                        from ..runtime.providers.base import ImageGenProvider
+
+                        _img_provider = None
+                        for _pv in providers.values():
+                            if (
+                                isinstance(_pv, ImageGenProvider)
+                                and pool_roles.get(_pv.name) == "image_gen"
+                            ):
+                                _img_provider = _pv
+                                break
+                        if _img_provider is None:
+                            logger.warning("no image_gen pool available")
+                            return
+                        try:
+                            from pathlib import Path as _Path
+                            import base64 as _b64
+
+                            _b64_data = _img_provider.generate_image(content.strip()[:500])
+                            _ts = _now.strftime("%Y%m%d_%H%M%S")
+                            _fname = f"image_{_ts}.png"
+                            _img_dir = _Path("/data/scratchpad/images")
+                            _img_dir.mkdir(parents=True, exist_ok=True)
+                            (_img_dir / _fname).write_bytes(_b64.b64decode(_b64_data))
+                            _url = f"http://localhost:4201/images/{_fname}"
+                            repo.insert(
+                                EpisodicMemory(
+                                    memory_id=str(_uuid.uuid4()),
+                                    self_id=self_id,
+                                    content=f"Generated image: {content[:100]} → {_url}",
+                                    tier=MemoryTier.ACCOMPLISHMENT,
+                                    source=SourceKind.I_DID,
+                                    weight=0.6,
+                                    intent_at_time="image-generation",
+                                )
+                            )
+                            logger.info("image generated: %s → %s", content[:60], _url)
+                        except Exception:
+                            logger.exception("image generation failed")
 
                 except Exception:
                     logger.exception("sentinel io write failed: kind=%s", kind)

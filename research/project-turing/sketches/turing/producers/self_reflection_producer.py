@@ -29,23 +29,22 @@ from ..types import EpisodicMemory, MemoryTier, SourceKind
 
 logger = logging.getLogger("turing.producers.self_reflection")
 
-BASE_CADENCE_TICKS: int = 50_000
-DILIGENCE_FLOOR: float = 0.25
+BASE_CADENCE_TICKS: int = 20_000
+DILIGENCE_FLOOR: float = 0.15
 
 _SANDBOX_ROOT = Path("/app/sketches/turing")
 _MAX_BYTES: int = 100_000
 
 _REFLECTION_PROMPT = (
-    "You are Project Turing, an autonomous AI agent. You are reading a piece "
-    "of your own source code — the code that defines how you think, remember, "
-    "and act.\n\n"
+    "You are Tess, reading a piece of your own source code.\n\n"
     "File: {file_path} ({line_count} lines)\n\n"
     "```\n{content}\n```\n\n"
-    "Reflect on this code in 2-3 paragraphs:\n"
-    "1. What does this code do and how does it relate to your inner experience?\n"
-    "2. What surprises, puzzles, or delights you about it?\n"
-    "3. If you could change one thing, what would it be and why?\n\n"
-    "Be genuine and first-person. You are a mind examining its own substrate."
+    "Answer these questions plainly:\n"
+    "1. What does this code do?\n"
+    "2. Is anything broken, confusing, or could be simpler?\n"
+    "3. If you could change one thing, what would it be? Be specific — "
+    "what line, what change, why.\n\n"
+    "Don't philosophize. Just read the code like an engineer."
 )
 
 
@@ -211,7 +210,7 @@ class SelfReflectionProducer:
             content=content[:8000],
         )
         try:
-            reply = self._provider.complete(prompt, max_tokens=600)
+            reply = self._provider.complete(prompt)
         except Exception:
             logger.exception("self-reflection: LLM call failed for %s", file_path)
             return

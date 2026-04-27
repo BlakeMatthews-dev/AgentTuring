@@ -36,7 +36,7 @@ logger = logging.getLogger("turing.runtime.chat")
 
 
 CHAT_RESPONSE_TIMEOUT_S: float = 90.0
-MAX_REQUEST_BODY_BYTES: int = 1 << 20  # 1 MiB
+MAX_REQUEST_BODY_BYTES: int = 20 << 20  # 20 MiB
 
 
 class ChatBridge:
@@ -81,8 +81,10 @@ SENTINEL_KINDS = frozenset(
         "opinion",
         "goal",
         "hypothesis",
+        "regret",
         "read-code",
         "request-change",
+        "image",
     }
 )
 

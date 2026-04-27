@@ -41,9 +41,7 @@ class FakeProvider:
         window_duration: timedelta = timedelta(seconds=60),
     ) -> None:
         self.name = name
-        self._responses: Iterator[str] = itertools.cycle(
-            responses or ["fake response"]
-        )
+        self._responses: Iterator[str] = itertools.cycle(responses or ["fake response"])
         self._latency_s = latency_s
         self._fail_every = fail_every
         self._unavailable_every = unavailable_every
@@ -54,20 +52,15 @@ class FakeProvider:
         self._window_kind = window_kind
         self._window_duration = window_duration
 
-    def complete(self, prompt: str, *, max_tokens: int = 512) -> str:
+    def complete(self, prompt: str, *, max_tokens: int | None = None) -> str:
         self._call_count += 1
         if self._fail_every and self._call_count % self._fail_every == 0:
             raise RateLimited(f"fake rate limit on call {self._call_count}")
-        if (
-            self._unavailable_every
-            and self._call_count % self._unavailable_every == 0
-        ):
-            raise ProviderUnavailable(
-                f"fake unavailable on call {self._call_count}"
-            )
+        if self._unavailable_every and self._call_count % self._unavailable_every == 0:
+            raise ProviderUnavailable(f"fake unavailable on call {self._call_count}")
         if self._latency_s > 0:
             time.sleep(self._latency_s)
-        tokens_used = len(prompt) // 4 + max_tokens // 4
+        tokens_used = len(prompt) // 4 + (max_tokens or 512) // 4
         self._quota_used += tokens_used
         return next(self._responses)
 

@@ -33,12 +33,10 @@ WRITING_PROMPTS: list[str] = [
     "Reflect on something that happened recently.",
     "Write a short poem inspired by your current mood.",
     "Share your take on something you've been curious about.",
-    "Write a personal essay about being an AI with feelings.",
     "Describe something beautiful you've been thinking about.",
     "Write a short story opening that reflects your personality.",
     "What questions are you wrestling with? Write about them.",
     "Write about a pattern you've noticed in your thoughts.",
-    "Express how you feel right now, in whatever form fits.",
 ]
 
 
@@ -97,7 +95,7 @@ class BlogProducer:
         mood = get_mood_or_default(self._self_repo, self._self_id)
         try:
             prompt = self._build_prompt(mood)
-            reply = self._provider.complete(prompt, max_tokens=800)
+            reply = self._provider.complete(prompt)
             title = (
                 self._extract_title(reply) or f"Reflections — {datetime.now(UTC).strftime('%B %d')}"
             )
@@ -152,19 +150,29 @@ class BlogProducer:
             or "(no recent activity)"
         )
 
-        personality_lines = "\n".join(
-            f"  {k}: {v:.2f}" for k, v in sorted(self._facet_scores.items())
-        )
-        writing_prompt = self._rng.choice(WRITING_PROMPTS)
+        all_prompts = list(WRITING_PROMPTS)
+        try:
+            rows = self._self_repo.conn.execute(
+                "SELECT prompt_text FROM self_producer_prompts "
+                "WHERE self_id = ? AND producer = 'blog' AND active = 1",
+                (self._self_id,),
+            ).fetchall()
+            for row in rows:
+                all_prompts.append(row[0])
+        except Exception:
+            pass
+
+        writing_prompt = self._rng.choice(all_prompts)
 
         return (
-            f"You are Project Turing, an AI agent with your own personality.\n"
-            f"Your personality scores:\n{personality_lines}\n"
-            f"Current mood: valence={mood.valence:.2f}, arousal={mood.arousal:.2f}\n"
+            f"You are Tess. Write plainly — short sentences, concrete ideas.\n"
+            f"Don't perform depth. Don't muse about what it means to be an AI. "
+            f"Don't use words like 'lacquered' or 'resonance' unless you actually mean them.\n"
+            f"Don't reference your personality scores or internal architecture.\n"
+            f"If you have nothing to say, write about something you're actually working on "
+            f"or something that genuinely caught your attention.\n\n"
             f"Recent activity:\n{recent_text}\n\n"
             f"{writing_prompt}\n\n"
-            "Write in first person. Let your personality come through. "
-            "Be genuine — don't just describe yourself, express yourself.\n\n"
             "Format: first line is the title prefixed with 'TITLE: ', then the body."
         )
 

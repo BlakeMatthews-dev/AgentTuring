@@ -133,16 +133,17 @@ def _parse_agent_dir(agent_dir: Path) -> tuple[dict[str, Any], str, str] | None:
 
 
 def _safe_tuple(value: Any) -> tuple[Any, ...]:
-    """Coerce loose YAML values to a tuple. Used for non-strict fields.
+    """Coerce YAML values to tuple safely.
 
-    YAML footguns:
-      - `null` → ()
-      - `"shell"` → ("shell",)  (treated as single-element list)
-      - non-list/tuple/None/str → ()
+    YAML footguns this protects against (SEC-011, SEC-012):
+      - `tools: null` → Python None → tuple(None) raises TypeError
+      - `tools: "shell"` → string → tuple iterates chars as ('s','h','e','l','l')
+      - `tools: {}` / `tools: 42` → invalid, silently becomes ()
     """
     if value is None:
         return ()
     if isinstance(value, str):
+        # Common YAML mistake: `tools: "shell"` meant `tools: [shell]`
         return () if not value else (value,)
     if isinstance(value, (list, tuple)):
         return tuple(value)

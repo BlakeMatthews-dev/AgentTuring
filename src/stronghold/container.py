@@ -472,6 +472,20 @@ async def create_container(config: StrongholdConfig) -> Container:
 
     canary_manager = CanaryManager()
 
+    # Learning approval gate
+    from stronghold.memory.learnings.approval import LearningApprovalGate  # noqa: PLC0415
+
+    approval_gate = LearningApprovalGate()
+
+    # Learning promoter (with approval gate)
+    from stronghold.memory.learnings.promoter import LearningPromoter  # noqa: PLC0415
+
+    learning_promoter = LearningPromoter(
+        learning_store,
+        threshold=config.learnings.promotion_threshold,
+        approval_gate=approval_gate,
+    )
+
     # MCP server registry + K8s deployer
     from stronghold.mcp.registry import MCPRegistry  # noqa: PLC0415
 

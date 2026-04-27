@@ -4,7 +4,7 @@ version: 1.0.0
 description: Code and engineering specialist.
 soul: SOUL.md
 reasoning:
-  strategy: plan_execute
+  strategy: artificer
   max_subtasks: 10
   review_after_each: true
 model: auto

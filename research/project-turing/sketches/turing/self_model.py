@@ -260,6 +260,8 @@ class Skill:
     kind: SkillKind
     stored_level: float
     last_practiced_at: datetime
+    best_version: int = 0
+    active_coaching: str | None = None
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
 

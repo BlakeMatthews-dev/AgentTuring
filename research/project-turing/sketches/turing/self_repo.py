@@ -525,16 +525,18 @@ class SelfRepo:
     def insert_skill(self, s: Skill) -> Skill:
         self._conn.execute(
             """INSERT INTO self_skills
-               (node_id, self_id, name, kind, stored_level, decay_rate_per_day,
-                last_practiced_at, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 0.0, ?, ?, ?)""",
+               (node_id, self_id, name, kind, stored_level, best_version,
+                last_practiced_at, active_coaching, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 s.node_id,
                 s.self_id,
                 s.name,
                 s.kind.value,
                 s.stored_level,
+                s.best_version,
                 _iso(s.last_practiced_at),
+                s.active_coaching,
                 _iso(s.created_at),
                 _iso(s.updated_at),
             ),
@@ -544,8 +546,8 @@ class SelfRepo:
 
     def get_skill(self, node_id: str) -> Skill:
         row = self._conn.execute(
-            "SELECT node_id, self_id, name, kind, stored_level, "
-            "last_practiced_at, created_at, updated_at "
+            "SELECT node_id, self_id, name, kind, stored_level, best_version, "
+            "last_practiced_at, active_coaching, created_at, updated_at "
             "FROM self_skills WHERE node_id = ?",
             (node_id,),
         ).fetchone()
@@ -555,8 +557,8 @@ class SelfRepo:
 
     def list_skills(self, self_id: str) -> list[Skill]:
         rows = self._conn.execute(
-            "SELECT node_id, self_id, name, kind, stored_level, "
-            "last_practiced_at, created_at, updated_at "
+            "SELECT node_id, self_id, name, kind, stored_level, best_version, "
+            "last_practiced_at, active_coaching, created_at, updated_at "
             "FROM self_skills WHERE self_id = ?",
             (self_id,),
         ).fetchall()
@@ -566,11 +568,13 @@ class SelfRepo:
         if acting_self_id is not None and s.self_id != acting_self_id:
             raise CrossSelfAccess(f"{s.self_id} vs {acting_self_id}")
         self._conn.execute(
-            "UPDATE self_skills SET stored_level = ?, "
-            "last_practiced_at = ?, updated_at = ? WHERE node_id = ?",
+            "UPDATE self_skills SET stored_level = ?, best_version = ?, "
+            "last_practiced_at = ?, active_coaching = ?, updated_at = ? WHERE node_id = ?",
             (
                 s.stored_level,
+                s.best_version,
                 _iso(s.last_practiced_at),
+                s.active_coaching,
                 _iso(datetime.now(UTC)),
                 s.node_id,
             ),
@@ -584,9 +588,11 @@ class SelfRepo:
             name=r[2],
             kind=SkillKind(r[3]),
             stored_level=float(r[4]),
-            last_practiced_at=_parse_req(r[5]),
-            created_at=_parse_req(r[6]),
-            updated_at=_parse_req(r[7]),
+            best_version=int(r[5]) if r[5] is not None else 0,
+            last_practiced_at=_parse_req(r[6]),
+            active_coaching=r[7],
+            created_at=_parse_req(r[8]),
+            updated_at=_parse_req(r[9]),
         )
 
     # ------------------------------------------------ todos -----------------
@@ -1060,22 +1066,35 @@ class SelfRepo:
 
     # ------------------------------------------------ skill attempts ---------
 
-    def insert_skill_attempt(
+    def insert_skill_artifact(
         self,
-        node_id: str,
+        *,
+        artifact_id: str,
         self_id: str,
         skill_id: str,
-        context: str,
-        outcome: str,
-        reflection: str,
+        version: int,
+        artifact_text: str,
+        score: float,
+        judge_notes: str,
+        coaching: str | None = None,
     ) -> None:
         now = _iso(datetime.now(UTC))
         self._conn.execute(
-            """INSERT INTO self_skill_attempts
-               (node_id, self_id, skill_id, context, outcome,
-                reflection, learned_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (node_id, self_id, skill_id, context, outcome, reflection, now, now),
+            """INSERT INTO self_skill_artifacts
+               (artifact_id, self_id, skill_id, version, artifact_text,
+                score, judge_notes, coaching, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                artifact_id,
+                self_id,
+                skill_id,
+                version,
+                artifact_text,
+                score,
+                judge_notes,
+                coaching,
+                now,
+            ),
         )
         self._conn.execute(
             "UPDATE self_skills SET practice_count = practice_count + 1, "
@@ -1084,31 +1103,76 @@ class SelfRepo:
         )
         self._conn.commit()
 
-    def list_skill_attempts(self, skill_id: str, limit: int = 10) -> list[dict]:
+    def list_skill_artifacts(self, skill_id: str, limit: int = 10) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT node_id, skill_id, context, outcome, reflection, "
-            "learned_at FROM self_skill_attempts WHERE skill_id = ? "
-            "ORDER BY learned_at DESC LIMIT ?",
+            "SELECT artifact_id, skill_id, version, artifact_text, score, "
+            "judge_notes, coaching, created_at "
+            "FROM self_skill_artifacts WHERE skill_id = ? "
+            "ORDER BY version DESC LIMIT ?",
             (skill_id, limit),
         ).fetchall()
         return [
             {
-                "node_id": r[0],
+                "artifact_id": r[0],
                 "skill_id": r[1],
-                "context": r[2],
-                "outcome": r[3],
-                "reflection": r[4],
-                "learned_at": r[5],
+                "version": r[2],
+                "artifact_text": r[3],
+                "score": r[4],
+                "judge_notes": r[5],
+                "coaching": r[6],
+                "created_at": r[7],
             }
             for r in rows
         ]
 
-    def count_skill_attempts(self, skill_id: str) -> int:
+    def get_best_artifact(self, skill_id: str) -> dict | None:
         row = self._conn.execute(
-            "SELECT COUNT(*) FROM self_skill_attempts WHERE skill_id = ?",
+            "SELECT artifact_id, version, artifact_text, score, judge_notes "
+            "FROM self_skill_artifacts WHERE skill_id = ? "
+            "ORDER BY score DESC, version DESC LIMIT 1",
+            (skill_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "artifact_id": row[0],
+            "version": row[1],
+            "artifact_text": row[2],
+            "score": row[3],
+            "judge_notes": row[4],
+        }
+
+    def get_latest_artifact(self, skill_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT artifact_id, version, artifact_text, score, judge_notes, coaching "
+            "FROM self_skill_artifacts WHERE skill_id = ? "
+            "ORDER BY version DESC LIMIT 1",
+            (skill_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "artifact_id": row[0],
+            "version": row[1],
+            "artifact_text": row[2],
+            "score": row[3],
+            "judge_notes": row[4],
+            "coaching": row[5],
+        }
+
+    def count_skill_artifacts(self, skill_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM self_skill_artifacts WHERE skill_id = ?",
             (skill_id,),
         ).fetchone()
         return int(row[0])
+
+    def set_skill_coaching(self, skill_id: str, coaching: str) -> None:
+        self._conn.execute(
+            "UPDATE self_skills SET active_coaching = ?, updated_at = ? WHERE node_id = ?",
+            (coaching, _iso(datetime.now(UTC)), skill_id),
+        )
+        self._conn.commit()
 
     def delete_expired_retrieval_contributors(self, now) -> int:
         with self._lock:

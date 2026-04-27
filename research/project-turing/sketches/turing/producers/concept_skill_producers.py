@@ -435,68 +435,77 @@ class SkillExecutor:
         payload = item.payload or {}
         skill_id = payload.get("skill_id", "")
         skill_name = payload.get("skill_name", "")
-        skill_level = payload.get("skill_level", 0.1)
         if not skill_id or not skill_name:
             return
         instruction = self._PRACTICE_PROMPTS.get(
             skill_name,
             f"Practice '{skill_name}' by using one of your tools to do real work.",
         )
-        recent = list(
-            self._repo.find(
-                self_id=self._self_id,
-                source=SourceKind.I_DID,
-                include_superseded=False,
-            )
-        )
-        recent_text = (
-            "\n".join(f"- {m.content[:100]}" for m in list(recent)[-3:]) or "(no recent activity)"
-        )
+        skill = self._self_repo.get_skill(skill_id)
+        version = self._self_repo.count_skill_artifacts(skill_id) + 1
+        best = self._self_repo.get_best_artifact(skill_id)
+        best_text = best["artifact_text"][:300] if best else "(no previous attempt)"
+        coaching = skill.active_coaching or ""
+
         prompt = (
-            f"You are practicing '{skill_name}' (level {skill_level:.1f}/1.0).\n\n"
+            f"You are practicing '{skill_name}' (attempt #{version}).\n\n"
             f"Assignment: {instruction}\n\n"
-            f"Recent context:\n{recent_text}\n\n"
-            "Do the assignment. Actually use the tool (put it in a fenced code block). "
-            "Then write 1-2 sentences about how it went.\n\n"
-            "After your tool use, add:\n"
-            "OUTCOME: [success / partial / fail]\n"
-            "LEARNED: [one specific thing you learned]"
+            f"Your best previous work scored {skill.stored_level:.1f}:\n{best_text}\n\n"
+        )
+        if coaching:
+            prompt += (
+                f"Coaching from last review:\n{coaching}\n\n"
+                "Address this coaching in your attempt.\n\n"
+            )
+        prompt += (
+            "Do the assignment. Produce real output (use tool fenced blocks if helpful). "
+            "This is the artifact that will be judged.\n\n"
+            "ARTIFACT:\n[your work here]"
         )
         try:
             reply = self._provider.complete(prompt)
         except Exception:
             logger_se.exception("skill practice LLM call failed")
             return
-        outcome = "partial"
-        if "OUTCOME:" in reply:
-            outcome_line = [l for l in reply.split("\n") if "OUTCOME:" in l.upper()]
-            if outcome_line:
-                raw = outcome_line[0].split(":", 1)[1].strip().lower()
-                if "success" in raw:
-                    outcome = "success"
-                elif "fail" in raw:
-                    outcome = "fail"
-        learned = ""
-        if "LEARNED:" in reply:
-            learned_lines = [l for l in reply.split("\n") if "LEARNED:" in l.upper()]
-            if learned_lines:
-                learned = learned_lines[0].split(":", 1)[1].strip()
-        self._self_repo.insert_skill_attempt(
-            node_id=f"attempt-{uuid4()}",
+        artifact_text = reply.strip()
+        if not artifact_text:
+            return
+
+        judge_score, judge_notes, coaching_text = self._judge(
+            skill_name, instruction, artifact_text, best
+        )
+
+        is_new_best = best is None or judge_score > best["score"]
+        if is_new_best:
+            skill.stored_level = judge_score
+            skill.best_version = version
+            skill.active_coaching = None
+        else:
+            skill.active_coaching = coaching_text
+
+        skill.last_practiced_at = datetime.now(UTC)
+        self._self_repo.update_skill(skill)
+        self._self_repo.insert_skill_artifact(
+            artifact_id=f"artifact-{uuid4()}",
             self_id=self._self_id,
             skill_id=skill_id,
-            context=instruction[:500],
-            outcome=outcome,
-            reflection=learned[:500] or reply.strip()[:200],
+            version=version,
+            artifact_text=artifact_text[:4000],
+            score=judge_score,
+            judge_notes=judge_notes,
+            coaching=coaching_text if not is_new_best else None,
         )
-        skill = self._self_repo.get_skill(skill_id)
-        delta = {"success": 0.02, "partial": 0.01, "fail": 0.0}.get(outcome, 0.0)
-        skill.stored_level = max(0.0, min(1.0, skill.stored_level + delta))
-        self._self_repo.update_skill(skill)
+        label = (
+            "NEW BEST"
+            if is_new_best
+            else f"regressed (best={best['score']:.2f} v{best['version']})"
+            if best
+            else "first"
+        )
         mem = EpisodicMemory(
             memory_id=str(uuid4()),
             self_id=self._self_id,
-            content=f"Practiced {skill_name} ({outcome}): {learned[:200] or reply.strip()[:200]}",
+            content=f"Practiced {skill_name} v{version}: scored {judge_score:.2f} ({label}). {judge_notes[:150]}",
             tier=MemoryTier.OBSERVATION,
             source=SourceKind.I_DID,
             weight=0.3,
@@ -504,13 +513,55 @@ class SkillExecutor:
             created_at=datetime.now(UTC),
         )
         self._repo.insert(mem)
-        logger_se.info(
-            "practiced skill '%s': %s (level %.2f -> %.2f)",
-            skill_name,
-            outcome,
-            skill_level,
-            skill.stored_level,
+        logger_se.info("practiced '%s' v%d: %.2f (%s)", skill_name, version, judge_score, label)
+
+    def _judge(
+        self,
+        skill_name: str,
+        instruction: str,
+        artifact: str,
+        best: dict | None,
+    ) -> tuple[float, str, str | None]:
+        prompt = (
+            f"You are judging an agent's skill practice for '{skill_name}'.\n\n"
+            f"Assignment was: {instruction}\n\n"
+            f"Artifact to judge:\n{artifact[:2000]}\n\n"
         )
+        if best:
+            prompt += (
+                f"Previous best (score {best['score']:.2f}, v{best['version']}):\n"
+                f"{best['artifact_text'][:1000]}\n\n"
+            )
+        prompt += (
+            "Score this artifact 0.0-1.0 on: did they actually do the assignment? "
+            "Is the output good quality? Is it better or worse than the previous best?\n\n"
+            "Respond EXACTLY:\n"
+            "SCORE: [0.0-1.0]\n"
+            "NOTES: [1-2 sentences: what was good and bad]\n"
+            "COACHING: [one specific actionable thing to try next time to improve. "
+            "If this IS the best yet, write 'COACHING: none needed']"
+        )
+        try:
+            reply = self._provider.complete(prompt)
+        except Exception:
+            logger_se.exception("skill judging failed")
+            return 0.1, "(judge failed)", None
+        score = 0.1
+        notes = ""
+        coaching_out: str | None = None
+        for line in reply.split("\n"):
+            stripped = line.strip()
+            if stripped.upper().startswith("SCORE:"):
+                try:
+                    score = max(0.0, min(1.0, float(stripped.split(":", 1)[1].strip())))
+                except ValueError:
+                    pass
+            elif stripped.upper().startswith("NOTES:"):
+                notes = stripped.split(":", 1)[1].strip()
+            elif stripped.upper().startswith("COACHING:"):
+                raw = stripped.split(":", 1)[1].strip()
+                coaching_out = raw if raw and "none" not in raw.lower() else None
+        return score, notes or "(no notes)", coaching_out
 
 
 def _parse_attempt_reply(reply: str) -> dict | None:
@@ -543,94 +594,3 @@ _REFINER_CADENCE = 80_000
 _MIN_ATTEMPTS = 3
 
 logger_sr = logging.getLogger("turing.producers.skill_refiner")
-
-
-class SkillRefiner:
-    def __init__(
-        self,
-        *,
-        motivation: Motivation,
-        reactor: Reactor,
-        repo: Repo,
-        self_repo: SelfRepo,
-        self_id: str,
-        facet_scores: dict[str, float],
-        provider: Provider,
-    ) -> None:
-        self._motivation = motivation
-        self._reactor = reactor
-        self._repo = repo
-        self._self_repo = self_repo
-        self._self_id = self_id
-        self._facet_scores = facet_scores
-        self._provider = provider
-        self._last_submitted_tick = 0
-        motivation.register_dispatch("skill_refinement", self._on_dispatch)
-        reactor.register(self.on_tick)
-
-    def on_tick(self, tick: int) -> None:
-        skills = self._self_repo.list_skills(self._self_id)
-        refinable = [
-            s for s in skills if self._self_repo.count_skill_attempts(s.node_id) >= _MIN_ATTEMPTS
-        ]
-        if not refinable:
-            return
-        if tick - self._last_submitted_tick < _REFINER_CADENCE:
-            return
-        self._last_submitted_tick = tick
-        skill = random.choice(refinable)
-        self._motivation.insert(
-            BacklogItem(
-                item_id=str(uuid4()),
-                class_=11,
-                kind="skill_refinement",
-                payload={
-                    "self_id": self._self_id,
-                    "skill_id": skill.node_id,
-                    "skill_name": skill.name,
-                },
-                fit={"diligence": 0.5},
-                readiness=lambda s: True,
-                cost_estimate_tokens=1_500,
-            )
-        )
-
-    def _on_dispatch(self, item: BacklogItem, chosen_pool: str) -> None:
-        payload = item.payload or {}
-        skill_id = payload.get("skill_id", "")
-        skill_name = payload.get("skill_name", "")
-        if not skill_id:
-            return
-        attempts = self._self_repo.list_skill_attempts(skill_id, limit=5)
-        if not attempts:
-            return
-        history = "\n".join(
-            f"- [{a['outcome']}] {a['context'][:80]} → {a['reflection'][:80]}" for a in attempts
-        )
-        prompt = (
-            f"Here's your practice history for the "
-            f"skill '{skill_name}':\n\n{history}\n\n"
-            "What patterns do you notice? What's working? What isn't? "
-            "What would you change about your approach? "
-            "Respond in 2-3 sentences, first person, honest."
-        )
-        try:
-            reply = self._provider.complete(prompt)
-        except Exception:
-            logger_sr.exception("skill refinement LLM call failed")
-            return
-        insight = reply.strip()
-        if not insight:
-            return
-        mem = EpisodicMemory(
-            memory_id=str(uuid4()),
-            self_id=self._self_id,
-            content=f"I refined my approach to {skill_name}: {insight[:300]}",
-            tier=MemoryTier.OBSERVATION,
-            source=SourceKind.I_DID,
-            weight=0.4,
-            intent_at_time=f"skill-refinement-{skill_name}",
-            created_at=datetime.now(UTC),
-        )
-        self._repo.insert(mem)
-        logger_sr.info("refined skill '%s': %s", skill_name, insight[:60])

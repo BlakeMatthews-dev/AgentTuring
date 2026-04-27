@@ -76,6 +76,24 @@ class Repo:
         ]:
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE self_identity ADD COLUMN {col} {typedef}")
+        skill_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(self_skills)").fetchall()}
+        for col, typedef in [
+            ("best_version", "INTEGER DEFAULT 0"),
+            ("active_coaching", "TEXT"),
+        ]:
+            if col not in skill_cols:
+                self._conn.execute(f"ALTER TABLE self_skills ADD COLUMN {col} {typedef}")
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS self_skill_artifacts ("
+            "artifact_id TEXT PRIMARY KEY, self_id TEXT NOT NULL, skill_id TEXT NOT NULL, "
+            "version INTEGER NOT NULL, artifact_text TEXT NOT NULL, "
+            "score REAL NOT NULL CHECK (score BETWEEN 0.0 AND 1.0), "
+            "judge_notes TEXT NOT NULL, coaching TEXT, created_at TEXT NOT NULL)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skill_artifacts_skill "
+            "ON self_skill_artifacts (skill_id, version DESC)"
+        )
         self._conn.commit()
 
     # ------------------------------------------------------------------ insert

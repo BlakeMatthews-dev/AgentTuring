@@ -281,10 +281,11 @@ CREATE TABLE IF NOT EXISTS self_skills (
     node_id              TEXT PRIMARY KEY,
     self_id              TEXT NOT NULL,
     name                 TEXT NOT NULL,
-    kind                 TEXT NOT NULL CHECK (kind IN ('intellectual', 'physical', 'habit', 'social', 'creative')),
+    kind                 TEXT NOT NULL,
     stored_level         REAL NOT NULL CHECK (stored_level BETWEEN 0.0 AND 1.0),
-    decay_rate_per_day   REAL NOT NULL CHECK (decay_rate_per_day > 0.0),
+    best_version         INTEGER NOT NULL DEFAULT 0,
     last_practiced_at    TEXT NOT NULL,
+    active_coaching      TEXT,
     practice_count       INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL,
@@ -500,19 +501,20 @@ CREATE INDEX IF NOT EXISTS idx_self_concepts_self
     ON self_concepts (self_id, importance DESC);
 
 
-CREATE TABLE IF NOT EXISTS self_skill_attempts (
-    node_id         TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS self_skill_artifacts (
+    artifact_id     TEXT PRIMARY KEY,
     self_id         TEXT NOT NULL,
     skill_id        TEXT NOT NULL,
-    context         TEXT NOT NULL,
-    outcome         TEXT NOT NULL CHECK (outcome IN ('success', 'partial', 'fail')),
-    reflection      TEXT NOT NULL,
-    learned_at      TEXT NOT NULL,
+    version         INTEGER NOT NULL,
+    artifact_text   TEXT NOT NULL,
+    score           REAL NOT NULL CHECK (score BETWEEN 0.0 AND 1.0),
+    judge_notes     TEXT NOT NULL,
+    coaching        TEXT,
     created_at      TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_skill_attempts_skill
-    ON self_skill_attempts (skill_id, learned_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_artifacts_skill
+    ON self_skill_artifacts (skill_id, version DESC);
 
 CREATE TABLE IF NOT EXISTS self_producer_prompts (
     prompt_id TEXT PRIMARY KEY,

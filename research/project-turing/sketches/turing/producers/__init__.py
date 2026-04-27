@@ -7,7 +7,6 @@ from .concept_skill_producers import (
     ConceptInventor,
     SkillBuilder,
     SkillExecutor,
-    SkillRefiner,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "ConceptInventor",
     "SkillBuilder",
     "SkillExecutor",
-    "SkillRefiner",
 ]

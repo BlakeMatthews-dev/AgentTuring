@@ -1468,7 +1468,6 @@ def build_and_run(argv: list[str] | None = None) -> int:
             SelfReflectionProducer,
             SkillBuilder,
             SkillExecutor,
-            SkillRefiner,
         )
         from ..drives import select_hobbies
 
@@ -1562,15 +1561,6 @@ def build_and_run(argv: list[str] | None = None) -> int:
             provider=_cheapest,
         )
         SkillExecutor(
-            motivation=motivation,
-            reactor=reactor,
-            repo=repo,
-            self_repo=_srepo,
-            self_id=self_id,
-            facet_scores=_facet_map,
-            provider=_cheapest,
-        )
-        SkillRefiner(
             motivation=motivation,
             reactor=reactor,
             repo=repo,

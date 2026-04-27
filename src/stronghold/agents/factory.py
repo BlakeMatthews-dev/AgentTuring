@@ -146,7 +146,9 @@ def _safe_tuple(value: Any) -> tuple[Any, ...]:
         # Common YAML mistake: `tools: "shell"` meant `tools: [shell]`
         return () if not value else (value,)
     if isinstance(value, (list, tuple)):
-        return tuple(value)
+        return tuple(
+            item["name"] if isinstance(item, dict) and "name" in item else item for item in value
+        )
     return ()
 
 

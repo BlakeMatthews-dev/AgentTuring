@@ -20,35 +20,37 @@ from turing.self_nodes import note_hobby, note_interest, note_skill, practice_sk
 
 
 class TestHobbyIntegrityError:
-    def test_duplicate_hobby_name_raises_value_error(self, srepo, self_id, new_id) -> None:
+    def test_duplicate_hobby_name_raises_value_error(self, srepo, bootstrapped_id, new_id) -> None:
         srepo.insert_hobby(
             Hobby(
                 node_id="hobby:manual",
-                self_id=self_id,
+                self_id=bootstrapped_id,
                 name="Reading",
                 description="books",
             )
         )
         with pytest.raises(ValueError, match="duplicate hobby"):
-            note_hobby(srepo, self_id, "Reading", "books again", new_id)
+            note_hobby(srepo, bootstrapped_id, "Reading", "books again", new_id)
 
 
 class TestInterestIntegrityError:
-    def test_duplicate_interest_topic_raises_value_error(self, srepo, self_id, new_id) -> None:
+    def test_duplicate_interest_topic_raises_value_error(
+        self, srepo, bootstrapped_id, new_id
+    ) -> None:
         srepo.insert_interest(
             Interest(
                 node_id="interest:manual",
-                self_id=self_id,
+                self_id=bootstrapped_id,
                 topic="Physics",
                 description="quantum",
             )
         )
         with pytest.raises(ValueError, match="duplicate interest"):
-            note_interest(srepo, self_id, "Physics", "classical", new_id)
+            note_interest(srepo, bootstrapped_id, "Physics", "classical", new_id)
 
 
 class TestPracticeSkillRaiseLevel:
-    def test_practice_raises_stored_level(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
-        updated = practice_skill(srepo, self_id, s.node_id, new_level=0.8)
+    def test_practice_raises_stored_level(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
+        updated = practice_skill(srepo, bootstrapped_id, s.node_id, new_level=0.8)
         assert updated.stored_level == 0.8

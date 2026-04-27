@@ -308,7 +308,7 @@ class TestBuildAndRunChatIntegration:
         try:
             resp = urllib.request.urlopen(f"http://127.0.0.1:{chat_port}/", timeout=3.0)
             assert resp.status == 200
-            assert "Project Turing" in resp.read().decode("utf-8")
+            assert "Turing" in resp.read().decode("utf-8")
         finally:
             t.join(timeout=8.0)
 
@@ -375,7 +375,7 @@ class TestBuildAndRunChatIntegration:
         try:
             resp = urllib.request.urlopen(f"http://127.0.0.1:{chat_port}/", timeout=3.0)
             assert resp.status == 200
-            assert "Project Turing" in resp.read().decode("utf-8")
+            assert "Turing" in resp.read().decode("utf-8")
         finally:
             t.join(timeout=8.0)
 

@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from .motivation import BacklogItem, Motivation, PipelineState
-from .reactor import FakeReactor
+from .reactor import Reactor
 
 
 DEFAULT_PREPARE_WINDOW: timedelta = timedelta(minutes=10)
@@ -53,7 +53,7 @@ class Scheduler:
 
     def __init__(
         self,
-        reactor: FakeReactor,
+        reactor: Reactor,
         motivation: Motivation,
         callback_registry: dict[str, Callable[[Any], None]] | None = None,
         *,
@@ -64,9 +64,7 @@ class Scheduler:
         self._pending: dict[str, ScheduledItem] = {}
         self._inserted: set[str] = set()
         self._delivery_buffer: dict[str, DeliveryRecord] = {}
-        self._callback_registry: dict[str, Callable[[Any], None]] = (
-            callback_registry or {}
-        )
+        self._callback_registry: dict[str, Callable[[Any], None]] = callback_registry or {}
         self._avg_daydream_duration = avg_daydream_duration
 
         motivation.register_dispatch("p0_scheduled", self._on_dispatch)
@@ -77,9 +75,7 @@ class Scheduler:
     def schedule(self, item: ScheduledItem) -> None:
         self._pending[item.item_id] = item
 
-    def register_callback(
-        self, name: str, fn: Callable[[Any], None]
-    ) -> None:
+    def register_callback(self, name: str, fn: Callable[[Any], None]) -> None:
         self._callback_registry[name] = fn
 
     # ---- reactor loop
@@ -98,13 +94,10 @@ class Scheduler:
     def _flush_deliverables(self, now: datetime) -> None:
         for item_id, record in list(self._delivery_buffer.items()):
             if now >= record.delivery_time:
-                callback = self._callback_registry.get(
-                    record.delivery_callback_name
-                )
+                callback = self._callback_registry.get(record.delivery_callback_name)
                 if callback is None:
                     raise KeyError(
-                        f"no delivery callback registered for "
-                        f"{record.delivery_callback_name!r}"
+                        f"no delivery callback registered for {record.delivery_callback_name!r}"
                     )
                 callback(record.output)
                 del self._delivery_buffer[item_id]
@@ -142,9 +135,7 @@ class Scheduler:
             produced_at=datetime.now(UTC),
         )
 
-    def produce_output(
-        self, item_id: str, output: Any, now: datetime | None = None
-    ) -> None:
+    def produce_output(self, item_id: str, output: Any, now: datetime | None = None) -> None:
         """Test hook: stash a concrete output for a scheduled item."""
         scheduled = self._pending[item_id]
         self._delivery_buffer[item_id] = DeliveryRecord(
@@ -160,13 +151,9 @@ class Scheduler:
         buffer = DAYDREAM_QUIET_MULTIPLE * self._avg_daydream_duration
         zones: list[tuple[datetime, datetime]] = []
         for item in self._pending.values():
-            zones.append(
-                (item.early_executable_start - buffer, item.early_executable_start)
-            )
+            zones.append((item.early_executable_start - buffer, item.early_executable_start))
         for record in self._delivery_buffer.values():
-            zones.append(
-                (record.delivery_time - buffer, record.delivery_time + buffer)
-            )
+            zones.append((record.delivery_time - buffer, record.delivery_time + buffer))
         return zones
 
 

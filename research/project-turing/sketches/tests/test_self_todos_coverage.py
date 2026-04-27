@@ -62,6 +62,9 @@ def _insert_facet(srepo, self_id) -> str:
     from turing.self_model import PersonalityFacet, Trait, facet_node_id
 
     fid = facet_node_id(Trait.HONESTY_HUMILITY, "sincerity")
+    existing = srepo.get_facet(fid)
+    if existing is not None:
+        return fid
     srepo.insert_facet(
         PersonalityFacet(
             node_id=fid,
@@ -128,75 +131,75 @@ def _insert_skill(srepo, self_id) -> str:
     return "skill:1"
 
 
-def test_write_todo_with_facet_motivator(srepo, self_id, new_id) -> None:
-    fid = _insert_facet(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "read more", fid, new_id)
+def test_write_todo_with_facet_motivator(srepo, bootstrapped_id, new_id) -> None:
+    fid = _insert_facet(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "read more", fid, new_id)
     assert t.motivated_by_node_id == fid
     assert t.status == TodoStatus.ACTIVE
 
 
-def test_write_todo_with_hobby_motivator(srepo, self_id, new_id) -> None:
-    hid = _insert_hobby(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "practice more", hid, new_id)
+def test_write_todo_with_hobby_motivator(srepo, bootstrapped_id, new_id) -> None:
+    hid = _insert_hobby(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "practice more", hid, new_id)
     assert t.motivated_by_node_id == hid
 
 
-def test_write_todo_with_interest_motivator(srepo, self_id, new_id) -> None:
-    iid = _insert_interest(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "explore deeper", iid, new_id)
+def test_write_todo_with_interest_motivator(srepo, bootstrapped_id, new_id) -> None:
+    iid = _insert_interest(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "explore deeper", iid, new_id)
     assert t.motivated_by_node_id == iid
 
 
-def test_write_todo_with_preference_motivator(srepo, self_id, new_id) -> None:
-    pid = _insert_preference(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "lean into preference", pid, new_id)
+def test_write_todo_with_preference_motivator(srepo, bootstrapped_id, new_id) -> None:
+    pid = _insert_preference(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "lean into preference", pid, new_id)
     assert t.motivated_by_node_id == pid
 
 
-def test_write_todo_with_skill_motivator(srepo, self_id, new_id) -> None:
-    sid = _insert_skill(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "level up", sid, new_id)
+def test_write_todo_with_skill_motivator(srepo, bootstrapped_id, new_id) -> None:
+    sid = _insert_skill(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "level up", sid, new_id)
     assert t.motivated_by_node_id == sid
 
 
-def test_write_todo_unknown_prefix_rejected(srepo, self_id, new_id) -> None:
+def test_write_todo_unknown_prefix_rejected(srepo, bootstrapped_id, new_id) -> None:
     with pytest.raises(ValueError, match="unknown motivator"):
-        write_self_todo(srepo, self_id, "x", "unknown:thing", new_id)
+        write_self_todo(srepo, bootstrapped_id, "x", "unknown:thing", new_id)
 
 
-def test_revise_cross_self_raises(srepo, self_id, new_id) -> None:
-    motivator = _insert_passion(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "x", motivator, new_id)
+def test_revise_cross_self_raises(srepo, bootstrapped_id, new_id) -> None:
+    motivator = _insert_passion(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "x", motivator, new_id)
     with pytest.raises(PermissionError, match="cross-self"):
         revise_self_todo(srepo, "other-self-id", t.node_id, "y", "r", new_id)
 
 
-def test_revise_text_too_long(srepo, self_id, new_id) -> None:
-    motivator = _insert_passion(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "x", motivator, new_id)
+def test_revise_text_too_long(srepo, bootstrapped_id, new_id) -> None:
+    motivator = _insert_passion(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "x", motivator, new_id)
     with pytest.raises(TodoTextTooLong):
-        revise_self_todo(srepo, self_id, t.node_id, "y" * 501, "r", new_id)
+        revise_self_todo(srepo, bootstrapped_id, t.node_id, "y" * 501, "r", new_id)
 
 
-def test_complete_cross_self_raises(srepo, self_id, new_id) -> None:
-    motivator = _insert_passion(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "x", motivator, new_id)
+def test_complete_cross_self_raises(srepo, bootstrapped_id, new_id) -> None:
+    motivator = _insert_passion(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "x", motivator, new_id)
     with pytest.raises(PermissionError, match="cross-self"):
         complete_self_todo(srepo, "other-self-id", t.node_id, "done", new_id)
 
 
-def test_complete_without_affirmation_no_contributor(srepo, self_id, new_id) -> None:
-    motivator = _insert_passion(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "x", motivator, new_id)
+def test_complete_without_affirmation_no_contributor(srepo, bootstrapped_id, new_id) -> None:
+    motivator = _insert_passion(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "x", motivator, new_id)
     before = len(srepo.active_contributors_for(motivator, at=datetime.now(UTC)))
-    complete_self_todo(srepo, self_id, t.node_id, "done", new_id)
+    complete_self_todo(srepo, bootstrapped_id, t.node_id, "done", new_id)
     after = srepo.active_contributors_for(motivator, at=datetime.now(UTC))
     assert len(after) == before
 
 
-def test_archive_cross_self_raises(srepo, self_id, new_id) -> None:
-    motivator = _insert_passion(srepo, self_id)
-    t = write_self_todo(srepo, self_id, "x", motivator, new_id)
+def test_archive_cross_self_raises(srepo, bootstrapped_id, new_id) -> None:
+    motivator = _insert_passion(srepo, bootstrapped_id)
+    t = write_self_todo(srepo, bootstrapped_id, "x", motivator, new_id)
     with pytest.raises(PermissionError, match="cross-self"):
         archive_self_todo(srepo, "other-self-id", t.node_id, "reason")
 

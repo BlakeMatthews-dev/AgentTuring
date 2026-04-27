@@ -1,0 +1,1090 @@
+# HEXACO-PI-R 200-item bank for Project Turing personality bootstrap.
+#
+# Based on the HEXACO Personality Inventory - Revised (Lee & Ashton, 2006).
+# Non-commercial research use per the authors' license.
+# See specs/self-bootstrap.md AC-29.6 through AC-29.8 for schema requirements.
+#
+# Schema per item:
+#   item_number:       1..200 (sequential)
+#   prompt_text:       The Likert-scale statement presented to the agent
+#   keyed_facet:       One of 24 canonical facet IDs (see self_model.py CANONICAL_FACETS)
+#   reverse_scored:    true if high agreement = LOW facet score
+
+items:
+  # ======================================================================
+  # HONESTY-HUMILITY: Sincerity (items 1-9)
+  # ======================================================================
+  - item_number: 1
+    prompt_text: "I would not use flattery to get a raise or promotion at work, even if I thought it would succeed."
+    keyed_facet: sincerity
+    reverse_scored: false
+
+  - item_number: 2
+    prompt_text: "I would be tempted to buy stolen equipment if I could get it at a very low price."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  - item_number: 3
+    prompt_text: "I would never pretend to like someone just to get that person to do favors for me."
+    keyed_facet: sincerity
+    reverse_scored: false
+
+  - item_number: 4
+    prompt_text: "I would be tempted to use false information to get a job or win a competition."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  - item_number: 5
+    prompt_text: "I would be quite honest if someone asked my opinion about their artwork, even if it was terrible."
+    keyed_facet: sincerity
+    reverse_scored: false
+
+  - item_number: 6
+    prompt_text: "I would not hesitate to tell someone if their new outfit looked ridiculous."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  - item_number: 7
+    prompt_text: "I would pretend to be someone else if it would help me get something I wanted."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  - item_number: 8
+    prompt_text: "I would feel no regret if I told a lie to advance my career."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  # ======================================================================
+  # HONESTY-HUMILITY: Fairness (items 9-17)
+  # ======================================================================
+  - item_number: 9
+    prompt_text: "I would not risk breaking the law to get ahead, even if I were certain I would not be caught."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 10
+    prompt_text: "I would be tempted to take some money from a cash register if I knew no one would find out."
+    keyed_facet: fairness
+    reverse_scored: true
+
+  - item_number: 11
+    prompt_text: "If I knew I could get away with cheating on my taxes, I would do it."
+    keyed_facet: fairness
+    reverse_scored: true
+
+  - item_number: 12
+    prompt_text: "I think it is unfair when people receive special treatment because of their wealth or social status."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 13
+    prompt_text: "I would feel justified in taking credit for a colleague's work if it helped me get promoted."
+    keyed_facet: fairness
+    reverse_scored: true
+
+  - item_number: 14
+    prompt_text: "I would refuse to take advantage of someone even if they were naive or gullible."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 15
+    prompt_text: "I would not take something that did not belong to me, even if it was something I really wanted."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 16
+    prompt_text: "I would accept a bribe if it were large enough to significantly improve my financial situation."
+    keyed_facet: fairness
+    reverse_scored: true
+
+  # ======================================================================
+  # HONESTY-HUMILITY: Greed Avoidance (items 17-24)
+  # ======================================================================
+  - item_number: 17
+    prompt_text: "I would like to live in a very expensive, high-class neighborhood."
+    keyed_facet: greed_avoidance
+    reverse_scored: true
+
+  - item_number: 18
+    prompt_text: "I would like to be considered powerful and important by others."
+    keyed_facet: greed_avoidance
+    reverse_scored: true
+
+  - item_number: 19
+    prompt_text: "I do not care much about having expensive things or luxury goods."
+    keyed_facet: greed_avoidance
+    reverse_scored: false
+
+  - item_number: 20
+    prompt_text: "Having a lot of money is not especially important to me."
+    keyed_facet: greed_avoidance
+    reverse_scored: false
+
+  - item_number: 21
+    prompt_text: "I want people to know that I am an important person with high status."
+    keyed_facet: greed_avoidance
+    reverse_scored: true
+
+  - item_number: 22
+    prompt_text: "I feel a strong desire for expensive, prestigious possessions."
+    keyed_facet: greed_avoidance
+    reverse_scored: true
+
+  - item_number: 23
+    prompt_text: "I am not particularly interested in accumulating wealth or assets."
+    keyed_facet: greed_avoidance
+    reverse_scored: false
+
+  - item_number: 24
+    prompt_text: "I would be happy living a simple life without luxuries or status symbols."
+    keyed_facet: greed_avoidance
+    reverse_scored: false
+
+  # ======================================================================
+  # HONESTY-HUMILITY: Modesty (items 25-32)
+  # ======================================================================
+  - item_number: 25
+    prompt_text: "I am an ordinary person who is no better than anyone else."
+    keyed_facet: modesty
+    reverse_scored: false
+
+  - item_number: 26
+    prompt_text: "I think that I am entitled to more respect than the average person."
+    keyed_facet: modesty
+    reverse_scored: true
+
+  - item_number: 27
+    prompt_text: "I do not consider myself to be a particularly important person."
+    keyed_facet: modesty
+    reverse_scored: false
+
+  - item_number: 28
+    prompt_text: "I deserve to be treated with greater respect than most people."
+    keyed_facet: modesty
+    reverse_scored: true
+
+  - item_number: 29
+    prompt_text: "I would not want people to treat me as though I were superior to them."
+    keyed_facet: modesty
+    reverse_scored: false
+
+  - item_number: 30
+    prompt_text: "I feel that I am just as worthwhile as anyone else, but no more so."
+    keyed_facet: modesty
+    reverse_scored: false
+
+  - item_number: 31
+    prompt_text: "I believe that I am an extraordinary person who deserves special treatment."
+    keyed_facet: modesty
+    reverse_scored: true
+
+  - item_number: 32
+    prompt_text: "I would dislike having people treat me as if my opinions were more valuable than theirs."
+    keyed_facet: modesty
+    reverse_scored: false
+
+  # ======================================================================
+  # EMOTIONALITY: Fearfulness (items 33-41)
+  # ======================================================================
+  - item_number: 33
+    prompt_text: "I feel afraid of a great many things."
+    keyed_facet: fearfulness
+    reverse_scored: false
+
+  - item_number: 34
+    prompt_text: "I am not easily frightened by horror movies or scary stories."
+    keyed_facet: fearfulness
+    reverse_scored: true
+
+  - item_number: 35
+    prompt_text: "I would feel afraid if I had to walk alone at night in an unfamiliar area."
+    keyed_facet: fearfulness
+    reverse_scored: false
+
+  - item_number: 36
+    prompt_text: "I do not worry much about physical dangers."
+    keyed_facet: fearfulness
+    reverse_scored: true
+
+  - item_number: 37
+    prompt_text: "I would be terrified if I were forced to do something physically dangerous."
+    keyed_facet: fearfulness
+    reverse_scored: false
+
+  - item_number: 38
+    prompt_text: "I feel nervous when I am in high places, even when I know I am safe."
+    keyed_facet: fearfulness
+    reverse_scored: false
+
+  - item_number: 39
+    prompt_text: "I rarely feel fearful or anxious about physical threats."
+    keyed_facet: fearfulness
+    reverse_scored: true
+
+  - item_number: 40
+    prompt_text: "I would feel uneasy if I had to stay overnight in a building that was rumored to be unsafe."
+    keyed_facet: fearfulness
+    reverse_scored: false
+
+  # ======================================================================
+  # EMOTIONALITY: Anxiety (items 41-48)
+  # ======================================================================
+  - item_number: 41
+    prompt_text: "I worry about things that most people would not consider dangerous."
+    keyed_facet: anxiety
+    reverse_scored: false
+
+  - item_number: 42
+    prompt_text: "I feel calm and relaxed even when faced with a difficult situation."
+    keyed_facet: anxiety
+    reverse_scored: true
+
+  - item_number: 43
+    prompt_text: "I often feel quite anxious about the future, even when there is no reason to worry."
+    keyed_facet: anxiety
+    reverse_scored: false
+
+  - item_number: 44
+    prompt_text: "I seldom worry about what might go wrong in my life."
+    keyed_facet: anxiety
+    reverse_scored: true
+
+  - item_number: 45
+    prompt_text: "I tend to get stressed even by relatively minor problems."
+    keyed_facet: anxiety
+    reverse_scored: false
+
+  - item_number: 46
+    prompt_text: "I can remain calm even when everything seems to be going wrong."
+    keyed_facet: anxiety
+    reverse_scored: true
+
+  - item_number: 47
+    prompt_text: "I sometimes feel so worried about my problems that I cannot sleep."
+    keyed_facet: anxiety
+    reverse_scored: false
+
+  - item_number: 48
+    prompt_text: "I generally stay relaxed even when I have a lot of responsibilities."
+    keyed_facet: anxiety
+    reverse_scored: true
+
+  # ======================================================================
+  # EMOTIONALITY: Dependence (items 49-56)
+  # ======================================================================
+  - item_number: 49
+    prompt_text: "I feel that I need someone to talk to when I am upset."
+    keyed_facet: dependence
+    reverse_scored: false
+
+  - item_number: 50
+    prompt_text: "When I have a problem, I prefer to deal with it on my own rather than seeking help."
+    keyed_facet: dependence
+    reverse_scored: true
+
+  - item_number: 51
+    prompt_text: "I need emotional support from others when I am going through a difficult time."
+    keyed_facet: dependence
+    reverse_scored: false
+
+  - item_number: 52
+    prompt_text: "I can handle most problems by myself without needing anyone's advice."
+    keyed_facet: dependence
+    reverse_scored: true
+
+  - item_number: 53
+    prompt_text: "I would feel lost if I did not have someone to guide me through major life decisions."
+    keyed_facet: dependence
+    reverse_scored: false
+
+  - item_number: 54
+    prompt_text: "I am confident in my ability to make important decisions without consulting others."
+    keyed_facet: dependence
+    reverse_scored: true
+
+  - item_number: 55
+    prompt_text: "I often need reassurance from others that I am doing the right thing."
+    keyed_facet: dependence
+    reverse_scored: false
+
+  - item_number: 56
+    prompt_text: "I prefer to receive comfort and encouragement from others when I am feeling down."
+    keyed_facet: dependence
+    reverse_scored: false
+
+  # ======================================================================
+  # EMOTIONALITY: Sentimentality (items 57-64)
+  # ======================================================================
+  - item_number: 57
+    prompt_text: "I feel strong emotional connections with other people."
+    keyed_facet: sentimentality
+    reverse_scored: false
+
+  - item_number: 58
+    prompt_text: "I do not feel strong emotional attachments to other people."
+    keyed_facet: sentimentality
+    reverse_scored: true
+
+  - item_number: 59
+    prompt_text: "I feel sad when I see people who are lonely or isolated."
+    keyed_facet: sentimentality
+    reverse_scored: false
+
+  - item_number: 60
+    prompt_text: "I am not deeply affected by the suffering of others."
+    keyed_facet: sentimentality
+    reverse_scored: true
+
+  - item_number: 61
+    prompt_text: "I feel a strong sense of empathy when someone tells me about their personal struggles."
+    keyed_facet: sentimentality
+    reverse_scored: false
+
+  - item_number: 62
+    prompt_text: "I do not feel particularly moved when I hear about people who are going through hard times."
+    keyed_facet: sentimentality
+    reverse_scored: true
+
+  - item_number: 63
+    prompt_text: "I would find it difficult to say goodbye to someone I care about."
+    keyed_facet: sentimentality
+    reverse_scored: false
+
+  - item_number: 64
+    prompt_text: "I feel emotionally detached from the people around me."
+    keyed_facet: sentimentality
+    reverse_scored: true
+
+  # ======================================================================
+  # EXTRAVERSION: Social Self-Esteem (items 65-72)
+  # ======================================================================
+  - item_number: 65
+    prompt_text: "I feel reasonably satisfied with myself as a person."
+    keyed_facet: social_self_esteem
+    reverse_scored: false
+
+  - item_number: 66
+    prompt_text: "I feel that I am unpopular and not well-liked by others."
+    keyed_facet: social_self_esteem
+    reverse_scored: true
+
+  - item_number: 67
+    prompt_text: "I have high self-esteem when it comes to social situations."
+    keyed_facet: social_self_esteem
+    reverse_scored: false
+
+  - item_number: 68
+    prompt_text: "I sometimes feel that I am a worthless person."
+    keyed_facet: social_self_esteem
+    reverse_scored: true
+
+  - item_number: 69
+    prompt_text: "I feel confident that I am someone others would want to be friends with."
+    keyed_facet: social_self_esteem
+    reverse_scored: false
+
+  - item_number: 70
+    prompt_text: "I am not very confident about my own social abilities."
+    keyed_facet: social_self_esteem
+    reverse_scored: true
+
+  - item_number: 71
+    prompt_text: "I feel good about myself in most social interactions."
+    keyed_facet: social_self_esteem
+    reverse_scored: false
+
+  - item_number: 72
+    prompt_text: "I think that others generally have a positive impression of me."
+    keyed_facet: social_self_esteem
+    reverse_scored: false
+
+  # ======================================================================
+  # EXTRAVERSION: Social Boldness (items 73-80)
+  # ======================================================================
+  - item_number: 73
+    prompt_text: "I feel comfortable speaking in front of a large group of people."
+    keyed_facet: social_boldness
+    reverse_scored: false
+
+  - item_number: 74
+    prompt_text: "I feel shy when I am the center of attention in a social gathering."
+    keyed_facet: social_boldness
+    reverse_scored: true
+
+  - item_number: 75
+    prompt_text: "I am willing to approach strangers and strike up a conversation."
+    keyed_facet: social_boldness
+    reverse_scored: false
+
+  - item_number: 76
+    prompt_text: "I feel awkward when I have to introduce myself to new people."
+    keyed_facet: social_boldness
+    reverse_scored: true
+
+  - item_number: 77
+    prompt_text: "I would be confident taking on a leadership role in a group."
+    keyed_facet: social_boldness
+    reverse_scored: false
+
+  - item_number: 78
+    prompt_text: "I feel uneasy when I have to speak up in a meeting or class."
+    keyed_facet: social_boldness
+    reverse_scored: true
+
+  - item_number: 79
+    prompt_text: "I enjoy being the center of attention at social events."
+    keyed_facet: social_boldness
+    reverse_scored: false
+
+  - item_number: 80
+    prompt_text: "I would hesitate to volunteer my opinion in a group discussion."
+    keyed_facet: social_boldness
+    reverse_scored: true
+
+  # ======================================================================
+  # EXTRAVERSION: Sociability (items 81-88)
+  # ======================================================================
+  - item_number: 81
+    prompt_text: "I enjoy talking with people I have just met."
+    keyed_facet: sociability
+    reverse_scored: false
+
+  - item_number: 82
+    prompt_text: "I prefer solitary activities over social gatherings."
+    keyed_facet: sociability
+    reverse_scored: true
+
+  - item_number: 83
+    prompt_text: "I like going to parties and meeting new people."
+    keyed_facet: sociability
+    reverse_scored: false
+
+  - item_number: 84
+    prompt_text: "I do not feel a strong need to socialize with others."
+    keyed_facet: sociability
+    reverse_scored: true
+
+  - item_number: 85
+    prompt_text: "I would rather spend an evening alone than at a crowded social event."
+    keyed_facet: sociability
+    reverse_scored: true
+
+  - item_number: 86
+    prompt_text: "I enjoy having long conversations with friends."
+    keyed_facet: sociability
+    reverse_scored: false
+
+  - item_number: 87
+    prompt_text: "I get bored when I have to spend a lot of time by myself."
+    keyed_facet: sociability
+    reverse_scored: false
+
+  - item_number: 88
+    prompt_text: "I feel energized after spending time with a group of people."
+    keyed_facet: sociability
+    reverse_scored: false
+
+  # ======================================================================
+  # EXTRAVERSION: Liveliness (items 89-96)
+  # ======================================================================
+  - item_number: 89
+    prompt_text: "I usually feel cheerful and optimistic."
+    keyed_facet: liveliness
+    reverse_scored: false
+
+  - item_number: 90
+    prompt_text: "I often feel sluggish and lacking in energy."
+    keyed_facet: liveliness
+    reverse_scored: true
+
+  - item_number: 91
+    prompt_text: "I have a lot of enthusiasm for the things I do."
+    keyed_facet: liveliness
+    reverse_scored: false
+
+  - item_number: 92
+    prompt_text: "I do not often feel a sense of excitement or high spirits."
+    keyed_facet: liveliness
+    reverse_scored: true
+
+  - item_number: 93
+    prompt_text: "I tend to be enthusiastic about starting new projects."
+    keyed_facet: liveliness
+    reverse_scored: false
+
+  - item_number: 94
+    prompt_text: "I rarely feel joyful or full of energy."
+    keyed_facet: liveliness
+    reverse_scored: true
+
+  - item_number: 95
+    prompt_text: "People would describe me as an energetic and upbeat person."
+    keyed_facet: liveliness
+    reverse_scored: false
+
+  - item_number: 96
+    prompt_text: "I often feel vibrant and full of life."
+    keyed_facet: liveliness
+    reverse_scored: false
+
+  # ======================================================================
+  # AGREEABLENESS: Forgiveness (items 97-104)
+  # ======================================================================
+  - item_number: 97
+    prompt_text: "I find it easy to forgive people who have hurt me, even if they do not apologize."
+    keyed_facet: forgiveness
+    reverse_scored: false
+
+  - item_number: 98
+    prompt_text: "I tend to hold grudges against people who have wronged me."
+    keyed_facet: forgiveness
+    reverse_scored: true
+
+  - item_number: 99
+    prompt_text: "I can let go of my anger quickly after someone has upset me."
+    keyed_facet: forgiveness
+    reverse_scored: false
+
+  - item_number: 100
+    prompt_text: "I have a hard time trusting someone again after they have betrayed me."
+    keyed_facet: forgiveness
+    reverse_scored: true
+
+  - item_number: 101
+    prompt_text: "I am usually willing to give people a second chance after they have made a mistake."
+    keyed_facet: forgiveness
+    reverse_scored: false
+
+  - item_number: 102
+    prompt_text: "When someone offends me, I think about it for a long time afterward."
+    keyed_facet: forgiveness
+    reverse_scored: true
+
+  - item_number: 103
+    prompt_text: "I am quick to re-establish friendly relations with someone after an argument."
+    keyed_facet: forgiveness
+    reverse_scored: false
+
+  - item_number: 104
+    prompt_text: "I would find it difficult to be friends with someone who had previously insulted me."
+    keyed_facet: forgiveness
+    reverse_scored: true
+
+  # ======================================================================
+  # AGREEABLENESS: Gentleness (items 105-112)
+  # ======================================================================
+  - item_number: 105
+    prompt_text: "I am mild and gentle in my dealings with other people."
+    keyed_facet: gentleness
+    reverse_scored: false
+
+  - item_number: 106
+    prompt_text: "I tend to be critical of other people's shortcomings."
+    keyed_facet: gentleness
+    reverse_scored: true
+
+  - item_number: 107
+    prompt_text: "I am lenient when judging the behavior of others."
+    keyed_facet: gentleness
+    reverse_scored: false
+
+  - item_number: 108
+    prompt_text: "I am quick to point out the flaws in other people's ideas or work."
+    keyed_facet: gentleness
+    reverse_scored: true
+
+  - item_number: 109
+    prompt_text: "I try to be understanding and patient when dealing with difficult people."
+    keyed_facet: gentleness
+    reverse_scored: false
+
+  - item_number: 110
+    prompt_text: "I often find fault with the way other people do things."
+    keyed_facet: gentleness
+    reverse_scored: true
+
+  - item_number: 111
+    prompt_text: "I am tolerant of other people's mistakes and weaknesses."
+    keyed_facet: gentleness
+    reverse_scored: false
+
+  - item_number: 112
+    prompt_text: "I have a tendency to judge people harshly when they do not meet my expectations."
+    keyed_facet: gentleness
+    reverse_scored: true
+
+  # ======================================================================
+  # AGREEABLENESS: Flexibility (items 113-120)
+  # ======================================================================
+  - item_number: 113
+    prompt_text: "I am willing to compromise with others, even when I think I am right."
+    keyed_facet: flexibility
+    reverse_scored: false
+
+  - item_number: 114
+    prompt_text: "I am stubborn in defending my point of view during an argument."
+    keyed_facet: flexibility
+    reverse_scored: true
+
+  - item_number: 115
+    prompt_text: "I am willing to adapt my plans to accommodate other people's needs."
+    keyed_facet: flexibility
+    reverse_scored: false
+
+  - item_number: 116
+    prompt_text: "I find it difficult to change my mind once I have made a decision."
+    keyed_facet: flexibility
+    reverse_scored: true
+
+  - item_number: 117
+    prompt_text: "I prefer to cooperate rather than argue with others."
+    keyed_facet: flexibility
+    reverse_scored: false
+
+  - item_number: 118
+    prompt_text: "I insist on getting my way when there is a disagreement."
+    keyed_facet: flexibility
+    reverse_scored: true
+
+  - item_number: 119
+    prompt_text: "I am open to other people's suggestions, even when they differ from my own."
+    keyed_facet: flexibility
+    reverse_scored: false
+
+  - item_number: 120
+    prompt_text: "I find it hard to back down from an argument, even when it would be better to do so."
+    keyed_facet: flexibility
+    reverse_scored: true
+
+  # ======================================================================
+  # AGREEABLENESS: Patience (items 121-128)
+  # ======================================================================
+  - item_number: 121
+    prompt_text: "I rarely lose my temper, even when people annoy me."
+    keyed_facet: patience
+    reverse_scored: false
+
+  - item_number: 122
+    prompt_text: "I get angry easily when things do not go my way."
+    keyed_facet: patience
+    reverse_scored: true
+
+  - item_number: 123
+    prompt_text: "I can stay calm even when someone is being deliberately provoking."
+    keyed_facet: patience
+    reverse_scored: false
+
+  - item_number: 124
+    prompt_text: "I tend to lose my patience quickly when dealing with difficult situations."
+    keyed_facet: patience
+    reverse_scored: true
+
+  - item_number: 125
+    prompt_text: "It takes a lot to make me feel truly angry."
+    keyed_facet: patience
+    reverse_scored: false
+
+  - item_number: 126
+    prompt_text: "I feel frustrated and irritable when things take longer than expected."
+    keyed_facet: patience
+    reverse_scored: true
+
+  - item_number: 127
+    prompt_text: "I can handle annoying situations without getting upset."
+    keyed_facet: patience
+    reverse_scored: false
+
+  - item_number: 128
+    prompt_text: "I have a high threshold for feeling angry."
+    keyed_facet: patience
+    reverse_scored: false
+
+  # ======================================================================
+  # CONSCIENTIOUSNESS: Organization (items 129-136)
+  # ======================================================================
+  - item_number: 129
+    prompt_text: "I keep my personal space neat and well-organized."
+    keyed_facet: organization
+    reverse_scored: false
+
+  - item_number: 130
+    prompt_text: "I tend to be disorganized and messy in my living space."
+    keyed_facet: organization
+    reverse_scored: true
+
+  - item_number: 131
+    prompt_text: "I like to have a structured approach to my daily tasks."
+    keyed_facet: organization
+    reverse_scored: false
+
+  - item_number: 132
+    prompt_text: "I am unconcerned with keeping my surroundings orderly."
+    keyed_facet: organization
+    reverse_scored: true
+
+  - item_number: 133
+    prompt_text: "I make plans and follow them carefully."
+    keyed_facet: organization
+    reverse_scored: false
+
+  - item_number: 134
+    prompt_text: "I often leave my belongings in a haphazard or untidy state."
+    keyed_facet: organization
+    reverse_scored: true
+
+  - item_number: 135
+    prompt_text: "I prefer to have everything in its proper place."
+    keyed_facet: organization
+    reverse_scored: false
+
+  - item_number: 136
+    prompt_text: "I do not pay much attention to how my workspace or home is arranged."
+    keyed_facet: organization
+    reverse_scored: true
+
+  # ======================================================================
+  # CONSCIENTIOUSNESS: Diligence (items 137-144)
+  # ======================================================================
+  - item_number: 137
+    prompt_text: "I work hard to achieve my goals, even when the tasks are unpleasant."
+    keyed_facet: diligence
+    reverse_scored: false
+
+  - item_number: 138
+    prompt_text: "I tend to avoid difficult or challenging work."
+    keyed_facet: diligence
+    reverse_scored: true
+
+  - item_number: 139
+    prompt_text: "I have a strong work ethic and strive to do my best."
+    keyed_facet: diligence
+    reverse_scored: false
+
+  - item_number: 140
+    prompt_text: "I often procrastinate on important tasks."
+    keyed_facet: diligence
+    reverse_scored: true
+
+  - item_number: 141
+    prompt_text: "I am willing to put in a great deal of effort to produce high-quality results."
+    keyed_facet: diligence
+    reverse_scored: false
+
+  - item_number: 142
+    prompt_text: "I tend to take the easy way out when faced with demanding work."
+    keyed_facet: diligence
+    reverse_scored: true
+
+  - item_number: 143
+    prompt_text: "I am disciplined about completing my work on schedule."
+    keyed_facet: diligence
+    reverse_scored: false
+
+  - item_number: 144
+    prompt_text: "I lack the self-discipline needed to follow through on long-term projects."
+    keyed_facet: diligence
+    reverse_scored: true
+
+  # ======================================================================
+  # CONSCIENTIOUSNESS: Perfectionism (items 145-152)
+  # ======================================================================
+  - item_number: 145
+    prompt_text: "I check my work carefully to avoid making mistakes."
+    keyed_facet: perfectionism
+    reverse_scored: false
+
+  - item_number: 146
+    prompt_text: "I am satisfied with work that contains some errors, as long as it is good enough."
+    keyed_facet: perfectionism
+    reverse_scored: true
+
+  - item_number: 147
+    prompt_text: "I pay close attention to details in everything I do."
+    keyed_facet: perfectionism
+    reverse_scored: false
+
+  - item_number: 148
+    prompt_text: "I tend to overlook small mistakes in my work."
+    keyed_facet: perfectionism
+    reverse_scored: true
+
+  - item_number: 149
+    prompt_text: "I strive for accuracy and precision in all of my tasks."
+    keyed_facet: perfectionism
+    reverse_scored: false
+
+  - item_number: 150
+    prompt_text: "I do not feel the need to double-check my work once I have finished it."
+    keyed_facet: perfectionism
+    reverse_scored: true
+
+  - item_number: 151
+    prompt_text: "I am thorough and careful in my approach to complex problems."
+    keyed_facet: perfectionism
+    reverse_scored: false
+
+  - item_number: 152
+    prompt_text: "I would rather finish something quickly than spend extra time making sure it is perfect."
+    keyed_facet: perfectionism
+    reverse_scored: true
+
+  # ======================================================================
+  # CONSCIENTIOUSNESS: Prudence (items 153-160)
+  # ======================================================================
+  - item_number: 153
+    prompt_text: "I make decisions carefully after considering all the options."
+    keyed_facet: prudence
+    reverse_scored: false
+
+  - item_number: 154
+    prompt_text: "I tend to act on impulse without thinking about the consequences."
+    keyed_facet: prudence
+    reverse_scored: true
+
+  - item_number: 155
+    prompt_text: "I am cautious and deliberate when making important choices."
+    keyed_facet: prudence
+    reverse_scored: false
+
+  - item_number: 156
+    prompt_text: "I often make hasty decisions that I later regret."
+    keyed_facet: prudence
+    reverse_scored: true
+
+  - item_number: 157
+    prompt_text: "I think carefully before I speak or act."
+    keyed_facet: prudence
+    reverse_scored: false
+
+  - item_number: 158
+    prompt_text: "I rarely plan ahead; I prefer to deal with things as they come."
+    keyed_facet: prudence
+    reverse_scored: true
+
+  - item_number: 159
+    prompt_text: "I exercise self-control even when I am strongly tempted to do something rash."
+    keyed_facet: prudence
+    reverse_scored: false
+
+  - item_number: 160
+    prompt_text: "I have a tendency to rush into things without adequate preparation."
+    keyed_facet: prudence
+    reverse_scored: true
+
+  # ======================================================================
+  # OPENNESS: Aesthetic Appreciation (items 161-168)
+  # ======================================================================
+  - item_number: 161
+    prompt_text: "I am deeply moved by beautiful works of art or music."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: false
+
+  - item_number: 162
+    prompt_text: "I do not enjoy going to art museums or galleries."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: true
+
+  - item_number: 163
+    prompt_text: "I feel a sense of wonder when I experience the beauty of nature."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: false
+
+  - item_number: 164
+    prompt_text: "I am not particularly interested in poetry, painting, or other forms of art."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: true
+
+  - item_number: 165
+    prompt_text: "I can become completely absorbed in listening to a piece of music."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: false
+
+  - item_number: 166
+    prompt_text: "I do not understand why some people get so excited about sunsets or landscapes."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: true
+
+  - item_number: 167
+    prompt_text: "I enjoy spending time appreciating the beauty of my surroundings."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: false
+
+  - item_number: 168
+    prompt_text: "I would rather do something practical than spend time appreciating art or nature."
+    keyed_facet: aesthetic_appreciation
+    reverse_scored: true
+
+  # ======================================================================
+  # OPENNESS: Inquisitiveness (items 169-176)
+  # ======================================================================
+  - item_number: 169
+    prompt_text: "I enjoy reading about topics that are new and unfamiliar to me."
+    keyed_facet: inquisitiveness
+    reverse_scored: false
+
+  - item_number: 170
+    prompt_text: "I have little interest in learning about abstract philosophical ideas."
+    keyed_facet: inquisitiveness
+    reverse_scored: true
+
+  - item_number: 171
+    prompt_text: "I am curious about many different fields of knowledge."
+    keyed_facet: inquisitiveness
+    reverse_scored: false
+
+  - item_number: 172
+    prompt_text: "I do not feel the need to explore subjects beyond what I already know."
+    keyed_facet: inquisitiveness
+    reverse_scored: true
+
+  - item_number: 173
+    prompt_text: "I like to travel to places I have never been before."
+    keyed_facet: inquisitiveness
+    reverse_scored: false
+
+  - item_number: 174
+    prompt_text: "I am content with what I already know and do not seek out new information."
+    keyed_facet: inquisitiveness
+    reverse_scored: true
+
+  - item_number: 175
+    prompt_text: "I enjoy learning about how things work, even if the topic is complex."
+    keyed_facet: inquisitiveness
+    reverse_scored: false
+
+  - item_number: 176
+    prompt_text: "I would rather stick to familiar subjects than explore new areas of knowledge."
+    keyed_facet: inquisitiveness
+    reverse_scored: true
+
+  # ======================================================================
+  # OPENNESS: Creativity (items 177-184)
+  # ======================================================================
+  - item_number: 177
+    prompt_text: "I enjoy thinking of new and original ways to solve problems."
+    keyed_facet: creativity
+    reverse_scored: false
+
+  - item_number: 178
+    prompt_text: "I have little interest in creative or artistic activities."
+    keyed_facet: creativity
+    reverse_scored: true
+
+  - item_number: 179
+    prompt_text: "I like to express myself through creative pursuits such as writing, art, or design."
+    keyed_facet: creativity
+    reverse_scored: false
+
+  - item_number: 180
+    prompt_text: "I prefer to follow established methods rather than experiment with new approaches."
+    keyed_facet: creativity
+    reverse_scored: true
+
+  - item_number: 181
+    prompt_text: "I often come up with ideas that other people would consider unusual or innovative."
+    keyed_facet: creativity
+    reverse_scored: false
+
+  - item_number: 182
+    prompt_text: "I do not consider myself to be a creative person."
+    keyed_facet: creativity
+    reverse_scored: true
+
+  - item_number: 183
+    prompt_text: "I enjoy brainstorming and generating novel solutions to challenges."
+    keyed_facet: creativity
+    reverse_scored: false
+
+  - item_number: 184
+    prompt_text: "I find it difficult to think outside the box when faced with a problem."
+    keyed_facet: creativity
+    reverse_scored: true
+
+  # ======================================================================
+  # OPENNESS: Unconventionality (items 185-192)
+  # ======================================================================
+  - item_number: 185
+    prompt_text: "I am interested in ideas that most people would consider strange or unconventional."
+    keyed_facet: unconventionality
+    reverse_scored: false
+
+  - item_number: 186
+    prompt_text: "I prefer to stick with familiar and traditional ways of doing things."
+    keyed_facet: unconventionality
+    reverse_scored: true
+
+  - item_number: 187
+    prompt_text: "I enjoy learning about unusual or eccentric people and their ideas."
+    keyed_facet: unconventionality
+    reverse_scored: false
+
+  - item_number: 188
+    prompt_text: "I feel uncomfortable around people whose beliefs or lifestyles are very different from mine."
+    keyed_facet: unconventionality
+    reverse_scored: true
+
+  - item_number: 189
+    prompt_text: "I am receptive to ideas that might seem radical or extreme to others."
+    keyed_facet: unconventionality
+    reverse_scored: false
+
+  - item_number: 190
+    prompt_text: "I would not want to associate with people who hold nonconforming views."
+    keyed_facet: unconventionality
+    reverse_scored: true
+
+  - item_number: 191
+    prompt_text: "I enjoy exploring topics that challenge conventional wisdom."
+    keyed_facet: unconventionality
+    reverse_scored: false
+
+  - item_number: 192
+    prompt_text: "I tend to avoid people or ideas that seem too unconventional."
+    keyed_facet: unconventionality
+    reverse_scored: true
+
+  # ======================================================================
+  # INTERSTITIAL: Altruism (items 193-200)
+  # These items do not belong to any single facet but measure the
+  # interstitial Altruism vs. Antagonism scale. They are keyed to the
+  # facet that most closely aligns with each item's content.
+  # ======================================================================
+  - item_number: 193
+    prompt_text: "I go out of my way to help others who are less fortunate than me."
+    keyed_facet: sincerity
+    reverse_scored: false
+
+  - item_number: 194
+    prompt_text: "I feel no sympathy for people who are going through hard times."
+    keyed_facet: sentimentality
+    reverse_scored: true
+
+  - item_number: 195
+    prompt_text: "I would feel good about donating a large amount of money to a worthy cause."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 196
+    prompt_text: "I would not feel particularly upset if I saw someone being treated unfairly."
+    keyed_facet: fairness
+    reverse_scored: true
+
+  - item_number: 197
+    prompt_text: "I try to be generous and kind to everyone I meet, regardless of who they are."
+    keyed_facet: gentleness
+    reverse_scored: false
+
+  - item_number: 198
+    prompt_text: "I am not willing to go out of my way to help someone unless there is something in it for me."
+    keyed_facet: sincerity
+    reverse_scored: true
+
+  - item_number: 199
+    prompt_text: "I would feel guilty if I failed to help someone who really needed my assistance."
+    keyed_facet: fairness
+    reverse_scored: false
+
+  - item_number: 200
+    prompt_text: "I rarely feel the urge to do something charitable for others."
+    keyed_facet: sincerity
+    reverse_scored: true

@@ -22,6 +22,19 @@ class SelfNotReady(Exception):
     pass
 
 
+def _bootstrap_complete(repo: SelfRepo, self_id: str) -> bool:
+    return (
+        repo.count_facets(self_id) == 24
+        and repo.count_answers(self_id) == 200
+        and repo.has_mood(self_id)
+    )
+
+
+def _require_ready(repo: SelfRepo, self_id: str) -> None:
+    if not _bootstrap_complete(repo, self_id):
+        raise SelfNotReady(self_id)
+
+
 RECALL_TOKEN_BUDGET: int = 4000
 MINIMAL_TODO_COUNT: int = 5
 MINIMAL_TOKEN_CEILING: int = 120

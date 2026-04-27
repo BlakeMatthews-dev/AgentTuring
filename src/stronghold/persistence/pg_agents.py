@@ -75,9 +75,9 @@ class PgAgentRegistry:
                     ) VALUES (
                         :name, :version, :description, :soul, :rules,
                         :reasoning_strategy, :model, :model_fallbacks,
-                        :model_constraints::jsonb, :tools, :skills, :max_tool_rounds,
-                        :memory_config::jsonb, :trust_tier, :provenance, :org_id,
-                        :preamble, :active, :config::jsonb,
+                        CAST(:model_constraints AS jsonb), :tools, :skills, :max_tool_rounds,
+                        CAST(:memory_config AS jsonb), :trust_tier, :provenance, :org_id,
+                        :preamble, :active, CAST(:config AS jsonb),
                         :ai_reviewed, :ai_review_clean, :ai_review_flags,
                         :admin_reviewed, :admin_reviewed_by, :user_reviewed,
                         :created_at, :updated_at

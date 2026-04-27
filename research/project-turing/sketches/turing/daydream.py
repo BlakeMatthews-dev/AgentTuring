@@ -43,7 +43,7 @@ from .motivation import (
     priority_base,
     score,
 )
-from .reactor import FakeReactor
+from .reactor import Reactor
 from .repo import Repo
 from .tiers import WEIGHT_BOUNDS
 from .types import EpisodicMemory, MemoryTier, SourceKind
@@ -161,7 +161,7 @@ class DaydreamProducer:
         *,
         self_id: str,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         repo: Repo,
         imagine: ImagineFn = default_imagine,
     ) -> None:
@@ -173,6 +173,7 @@ class DaydreamProducer:
         self._imagine = imagine
         self._active_candidate_id: str | None = None
         self._pending: list[tuple[Future[Any], EpisodicMemory, str]] = []
+        self._cooldown_until_tick: int = 0
 
         motivation.register_dispatch("daydream_candidate", self._on_dispatch)
         reactor.register(self.on_tick)
@@ -187,8 +188,12 @@ class DaydreamProducer:
 
     # ---- Reactor loop
 
+    MIN_TICKS_BETWEEN_DISPATCHES: int = 600
+
     def on_tick(self, tick: int) -> None:
         self._collect_completed()
+        if tick < self._cooldown_until_tick:
+            return
         p = self._motivation.pressure.get(self._pool_name, 0.0)
         if p <= 0.0:
             self._evict_if_present()
@@ -262,6 +267,9 @@ class DaydreamProducer:
 
     # ---- Dispatch execution
 
+    def _apply_cooldown(self) -> None:
+        self._cooldown_until_tick = self._reactor.tick_count + self.MIN_TICKS_BETWEEN_DISPATCHES
+
     def _on_dispatch(self, item: BacklogItem, chosen_pool: str) -> None:
         payload: DaydreamPayload = item.payload
         if payload.producer is not self:
@@ -277,16 +285,15 @@ class DaydreamProducer:
 
         seed = self._select_seed()
         if seed is None:
-            session_id = str(uuid4())
-            self._write_session_marker(session_id, writes=0, seed=None)
+            logger.debug("pool=%s no seed available; skipping daydream pass", self._pool_name)
+            self._apply_cooldown()
             return
 
         retrieved = self._retrieve_related(seed)
         session_id = str(uuid4())
         future = self._reactor.spawn(self._imagine, seed, retrieved, self._pool_name)
         self._pending.append((future, seed, session_id))
-        # Collect immediately in case the reactor resolved synchronously
-        # (FakeReactor does).
+        self._apply_cooldown()
         self._collect_completed()
 
     def _collect_completed(self) -> None:

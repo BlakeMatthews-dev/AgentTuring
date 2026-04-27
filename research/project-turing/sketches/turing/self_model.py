@@ -46,6 +46,7 @@ class SkillKind(StrEnum):
     PHYSICAL = "physical"
     HABIT = "habit"
     SOCIAL = "social"
+    CREATIVE = "creative"
 
 
 class PreferenceKind(StrEnum):
@@ -213,6 +214,7 @@ class Hobby:
     self_id: str
     name: str
     description: str
+    strength: float = 0.5
     last_engaged_at: datetime | None = None
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)

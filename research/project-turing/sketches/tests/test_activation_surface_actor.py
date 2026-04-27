@@ -61,6 +61,8 @@ from turing.types import EpisodicMemory, MemoryTier, SourceKind
 
 
 def _seed_all_facets(srepo: SelfRepo, self_id: str, score: float = 3.0) -> None:
+    if srepo.count_facets(self_id) >= 24:
+        return
     now = datetime.now(UTC)
     for trait, facet in ALL_FACETS:
         srepo.insert_facet(
@@ -112,33 +114,33 @@ class TestSourceState:
         result = source_state(srepo, fid, "personality_facet", ctx)
         assert 0.0 <= result <= 1.0
 
-    def test_passion(self, srepo, self_id, new_id) -> None:
-        p = note_passion(srepo, self_id, "music", 0.8, new_id)
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_passion(self, srepo, bootstrapped_id, new_id) -> None:
+        p = note_passion(srepo, bootstrapped_id, "music", 0.8, new_id)
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, p.node_id, "passion", ctx)
         assert result == 0.8
 
-    def test_preference(self, srepo, self_id, new_id) -> None:
-        p = note_preference(srepo, self_id, PreferenceKind.LIKE, "tea", 0.7, "warm", new_id)
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_preference(self, srepo, bootstrapped_id, new_id) -> None:
+        p = note_preference(srepo, bootstrapped_id, PreferenceKind.LIKE, "tea", 0.7, "warm", new_id)
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, p.node_id, "preference", ctx)
         assert result == 0.7
 
-    def test_hobby(self, srepo, self_id, new_id) -> None:
-        h = note_hobby(srepo, self_id, "Reading", "philosophy", new_id)
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_hobby(self, srepo, bootstrapped_id, new_id) -> None:
+        h = note_hobby(srepo, bootstrapped_id, "Reading", "philosophy", new_id)
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, h.node_id, "hobby", ctx)
         assert result == 0.0
 
-    def test_interest(self, srepo, self_id, new_id) -> None:
-        i = note_interest(srepo, self_id, "Neuroscience", "brain", new_id)
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_interest(self, srepo, bootstrapped_id, new_id) -> None:
+        i = note_interest(srepo, bootstrapped_id, "Neuroscience", "brain", new_id)
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, i.node_id, "interest", ctx)
         assert result == 0.0
 
-    def test_skill(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_skill(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, s.node_id, "skill", ctx)
         assert 0.0 <= result <= 1.0
 
@@ -172,10 +174,10 @@ class TestSourceState:
         assert 0.0 <= result <= 1.0
         r.close()
 
-    def test_memory_not_found(self, srepo, self_id) -> None:
-        ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
+    def test_memory_not_found(self, srepo, bootstrapped_id) -> None:
+        ctx = ActivationContext(self_id=bootstrapped_id, now=datetime.now(UTC))
         result = source_state(srepo, "nonexistent", "memory", ctx)
-        assert result == 0.0
+        assert result == 0.5
 
     def test_rule(self, srepo, self_id) -> None:
         ctx = ActivationContext(self_id=self_id, now=datetime.now(UTC))
@@ -214,20 +216,24 @@ class TestRecallSelf:
         with pytest.raises(SelfNotReady):
             recall_self(srepo, self_id)
 
-    def test_full_recall(self, srepo, self_id, new_id) -> None:
-        _seed_all_facets(srepo, self_id)
-        note_passion(srepo, self_id, "music", 0.8, new_id)
-        note_hobby(srepo, self_id, "Reading", "books", new_id)
-        note_interest(srepo, self_id, "Neuroscience", "brain", new_id)
-        note_skill(srepo, self_id, "python", 0.7, SkillKind.INTELLECTUAL, new_id)
-        note_preference(srepo, self_id, PreferenceKind.LIKE, "tea", 0.9, "warm", new_id)
-        srepo.insert_mood(
+    def test_full_recall(self, srepo, bootstrapped_id, new_id) -> None:
+        _seed_all_facets(srepo, bootstrapped_id)
+        note_passion(srepo, bootstrapped_id, "music", 0.8, new_id)
+        note_hobby(srepo, bootstrapped_id, "Reading", "books", new_id)
+        note_interest(srepo, bootstrapped_id, "Neuroscience", "brain", new_id)
+        note_skill(srepo, bootstrapped_id, "python", 0.7, SkillKind.INTELLECTUAL, new_id)
+        note_preference(srepo, bootstrapped_id, PreferenceKind.LIKE, "tea", 0.9, "warm", new_id)
+        srepo.update_mood(
             Mood(
-                self_id=self_id, valence=0.5, arousal=0.3, focus=0.7, last_tick_at=datetime.now(UTC)
+                self_id=bootstrapped_id,
+                valence=0.5,
+                arousal=0.3,
+                focus=0.7,
+                last_tick_at=datetime.now(UTC),
             )
         )
-        result = recall_self(srepo, self_id)
-        assert result["self_id"] == self_id
+        result = recall_self(srepo, bootstrapped_id)
+        assert result["self_id"] == bootstrapped_id
         assert len(result["personality"]) == 24
         assert len(result["passions"]) == 1
         assert len(result["hobbies"]) == 1

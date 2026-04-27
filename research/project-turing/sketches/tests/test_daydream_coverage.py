@@ -63,7 +63,7 @@ class TestDaydreamProducerDispatch:
             )
             if "daydream session" in m.content
         ]
-        assert markers
+        assert not markers, "no junk markers should be written when no seed exists"
 
     def test_dispatch_with_observation_proposal(self, repo: Repo, self_id: str) -> None:
         _mint_regret(repo, self_id)

@@ -6,12 +6,19 @@ See specs/activation-graph.md.
 from __future__ import annotations
 
 import math
+import threading
+import warnings
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from .self_mood import mood_descriptor  # noqa: F401  (re-exported convenience)
 from .self_model import current_level
 from .self_repo import SelfRepo
+
+if TYPE_CHECKING:
+    from .repo import Repo as MemoryRepo
 
 
 SCALE: float = 2.0
@@ -20,17 +27,19 @@ RETRIEVAL_WEIGHT_COEFFICIENT: float = 0.4
 HOBBY_RECENCY_DAYS: float = 14.0
 INTEREST_RECENCY_DAYS: float = 30.0
 
+ACTIVATION_CACHE_TTL: timedelta = timedelta(seconds=30)
+ACTIVATION_CACHE_MAX_ENTRIES: int = 1024
+
 
 @dataclass
 class ActivationContext:
     self_id: str
     now: datetime
     retrieval_similarity: dict[str, float] = field(default_factory=dict)
+    memory_repo: MemoryRepo | None = None
 
     @property
     def hash(self) -> str:
-        # Context cache key; we don't cache in this in-process sketch.
-        # Included to match the spec interface.
         return f"{self_id_or_none(self.self_id)}|{self.now.isoformat()}"
 
 
@@ -83,17 +92,17 @@ def source_state(repo: SelfRepo, source_id: str, source_kind: str, ctx: Activati
         m = repo.get_mood(ctx.self_id)
         return (m.valence + 1.0) / 2.0
     if source_kind == "memory":
-        from .repo import Repo as _Repo
-
-        mem = repo.conn.execute(
-            "SELECT weight, superseded_by FROM durable_memory WHERE memory_id = ? "
-            "UNION ALL "
-            "SELECT weight, superseded_by FROM episodic_memory WHERE memory_id = ?",
-            (source_id, source_id),
-        ).fetchone()
-        if mem is None:
-            return 0.0
-        return max(0.0, min(1.0, mem[0]))
+        if ctx.memory_repo is not None:
+            mem = ctx.memory_repo.get(source_id)
+            if mem is None or mem.deleted:
+                raise KeyError(source_id)
+            return max(0.0, min(1.0, mem.weight))
+        warnings.warn(
+            "ActivationContext.memory_repo is None; using legacy 0.5 for memory source_state",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return 0.5
     if source_kind == "rule":
         return 1.0
     if source_kind == "retrieval":
@@ -116,3 +125,44 @@ def active_now(repo: SelfRepo, node_id: str, ctx: ActivationContext) -> float:
             continue
         raw += c.weight * s
     return max(0.0, min(1.0, _sigmoid(raw / SCALE)))
+
+
+class ActivationCache:
+    def __init__(self) -> None:
+        self._store: dict[tuple[str, str], tuple[float, datetime]] = {}
+        self._lock = threading.Lock()
+
+    def get_or_compute(
+        self, node_id: str, ctx: ActivationContext, compute: Callable[[], float]
+    ) -> float:
+        key = (node_id, ctx.hash)
+        wall = datetime.now(UTC)
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is not None:
+                val, ts = entry
+                if wall - ts < ACTIVATION_CACHE_TTL:
+                    return val
+        val = compute()
+        with self._lock:
+            self._store[key] = (val, wall)
+            if len(self._store) > ACTIVATION_CACHE_MAX_ENTRIES:
+                oldest_key = min(self._store, key=lambda k: self._store[k][1])
+                del self._store[oldest_key]
+        return val
+
+    def invalidate(self, node_ids: Iterable[str]) -> None:
+        id_set = set(node_ids)
+        with self._lock:
+            keys_to_del = [k for k in self._store if k[0] in id_set]
+            for k in keys_to_del:
+                del self._store[k]
+
+    def size(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+
+def invalidate_cache_for(node_ids: Iterable[str], *, cache: ActivationCache | None = None) -> None:
+    if cache is not None:
+        cache.invalidate(node_ids)

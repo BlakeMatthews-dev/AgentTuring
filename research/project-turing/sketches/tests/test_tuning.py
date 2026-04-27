@@ -73,15 +73,11 @@ def test_apply_update_unknown_field_raises() -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_ac_11_2_from_repo_applies_affirmations_in_order(
-    repo: Repo, self_id: str
-) -> None:
+def test_ac_11_2_from_repo_applies_affirmations_in_order(repo: Repo, self_id: str) -> None:
     handle_affirmation(
         repo,
         self_id,
-        content=CoefficientUpdate(
-            "daydream_fire_floor", 15.0
-        ).to_content(),
+        content=CoefficientUpdate("daydream_fire_floor", 15.0).to_content(),
     )
     first_id = list(
         repo.find(
@@ -94,9 +90,7 @@ def test_ac_11_2_from_repo_applies_affirmations_in_order(
     handle_affirmation(
         repo,
         self_id,
-        content=CoefficientUpdate(
-            "daydream_fire_floor", 30.0
-        ).to_content(),
+        content=CoefficientUpdate("daydream_fire_floor", 30.0).to_content(),
         supersedes=first_id,
     )
 
@@ -115,7 +109,8 @@ def test_ac_11_3_out_of_range_rejected_at_load(repo: Repo, self_id: str) -> None
         repo,
         self_id,
         content=CoefficientUpdate(
-            "regret_affect_threshold", 5.0       # out of [0,1]
+            "regret_affect_threshold",
+            5.0,  # out of [0,1]
         ).to_content(),
     )
     table = CoefficientTable.from_repo(repo, self_id)
@@ -123,7 +118,7 @@ def test_ac_11_3_out_of_range_rejected_at_load(repo: Repo, self_id: str) -> None
 
 
 def test_validate_table_catches_out_of_range() -> None:
-    table = CoefficientTable(accomplishment_bias=5.0)     # out of [0,1]
+    table = CoefficientTable(accomplishment_bias=5.0)  # out of [0,1]
     assert validate_table(table) is False
 
 
@@ -141,9 +136,10 @@ def test_ac_11_7_tuner_submits_on_cadence(repo: Repo, self_id: str) -> None:
         repo=repo,
         self_id=self_id,
         cadence_ticks=5,
+        min_observations_before_submit=0,
     )
 
-    reactor.tick(1)   # submits first candidate (tick - 0 >= 5? yes at 5)
+    reactor.tick(1)  # submits first candidate (tick - 0 >= 5? yes at 5)
     # Cadence is 5 ticks; first submission happens when tick >= 5.
     reactor.tick(4)
     matching = [b for b in motivation.backlog if b.kind == "tuning_candidate"]
@@ -156,9 +152,7 @@ def test_ac_11_7_tuner_submits_on_cadence(repo: Repo, self_id: str) -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_ac_11_9_no_proposal_without_enough_observations(
-    repo: Repo, self_id: str
-) -> None:
+def test_ac_11_9_no_proposal_without_enough_observations(repo: Repo, self_id: str) -> None:
     reactor = FakeReactor()
     motivation = Motivation(reactor)
     tuner = CoefficientTuner(
@@ -183,9 +177,7 @@ def test_ac_11_9_no_proposal_without_enough_observations(
     assert affirmations == []
 
 
-def test_ac_11_10_proposal_written_as_affirmation(
-    repo: Repo, self_id: str
-) -> None:
+def test_ac_11_10_proposal_written_as_affirmation(repo: Repo, self_id: str) -> None:
     reactor = FakeReactor()
     motivation = Motivation(reactor)
 
@@ -226,6 +218,4 @@ def test_ac_11_10_proposal_written_as_affirmation(
         )
     )
     assert len(affirmations) >= 1
-    assert all(
-        a.content.startswith(COEFFICIENT_COMMITMENT_PREFIX) for a in affirmations
-    )
+    assert all(a.content.startswith(COEFFICIENT_COMMITMENT_PREFIX) for a in affirmations)

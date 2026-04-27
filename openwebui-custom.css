@@ -1,0 +1,172 @@
+/* =========================================================
+   PHOSPHOR / NOIR — OpenWebUI dark mode theme override
+   Loaded via /static/custom.css (referenced in index.html)
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap');
+
+:root {
+  --pn-ink-0: #050507;
+  --pn-ink-1: #0A0B0A;
+  --pn-ink-2: #0F1110;
+  --pn-line-1: #232925;
+  --pn-line-2: #334038;
+  --pn-grey-1: #6E7670;
+  --pn-grey-2: #8F9692;
+  --pn-grey-3: #B4BAB7;
+  --pn-grey-4: #D6D4CE;
+  --pn-bone-0: #F2F0EA;
+  --pn-bone-1: #ECEAE3;
+  --pn-phosphor-hi: #A8FF8E;
+  --pn-phosphor: #5EE88C;
+  --pn-phosphor-mid: #3EC172;
+  --pn-phosphor-dim: #1E7A3D;
+  --pn-phosphor-ink: #061007;
+  --pn-amber: #FFB547;
+  --pn-burn: #FF5A4E;
+  --pn-glow-soft: 0 0 2px rgba(94,232,140,.55), 0 0 8px rgba(94,232,140,.32);
+  --pn-glow-med: 0 0 2px rgba(94,232,140,.8), 0 0 10px rgba(94,232,140,.5), 0 0 22px rgba(94,232,140,.22);
+}
+
+::selection { background: var(--pn-phosphor) !important; color: var(--pn-ink-0) !important; }
+
+/* ---------- Global ---------- */
+.dark body {
+  background: var(--pn-ink-1) !important;
+  color: var(--pn-bone-1) !important;
+}
+
+/* ---------- Sidebar ---------- */
+.dark #sidebar {
+  background: var(--pn-ink-0) !important;
+  border-right: 1px solid var(--pn-line-2) !important;
+}
+.dark #sidebar a,
+.dark #sidebar button,
+.dark #sidebar span,
+.dark #sidebar div {
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+.dark #sidebar-chat-item { border-color: var(--pn-line-1) !important; }
+.dark #sidebar-chat-item:hover { background: var(--pn-ink-2) !important; }
+.dark .sidebar { color: var(--pn-grey-3) !important; }
+.dark #sidebar-webui-name {
+  font-family: 'VT323', 'IBM Plex Mono', monospace !important;
+  color: var(--pn-phosphor-hi) !important;
+  text-shadow: var(--pn-glow-med) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+}
+.dark #sidebar-new-chat-button {
+  color: var(--pn-grey-2) !important;
+  border-color: var(--pn-line-2) !important;
+}
+.dark #sidebar-new-chat-button:hover {
+  color: var(--pn-phosphor) !important;
+  border-color: var(--pn-phosphor-dim) !important;
+  text-shadow: var(--pn-glow-soft) !important;
+}
+.dark #sidebar-resizer { border-color: var(--pn-line-2) !important; }
+
+/* ---------- Navbar ---------- */
+.dark nav { background: transparent !important; }
+.dark nav * { font-family: 'IBM Plex Mono', monospace !important; }
+.dark nav button:hover { color: var(--pn-phosphor) !important; }
+.dark #navbar-bg-gradient-to-b {
+  background: linear-gradient(to bottom, rgba(10,11,10,.92), rgba(10,11,10,.5), transparent) !important;
+}
+
+/* ---------- Chat messages ---------- */
+.dark .user-message .rounded-3xl {
+  background: var(--pn-ink-2) !important;
+  border: 1px solid var(--pn-line-1) !important;
+  color: var(--pn-grey-3) !important;
+}
+.dark .chat-assistant { color: var(--pn-bone-1) !important; }
+.dark .chat-assistant .markdown-prose {
+  font-family: 'IBM Plex Serif', Georgia, serif !important;
+  font-size: 15px !important;
+  line-height: 1.75 !important;
+}
+.dark #response-message-model-name {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 10px !important;
+  letter-spacing: 0.2em !important;
+  text-transform: uppercase !important;
+  color: var(--pn-phosphor-dim) !important;
+}
+
+/* ---------- Input box ---------- */
+.dark #message-input-container {
+  background: var(--pn-ink-2) !important;
+  border-color: var(--pn-line-2) !important;
+  font-family: 'IBM Plex Serif', Georgia, serif !important;
+}
+.dark #message-input-container:focus-within {
+  border-color: var(--pn-phosphor) !important;
+  box-shadow: var(--pn-glow-soft) !important;
+}
+.dark #chat-input { color: var(--pn-bone-1) !important; caret-color: var(--pn-phosphor) !important; }
+.dark #chat-input::placeholder { color: var(--pn-grey-1) !important; }
+
+/* ---------- Send button ---------- */
+.dark button[aria-label="Send Message"],
+.dark button[aria-label="Stop"] {
+  background: var(--pn-phosphor) !important;
+  color: var(--pn-ink-0) !important;
+  box-shadow: var(--pn-glow-med) !important;
+}
+
+/* ---------- Model selector ---------- */
+.dark #model-selector-0-button {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 11px !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  color: var(--pn-grey-2) !important;
+}
+
+/* ---------- Code blocks ---------- */
+.dark .codespan {
+  background: var(--pn-phosphor-ink) !important;
+  border: 1px solid var(--pn-phosphor-dim) !important;
+  color: var(--pn-phosphor) !important;
+  text-shadow: var(--pn-glow-soft) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+.dark pre {
+  background: var(--pn-phosphor-ink) !important;
+  border: 1px solid var(--pn-phosphor-dim) !important;
+}
+.dark pre code {
+  color: var(--pn-phosphor) !important;
+  text-shadow: var(--pn-glow-soft) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+
+/* ---------- Blockquotes ---------- */
+.dark blockquote { border-left-color: var(--pn-phosphor-dim) !important; color: var(--pn-grey-3) !important; }
+
+/* ---------- Links ---------- */
+.dark .markdown-prose a { color: var(--pn-phosphor) !important; text-decoration-color: var(--pn-phosphor-dim) !important; }
+.dark .markdown-prose a:hover { color: var(--pn-phosphor-hi) !important; text-shadow: var(--pn-glow-soft) !important; }
+
+/* ---------- Scrollbar ---------- */
+.dark *::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+.dark *::-webkit-scrollbar-thumb { background: var(--pn-line-2) !important; }
+.dark *::-webkit-scrollbar-thumb:hover { background: var(--pn-phosphor-dim) !important; }
+.dark *::-webkit-scrollbar-track { background: transparent !important; }
+
+/* ---------- Landing ---------- */
+.dark .text-gray-800 { color: var(--pn-grey-3) !important; }
+
+/* ---------- Dropdowns ---------- */
+.dark select {
+  background: var(--pn-ink-2) !important;
+  color: var(--pn-bone-1) !important;
+  border-color: var(--pn-line-2) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+}
+
+/* ---------- Splash screen ---------- */
+html.dark #splash-screen { background: var(--pn-ink-0) !important; }

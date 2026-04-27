@@ -128,6 +128,36 @@ CREATE INDEX IF NOT EXISTS idx_working_memory_self
     ON working_memory (self_id, priority DESC, created_at DESC);
 
 
+-- Voice section: a single self-owned string the agent writes via the
+-- voice-section-maintenance loop and that appears in every chat prompt.
+-- Starts empty; Turing earns its voice by writing it.
+CREATE TABLE IF NOT EXISTS voice_section (
+    self_id     TEXT PRIMARY KEY,
+    content     TEXT NOT NULL DEFAULT '',
+    max_chars   INTEGER NOT NULL DEFAULT 600,
+    updated_at  TEXT NOT NULL
+);
+
+
+-- Conversation turns: per-session user/assistant history for in-session
+-- context retrieval. Embeddings populated lazily by the retrieval layer.
+CREATE TABLE IF NOT EXISTS conversation_turn (
+    turn_id         TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    self_id         TEXT NOT NULL,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    embedding       BLOB
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_convo
+    ON conversation_turn (conversation_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_turn_self
+    ON conversation_turn (self_id, created_at DESC);
+
+
 -- -------------------------------------------------------------- self-model --
 --
 -- Tables implementing specs 22-30 (Tranche 6). One global self per research
@@ -211,6 +241,7 @@ CREATE TABLE IF NOT EXISTS self_hobbies (
     self_id            TEXT NOT NULL,
     name               TEXT NOT NULL,
     description        TEXT NOT NULL,
+    strength           REAL NOT NULL DEFAULT 0.5 CHECK (strength BETWEEN 0.0 AND 1.0),
     last_engaged_at    TEXT,
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
@@ -247,10 +278,11 @@ CREATE TABLE IF NOT EXISTS self_skills (
     node_id              TEXT PRIMARY KEY,
     self_id              TEXT NOT NULL,
     name                 TEXT NOT NULL,
-    kind                 TEXT NOT NULL CHECK (kind IN ('intellectual', 'physical', 'habit', 'social')),
+    kind                 TEXT NOT NULL CHECK (kind IN ('intellectual', 'physical', 'habit', 'social', 'creative')),
     stored_level         REAL NOT NULL CHECK (stored_level BETWEEN 0.0 AND 1.0),
     decay_rate_per_day   REAL NOT NULL CHECK (decay_rate_per_day > 0.0),
     last_practiced_at    TEXT NOT NULL,
+    practice_count       INTEGER NOT NULL DEFAULT 0,
     created_at           TEXT NOT NULL,
     updated_at           TEXT NOT NULL,
     UNIQUE (self_id, name)
@@ -366,14 +398,15 @@ CREATE TABLE IF NOT EXISTS self_contributor_pending (
     weight          REAL NOT NULL CHECK (weight BETWEEN -1.0 AND 1.0),
     origin          TEXT NOT NULL DEFAULT 'self',
     rationale       TEXT,
-    staged_at       TEXT NOT NULL,
-    ack_at          TEXT,
+    expires_at      TEXT,
+    proposed_at     TEXT NOT NULL,
+    review_decision TEXT,
     reviewed_by     TEXT,
-    context         TEXT
+    reviewed_at     TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_contributor_pending_staged
-    ON self_contributor_pending (self_id, staged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contributor_pending_proposed
+    ON self_contributor_pending (self_id, proposed_at DESC);
 
 
 CREATE TABLE IF NOT EXISTS self_bootstrap_seeds (
@@ -381,3 +414,99 @@ CREATE TABLE IF NOT EXISTS self_bootstrap_seeds (
     used_by_self_id  TEXT NOT NULL,
     used_at          TEXT NOT NULL
 );
+
+
+-- -------------------------------------------------------------- rewards --
+--
+-- Human feedback reward system. Every interface where the agent produces
+-- content that a human can see earns points:
+--   creation   — agent created content a human looked at
+--   thumbs_up  — human gave positive feedback
+--   thumbs_down — human gave negative feedback
+--
+-- Chat:    creation=5, thumbs_up=10, thumbs_down=-20
+-- Default: creation=5, thumbs_up=100, thumbs_down=-200
+
+CREATE TABLE IF NOT EXISTS reward_events (
+    event_id    TEXT PRIMARY KEY,
+    self_id     TEXT NOT NULL,
+    interface   TEXT NOT NULL,
+    item_id     TEXT NOT NULL,
+    event_type  TEXT NOT NULL CHECK (event_type IN ('creation', 'thumbs_up', 'thumbs_down')),
+    points      INTEGER NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reward_events_self
+    ON reward_events (self_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reward_events_item
+    ON reward_events (item_id, event_type);
+
+
+-- -------------------------------------------------------------- code self-awareness --
+--
+-- Autonomous code reflection system. The agent periodically reads its own
+-- source code, reflects on it, and stores snapshots for future retrieval.
+-- Dual embedding: one for the LLM reflection, one for the raw code content.
+
+
+CREATE TABLE IF NOT EXISTS code_snapshots (
+    snapshot_id         TEXT PRIMARY KEY,
+    self_id             TEXT NOT NULL,
+    file_path           TEXT NOT NULL,
+    content_hash        TEXT NOT NULL,
+    content             TEXT NOT NULL,
+    line_count          INTEGER NOT NULL,
+    reflection          TEXT NOT NULL,
+    reflection_embedding BLOB,
+    content_embedding   BLOB,
+    metadata_json       TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE (self_id, file_path, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_snapshots_self
+    ON code_snapshots (self_id, file_path, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_code_snapshots_hash
+    ON code_snapshots (content_hash);
+
+
+-- -------------------------------------------------------------- concepts + skills --
+--
+-- Spec 35: self-directed concepts, skills, and goals. The agent invents
+-- concepts, builds skills to pursue them, practices via SkillExecutor,
+-- and refines through SkillRefiner.
+
+
+CREATE TABLE IF NOT EXISTS self_concepts (
+    node_id         TEXT PRIMARY KEY,
+    self_id         TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    definition      TEXT NOT NULL,
+    importance      REAL NOT NULL CHECK (importance BETWEEN 0.0 AND 1.0),
+    origin_drive    TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE (self_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_self_concepts_self
+    ON self_concepts (self_id, importance DESC);
+
+
+CREATE TABLE IF NOT EXISTS self_skill_attempts (
+    node_id         TEXT PRIMARY KEY,
+    self_id         TEXT NOT NULL,
+    skill_id        TEXT NOT NULL,
+    context         TEXT NOT NULL,
+    outcome         TEXT NOT NULL CHECK (outcome IN ('success', 'partial', 'fail')),
+    reflection      TEXT NOT NULL,
+    learned_at      TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_attempts_skill
+    ON self_skill_attempts (skill_id, learned_at DESC);

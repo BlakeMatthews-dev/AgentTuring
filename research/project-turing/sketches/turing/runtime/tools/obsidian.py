@@ -67,6 +67,9 @@ class ObsidianWriter:
         target_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{time_part}-{slug}.md"
         path = target_dir / filename
+        if path.exists():
+            logger.debug("obsidian note already exists, skipping: %s", path)
+            return str(path)
 
         fm = {
             "title": title,

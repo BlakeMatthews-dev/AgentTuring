@@ -36,6 +36,10 @@ from .self_model import (
 )
 
 
+class CrossSelfAccess(Exception):
+    pass
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat()
 
@@ -51,6 +55,19 @@ def _parse_req(s: str | None) -> datetime:
     if parsed is None:
         return datetime.now(UTC)
     return parsed
+
+
+def get_mood_or_default(self_repo: SelfRepo, self_id: str) -> Mood:
+    try:
+        return self_repo.get_mood(self_id)
+    except KeyError:
+        return Mood(
+            self_id=self_id,
+            valence=0.0,
+            arousal=0.3,
+            focus=0.5,
+            last_tick_at=datetime.now(UTC),
+        )
 
 
 class SelfRepo:
@@ -86,8 +103,16 @@ class SelfRepo:
         return f
 
     def update_facet_score(
-        self, self_id: str, facet_id: str, new_score: float, revised_at: datetime
+        self,
+        self_id: str,
+        facet_id: str,
+        new_score: float,
+        revised_at: datetime,
+        *,
+        acting_self_id: str | None = None,
     ) -> None:
+        if acting_self_id is not None and self_id != acting_self_id:
+            raise CrossSelfAccess(f"{self_id} vs {acting_self_id}")
         if not 1.0 <= new_score <= 5.0:
             raise ValueError(f"facet score out of range: {new_score}")
         now = _iso(datetime.now(UTC))
@@ -330,7 +355,9 @@ class SelfRepo:
             updated_at=_parse_req(row[7]),
         )
 
-    def update_passion(self, p: Passion) -> None:
+    def update_passion(self, p: Passion, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and p.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{p.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_passions SET text = ?, strength = ?, rank = ?, "
             "updated_at = ? WHERE node_id = ?",
@@ -360,14 +387,15 @@ class SelfRepo:
     def insert_hobby(self, h: Hobby) -> Hobby:
         self._conn.execute(
             """INSERT INTO self_hobbies
-               (node_id, self_id, name, description, last_engaged_at,
+               (node_id, self_id, name, description, strength, last_engaged_at,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 h.node_id,
                 h.self_id,
                 h.name,
                 h.description,
+                h.strength,
                 _iso(h.last_engaged_at) if h.last_engaged_at else None,
                 _iso(h.created_at),
                 _iso(h.updated_at),
@@ -378,7 +406,7 @@ class SelfRepo:
 
     def list_hobbies(self, self_id: str) -> list[Hobby]:
         rows = self._conn.execute(
-            "SELECT node_id, self_id, name, description, last_engaged_at, "
+            "SELECT node_id, self_id, name, description, strength, last_engaged_at, "
             "created_at, updated_at FROM self_hobbies WHERE self_id = ?",
             (self_id,),
         ).fetchall()
@@ -388,14 +416,17 @@ class SelfRepo:
                 self_id=r[1],
                 name=r[2],
                 description=r[3],
-                last_engaged_at=_parse(r[4]),
-                created_at=_parse_req(r[5]),
-                updated_at=_parse_req(r[6]),
+                strength=float(r[4]) if r[4] is not None else 0.5,
+                last_engaged_at=_parse(r[5]),
+                created_at=_parse_req(r[6]),
+                updated_at=_parse_req(r[7]),
             )
             for r in rows
         ]
 
-    def update_hobby(self, h: Hobby) -> None:
+    def update_hobby(self, h: Hobby, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and h.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{h.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_hobbies SET name = ?, description = ?, "
             "last_engaged_at = ?, updated_at = ? WHERE node_id = ?",
@@ -411,7 +442,7 @@ class SelfRepo:
 
     def insert_interest(self, i: Interest) -> Interest:
         self._conn.execute(
-            """INSERT INTO self_interests
+            """INSERT OR IGNORE INTO self_interests
                (node_id, self_id, topic, description, last_noticed_at,
                 created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -532,7 +563,9 @@ class SelfRepo:
         ).fetchall()
         return [self._row_to_skill(r) for r in rows]
 
-    def update_skill(self, s: Skill) -> None:
+    def update_skill(self, s: Skill, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and s.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{s.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_skills SET stored_level = ?, decay_rate_per_day = ?, "
             "last_practiced_at = ?, updated_at = ? WHERE node_id = ?",
@@ -616,7 +649,9 @@ class SelfRepo:
         rows = self._conn.execute(q, (self_id, motivator_id)).fetchall()
         return [self._row_to_todo(r) for r in rows]
 
-    def update_todo(self, t: SelfTodo) -> None:
+    def update_todo(self, t: SelfTodo, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and t.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{t.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_todos SET text = ?, status = ?, outcome_text = ?, "
             "updated_at = ? WHERE node_id = ?",
@@ -630,7 +665,14 @@ class SelfRepo:
         )
         self._conn.commit()
 
-    def insert_todo_revision(self, r: SelfTodoRevision) -> SelfTodoRevision:
+    def insert_todo_revision(
+        self,
+        r: SelfTodoRevision,
+        *,
+        acting_self_id: str | None = None,
+    ) -> SelfTodoRevision:
+        if acting_self_id is not None and r.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{r.self_id} vs {acting_self_id}")
         self._conn.execute(
             """INSERT INTO self_todo_revisions
                (node_id, self_id, todo_id, revision_num, text_before, text_after,
@@ -714,7 +756,9 @@ class SelfRepo:
         self._conn.commit()
         return m
 
-    def update_mood(self, m: Mood) -> None:
+    def update_mood(self, m: Mood, *, acting_self_id: str | None = None) -> None:
+        if acting_self_id is not None and m.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{m.self_id} vs {acting_self_id}")
         self._conn.execute(
             "UPDATE self_mood SET valence = ?, arousal = ?, focus = ?, "
             "last_tick_at = ?, updated_at = ? WHERE self_id = ?",
@@ -752,7 +796,14 @@ class SelfRepo:
 
     # ------------------------------------------------ activation graph ------
 
-    def insert_contributor(self, c: ActivationContributor) -> ActivationContributor:
+    def insert_contributor(
+        self,
+        c: ActivationContributor,
+        *,
+        acting_self_id: str | None = None,
+    ) -> ActivationContributor:
+        if acting_self_id is not None and c.self_id != acting_self_id:
+            raise CrossSelfAccess(f"{c.self_id} vs {acting_self_id}")
         self._conn.execute(
             """INSERT INTO self_activation_contributors
                (node_id, self_id, target_node_id, target_kind,
@@ -800,6 +851,18 @@ class SelfRepo:
             (retracted_by, _iso(datetime.now(UTC)), contributor_node_id),
         )
         self._conn.commit()
+
+    def get_contributor(self, node_id: str) -> ActivationContributor | None:
+        row = self._conn.execute(
+            "SELECT node_id, self_id, target_node_id, target_kind, "
+            "source_id, source_kind, weight, origin, rationale, "
+            "expires_at, retracted_by, created_at, updated_at "
+            "FROM self_activation_contributors WHERE node_id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_contributor(row)
 
     def _row_to_contributor(self, r: tuple) -> ActivationContributor:
         return ActivationContributor(
@@ -851,3 +914,305 @@ class SelfRepo:
             (self_id,),
         )
         self._conn.commit()
+
+    # ------------------------------------------------ code snapshots ---------
+
+    def upsert_code_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        self_id: str,
+        file_path: str,
+        content_hash: str,
+        content: str,
+        line_count: int,
+        reflection: str,
+        reflection_embedding: bytes | None = None,
+        content_embedding: bytes | None = None,
+        metadata_json: str | None = None,
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        existing = self._conn.execute(
+            "SELECT snapshot_id FROM code_snapshots "
+            "WHERE self_id = ? AND file_path = ? AND content_hash = ?",
+            (self_id, file_path, content_hash),
+        ).fetchone()
+        if existing is not None:
+            self._conn.execute(
+                """UPDATE code_snapshots
+                   SET reflection = ?, reflection_embedding = ?,
+                       content_embedding = ?, metadata_json = ?,
+                       updated_at = ?
+                   WHERE snapshot_id = ?""",
+                (
+                    reflection,
+                    reflection_embedding,
+                    content_embedding,
+                    metadata_json,
+                    now,
+                    existing[0],
+                ),
+            )
+        else:
+            self._conn.execute(
+                """INSERT INTO code_snapshots
+                   (snapshot_id, self_id, file_path, content_hash, content,
+                    line_count, reflection, reflection_embedding,
+                    content_embedding, metadata_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    snapshot_id,
+                    self_id,
+                    file_path,
+                    content_hash,
+                    content,
+                    line_count,
+                    reflection,
+                    reflection_embedding,
+                    content_embedding,
+                    metadata_json,
+                    now,
+                    now,
+                ),
+            )
+        self._conn.commit()
+
+    def list_code_snapshots(self, self_id: str, limit: int = 20) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT snapshot_id, file_path, content_hash, line_count, "
+            "reflection, created_at, updated_at "
+            "FROM code_snapshots WHERE self_id = ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (self_id, limit),
+        ).fetchall()
+        return [
+            {
+                "snapshot_id": r[0],
+                "file_path": r[1],
+                "content_hash": r[2],
+                "line_count": r[3],
+                "reflection": r[4],
+                "created_at": r[5],
+                "updated_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def has_code_snapshot(self, self_id: str, file_path: str, content_hash: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM code_snapshots WHERE self_id = ? AND file_path = ? AND content_hash = ?",
+            (self_id, file_path, content_hash),
+        ).fetchone()
+        return row is not None
+
+    # ------------------------------------------------ concepts ---------------
+
+    def insert_concept(
+        self,
+        node_id: str,
+        self_id: str,
+        name: str,
+        definition: str,
+        importance: float,
+        origin_drive: str,
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        self._conn.execute(
+            """INSERT OR IGNORE INTO self_concepts
+               (node_id, self_id, name, definition, importance,
+                origin_drive, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (node_id, self_id, name, definition, importance, origin_drive, now, now),
+        )
+        self._conn.commit()
+
+    def list_concepts(self, self_id: str, min_importance: float = 0.0) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT node_id, name, definition, importance, origin_drive, "
+            "created_at, updated_at FROM self_concepts "
+            "WHERE self_id = ? AND importance >= ? "
+            "ORDER BY importance DESC",
+            (self_id, min_importance),
+        ).fetchall()
+        return [
+            {
+                "node_id": r[0],
+                "name": r[1],
+                "definition": r[2],
+                "importance": float(r[3]),
+                "origin_drive": r[4],
+                "created_at": r[5],
+                "updated_at": r[6],
+            }
+            for r in rows
+        ]
+
+    def has_concept(self, self_id: str, name: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM self_concepts WHERE self_id = ? AND name = ?",
+            (self_id, name),
+        ).fetchone()
+        return row is not None
+
+    def count_concepts(self, self_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM self_concepts WHERE self_id = ?",
+            (self_id,),
+        ).fetchone()
+        return int(row[0])
+
+    # ------------------------------------------------ skill attempts ---------
+
+    def insert_skill_attempt(
+        self,
+        node_id: str,
+        self_id: str,
+        skill_id: str,
+        context: str,
+        outcome: str,
+        reflection: str,
+    ) -> None:
+        now = _iso(datetime.now(UTC))
+        self._conn.execute(
+            """INSERT INTO self_skill_attempts
+               (node_id, self_id, skill_id, context, outcome,
+                reflection, learned_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (node_id, self_id, skill_id, context, outcome, reflection, now, now),
+        )
+        self._conn.execute(
+            "UPDATE self_skills SET practice_count = practice_count + 1, "
+            "last_practiced_at = ?, updated_at = ? WHERE node_id = ?",
+            (now, now, skill_id),
+        )
+        self._conn.commit()
+
+    def list_skill_attempts(self, skill_id: str, limit: int = 10) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT node_id, skill_id, context, outcome, reflection, "
+            "learned_at FROM self_skill_attempts WHERE skill_id = ? "
+            "ORDER BY learned_at DESC LIMIT ?",
+            (skill_id, limit),
+        ).fetchall()
+        return [
+            {
+                "node_id": r[0],
+                "skill_id": r[1],
+                "context": r[2],
+                "outcome": r[3],
+                "reflection": r[4],
+                "learned_at": r[5],
+            }
+            for r in rows
+        ]
+
+    def count_skill_attempts(self, skill_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM self_skill_attempts WHERE skill_id = ?",
+            (skill_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def delete_expired_retrieval_contributors(self, now) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM self_activation_contributors "
+                "WHERE origin = 'retrieval' AND expires_at IS NOT NULL AND expires_at < ?",
+                (now.isoformat(),),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def delete_expired_retrieval_contributors_for_target(self, target_node_id: str, now) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM self_activation_contributors "
+                "WHERE origin = 'retrieval' AND target_node_id = ? "
+                "AND expires_at IS NOT NULL AND expires_at < ?",
+                (target_node_id, now.isoformat()),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def count_active_retrieval_contributors(self, target_node_id: str, now) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM self_activation_contributors "
+            "WHERE target_node_id = ? AND origin = 'retrieval' "
+            "AND retracted_at IS NULL AND (expires_at IS NULL OR expires_at >= ?)",
+            (target_node_id, now.isoformat()),
+        ).fetchone()
+        return int(row[0])
+
+    def list_revisions_since(self, self_id: str, since):
+        rows = self._conn.execute(
+            "SELECT node_id, self_id, revision_num, deltas_by_facet, revised_at "
+            "FROM self_personality_revisions "
+            "WHERE self_id = ? AND revised_at >= ? ORDER BY revised_at",
+            (self_id, since.isoformat() if hasattr(since, "isoformat") else since),
+        ).fetchall()
+        from .self_model import PersonalityRevision
+
+        result = []
+        for r in rows:
+            import json
+
+            deltas = json.loads(r[3]) if r[3] else {}
+            result.append(
+                PersonalityRevision(
+                    node_id=r[0],
+                    self_id=r[1],
+                    revision_num=r[2],
+                    deltas_by_facet=deltas,
+                    revised_at=r[4],
+                )
+            )
+        return result
+
+    def list_todo_ids_with_revisions(self, self_id: str, min_revisions: int = 11) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT todo_id FROM self_todo_revisions WHERE self_id = ? "
+            "GROUP BY todo_id HAVING COUNT(*) >= ?",
+            (self_id, min_revisions),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def compact_todo_revision(self, node_id: str, now) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE self_todo_revisions SET text_before = '[compacted]', "
+                "text_after = '[compacted]' WHERE node_id = ?",
+                (node_id,),
+            )
+            self._conn.commit()
+
+    def list_recent_revision_ids(self, self_id: str, limit: int = 12) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT node_id FROM self_personality_revisions "
+            "WHERE self_id = ? ORDER BY revised_at DESC LIMIT ?",
+            (self_id, limit),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def list_answers_for_compaction(self, self_id: str, exclude_revision_ids: list[str]) -> list:
+        if not exclude_revision_ids:
+            placeholders = "1=0"
+            params: list = [self_id]
+        else:
+            placeholders = ",".join(["?"] * len(exclude_revision_ids))
+            params = [self_id] + exclude_revision_ids
+        rows = self._conn.execute(
+            f"SELECT node_id FROM self_personality_answers "
+            f"WHERE self_id = ? AND revision_id IS NOT NULL "
+            f"AND revision_id NOT IN ({placeholders})",
+            params,
+        ).fetchall()
+        return [type("Ans", (), {"node_id": r[0]})() for r in rows]
+
+    def compact_personality_answer(self, node_id: str, now) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE self_personality_answers SET justification_text = '[compacted]' "
+                "WHERE node_id = ?",
+                (node_id,),
+            )
+            self._conn.commit()

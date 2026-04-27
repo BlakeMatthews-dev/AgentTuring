@@ -30,7 +30,7 @@ logger = logging.getLogger("turing.runtime.tools.rss")
 @dataclass(frozen=True)
 class FeedItem:
     feed_url: str
-    item_id: str        # stable across polls (guid / id / link or hashed link+title)
+    item_id: str  # stable across polls (guid / id / link or hashed link+title)
     title: str
     summary: str
     link: str
@@ -45,6 +45,8 @@ class FeedState:
 
 
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
+_RDF_NS = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}"
+_RSS1_NS = "{http://purl.org/rss/1.0/}"
 
 
 class RSSReader:
@@ -58,7 +60,7 @@ class RSSReader:
         client: httpx.Client | None = None,
     ) -> None:
         self._feeds: dict[str, FeedState] = {url: FeedState(url=url) for url in feeds}
-        self._client = client or httpx.Client(timeout=30.0)
+        self._client = client or httpx.Client(timeout=30.0, follow_redirects=True)
 
     def add_feed(self, url: str) -> None:
         if url in self._feeds:
@@ -94,11 +96,16 @@ class RSSReader:
         if not response.is_success:
             logger.warning("rss %s returned %d", state.url, response.status_code)
             return []
-        root = ET.fromstring(response.text)
+        raw = response.text
+        if raw and raw[0] == "\ufeff":
+            raw = raw[1:]
+        root = ET.fromstring(raw)
         if root.tag.endswith("rss"):
             items = list(_parse_rss(state.url, root))
         elif root.tag.endswith("feed"):
             items = list(_parse_atom(state.url, root))
+        elif _RDF_NS in root.tag and root.tag.endswith("RDF"):
+            items = list(_parse_rdf(state.url, root))
         else:
             logger.warning("rss unknown root tag %s for %s", root.tag, state.url)
             items = []
@@ -144,9 +151,7 @@ def _parse_atom(feed_url: str, root: ET.Element) -> list[FeedItem]:
         link_el = entry.find(f"{_ATOM_NS}link")
         link = link_el.attrib.get("href", "") if link_el is not None else ""
         title = _text_atom(entry, "title")
-        summary = (
-            _text_atom(entry, "summary") or _text_atom(entry, "content") or ""
-        )
+        summary = _text_atom(entry, "summary") or _text_atom(entry, "content") or ""
         pub_text = _text_atom(entry, "updated") or _text_atom(entry, "published")
         item_id = eid or link or _hash_id(title, link)
         out.append(
@@ -162,6 +167,26 @@ def _parse_atom(feed_url: str, root: ET.Element) -> list[FeedItem]:
     return out
 
 
+def _parse_rdf(feed_url: str, root: ET.Element) -> list[FeedItem]:
+    out: list[FeedItem] = []
+    for item in root.findall(f"{_RSS1_NS}item"):
+        link = _text_ns(item, _RSS1_NS, "link")
+        title = _text_ns(item, _RSS1_NS, "title")
+        summary = _text_ns(item, _RSS1_NS, "description") or ""
+        item_id = link or _hash_id(title, link)
+        out.append(
+            FeedItem(
+                feed_url=feed_url,
+                item_id=item_id,
+                title=title or "(untitled)",
+                summary=summary,
+                link=link or "",
+                published_at=None,
+            )
+        )
+    return out
+
+
 def _text(el: ET.Element, name: str) -> str:
     child = el.find(name)
     return (child.text or "").strip() if child is not None and child.text else ""
@@ -169,6 +194,11 @@ def _text(el: ET.Element, name: str) -> str:
 
 def _text_atom(el: ET.Element, name: str) -> str:
     child = el.find(f"{_ATOM_NS}{name}")
+    return (child.text or "").strip() if child is not None and child.text else ""
+
+
+def _text_ns(el: ET.Element, ns: str, name: str) -> str:
+    child = el.find(f"{ns}{name}")
     return (child.text or "").strip() if child is not None and child.text else ""
 
 

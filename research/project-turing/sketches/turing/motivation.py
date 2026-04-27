@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .reactor import FakeReactor
+from .reactor import Reactor
 
 
 # --- Priority ladder: anchored scale with log-linear interpolation --------
@@ -147,7 +147,7 @@ class Motivation:
 
     def __init__(
         self,
-        reactor: FakeReactor,
+        reactor: Reactor,
         *,
         action_cadence_ticks: int = ACTION_CADENCE_TICKS,
         top_x: int = TOP_X,

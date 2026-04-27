@@ -26,7 +26,7 @@ from typing import Any
 from uuid import uuid4
 
 from .motivation import Motivation
-from .reactor import FakeReactor
+from .reactor import Reactor
 from .repo import Repo, WisdomInvariantViolation
 from .tiers import WEIGHT_BOUNDS, clamp_weight
 from .types import DURABLE_TIERS, EpisodicMemory, MemoryTier, SourceKind
@@ -54,7 +54,7 @@ DEFAULT_SCHEDULE_MINUTE: int = 0
 @dataclass(frozen=True)
 class Pattern:
     intent: str
-    polarity: str                          # "regret" | "accomplishment" | "mixed"
+    polarity: str  # "regret" | "accomplishment" | "mixed"
     memory_ids: tuple[str, ...]
     mean_affect: float
     mean_surprise: float
@@ -99,7 +99,7 @@ class Dreamer:
         self,
         *,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         repo: Repo,
         self_id: str,
         schedule_hour: int = DEFAULT_SCHEDULE_HOUR,
@@ -199,9 +199,7 @@ class Dreamer:
             affirmations = self._phase3_propose_affirmations(patterns)
             lessons = self._phase4_consolidate_lessons(deadline)
             pruned = self._phase5_prune_non_durable(deadline)
-            committed, rejected = self._phase6_review_gate(
-                pending, session_marker_id=marker_id
-            )
+            committed, rejected = self._phase6_review_gate(pending, session_marker_id=marker_id)
         except TimeoutError:
             logger.warning("dream session %s truncated", session_id)
             patterns = []
@@ -266,9 +264,7 @@ class Dreamer:
             if len(memories) < self._wisdom_n:
                 continue
             regret_count = sum(1 for m in memories if m.tier == MemoryTier.REGRET)
-            accomplishment_count = sum(
-                1 for m in memories if m.tier == MemoryTier.ACCOMPLISHMENT
-            )
+            accomplishment_count = sum(1 for m in memories if m.tier == MemoryTier.ACCOMPLISHMENT)
             total = len(memories)
             if total == 0:
                 continue
@@ -279,7 +275,7 @@ class Dreamer:
             elif negative_ratio >= 0.8:
                 polarity = "regret"
             else:
-                continue                    # mixed polarity → no pattern
+                continue  # mixed polarity → no pattern
             mean_affect = sum(m.affect for m in memories) / total
             mean_surprise = sum(m.surprise_delta for m in memories) / total
             patterns.append(
@@ -295,9 +291,7 @@ class Dreamer:
 
     # ---- Phase 2: mint pending candidates (staged)
 
-    def _phase2_mint_pending_candidates(
-        self, patterns: list[Pattern]
-    ) -> list[PendingCandidate]:
+    def _phase2_mint_pending_candidates(self, patterns: list[Pattern]) -> list[PendingCandidate]:
         pending: list[PendingCandidate] = []
         for p in patterns:
             if p.polarity == "accomplishment":
@@ -326,10 +320,7 @@ class Dreamer:
         count = 0
         for p in patterns:
             if p.polarity == "accomplishment":
-                content = (
-                    f"commit to the pattern that succeeds at '{p.intent}' "
-                    f"going forward"
-                )
+                content = f"commit to the pattern that succeeds at '{p.intent}' going forward"
                 handle_affirmation(self._repo, self._self_id, content=content)
                 count += 1
         return count
@@ -379,10 +370,7 @@ class Dreamer:
         )
         for candidate in pending:
             # 1. Contradicts existing WISDOM?
-            if any(
-                _shallow_contradicts(candidate.content, w.content)
-                for w in existing_wisdom
-            ):
+            if any(_shallow_contradicts(candidate.content, w.content) for w in existing_wisdom):
                 rejections.append(
                     Rejection(
                         content=candidate.content,
@@ -432,9 +420,7 @@ class Dreamer:
 
     # ---- Phase 7: session marker
 
-    def _write_initial_session_marker(
-        self, session_id: str, started_at: datetime
-    ) -> str:
+    def _write_initial_session_marker(self, session_id: str, started_at: datetime) -> str:
         marker = EpisodicMemory(
             memory_id=str(uuid4()),
             self_id=self._self_id,
@@ -499,8 +485,7 @@ class Dreamer:
             )
             return int(cur.fetchone()[0])
         cur = self._repo.conn.execute(
-            "SELECT COUNT(*) FROM durable_memory "
-            "WHERE self_id = ? AND created_at > ?",
+            "SELECT COUNT(*) FROM durable_memory WHERE self_id = ? AND created_at > ?",
             (self._self_id, threshold.isoformat()),
         )
         return int(cur.fetchone()[0])

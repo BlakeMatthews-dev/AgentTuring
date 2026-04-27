@@ -20,14 +20,14 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from ..motivation import BacklogItem, Motivation, PipelineState
-from ..reactor import FakeReactor
+from ..reactor import Reactor
 from .tools.rss import FeedItem, RSSReader
 
 
 logger = logging.getLogger("turing.runtime.rss_fetcher")
 
 
-DEFAULT_RSS_POLL_TICKS: int = 30_000      # 5 min at 100Hz
+DEFAULT_RSS_POLL_TICKS: int = 30_000  # 5 min at 100Hz
 
 
 class RSSFetcher:
@@ -36,7 +36,7 @@ class RSSFetcher:
         *,
         reader: RSSReader,
         motivation: Motivation,
-        reactor: FakeReactor,
+        reactor: Reactor,
         poll_ticks: int = DEFAULT_RSS_POLL_TICKS,
     ) -> None:
         self._reader = reader

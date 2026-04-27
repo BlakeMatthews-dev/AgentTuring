@@ -338,11 +338,11 @@ Non-UI items (API endpoints, webhook triggers, git-backed prompt store, n8n webh
 - [ ] **Google Custom Search API** — add `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` to config. Fallback when Brave is down or for domain-specific searches. ($5/1K queries after free 100/day).
 - [ ] **Feedback UI** — thumbs up/down buttons on every response in the Great Hall dashboard. Maps to `POST /v1/stronghold/feedback`.
 
-#### Da Vinci + Canvas Tool (image generation) (MEDIUM)
+#### Da Vinci + Canvas Studio (image generation + layer editor) (LARGE)
 - [ ] **Wire Da Vinci agent into container** — register in factory, add `image` task type to classifier + intent registry. Preamble template already handles capabilities/boundaries.
-- [ ] **Canvas tool executor** — single tool with 5 actions (generate, refine, reference, composite, text). Calls LiteLLM `/images/generations` for generate/refine, canvas compositor for composite/text.
+- [ ] **Canvas Studio backend** — spec 1189 (`specs/canvas-studio.yaml`): types, protocols, executor (5 actions), compositor service, REST API. Tests: `tests/tools/test_canvas_executor.py`, `tests/tools/test_canvas_compositor.py`, `tests/api/test_canvas_routes.py`.
+- [ ] **Canvas Studio UI** — spec 1190 (`specs/canvas-studio-ui.yaml`): React layer editor (7th console surface `/dashboard/studio`), Konva.js viewport, direct manipulation (click/drag/resize/rotate/opacity/z-order), variant gallery, export dialog. Works with any image-gen model.
 - [ ] **Draft/proof model selection** — tool tier parameter selects from model priority lists (free Google models first, paid Together models as fallback).
-- [ ] **Canvas compositor service** — layer assembly (background + characters + objects + text), position/scale/rotate per layer, PNG/WebP output.
 - [ ] **Wire Fabulist agent** — children's storybook creator, uses canvas tool, add `storybook` task type to classifier.
 
 ### Conductor Feature Migration (2026-04-18)

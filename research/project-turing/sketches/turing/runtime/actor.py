@@ -41,6 +41,7 @@ class Actor:
         self._registry = registry
         self._poll_ticks = poll_ticks
         self._last_seen: datetime = datetime.now(UTC)
+        self._acted_ids: set[str] = set()
 
     def on_tick(self, tick: int) -> None:
         if tick % self._poll_ticks != 0:
@@ -56,12 +57,12 @@ class Actor:
         if not events:
             return
         for memory in events:
-            self._handle(memory)
+            if memory.memory_id not in self._acted_ids:
+                self._handle(memory)
+                self._acted_ids.add(memory.memory_id)
         self._last_seen = max(m.created_at for m in events)
 
-    def _collect_events_since(
-        self, cutoff: datetime
-    ) -> list[EpisodicMemory]:
+    def _collect_events_since(self, cutoff: datetime) -> list[EpisodicMemory]:
         out: list[EpisodicMemory] = []
         for tier in (
             MemoryTier.WISDOM,

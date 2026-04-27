@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,7 @@ class FreeTierWindow:
     """A provider's current free-tier accounting window."""
 
     provider: str
-    window_kind: str                # "rpm" | "daily" | "monthly" | "rolling_hours"
+    window_kind: str  # "rpm" | "daily" | "monthly" | "rolling_hours"
     window_started_at: datetime
     window_duration: timedelta
     tokens_allowed: int
@@ -52,6 +52,7 @@ class Provider(Protocol):
         raise NotImplementedError
 
 
+@runtime_checkable
 class EmbeddingProvider(Protocol):
     """A provider that can also produce embeddings."""
 

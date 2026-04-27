@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from .protocols import (
     ImmutableViolation,
@@ -41,6 +42,8 @@ class Repo:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._apply_schema()
 
     # ------------------------------------------------------------------ setup
@@ -145,7 +148,7 @@ class Repo:
                 f"WISDOM origin_episode_id {memory.origin_episode_id} does not resolve to any marker"
             )
 
-    def _row_for_insert(self, m: EpisodicMemory, include_deleted: bool) -> tuple:
+    def _row_for_insert(self, m: EpisodicMemory, include_deleted: bool) -> tuple[Any, ...]:
         base = [
             m.memory_id,
             m.self_id,
@@ -212,8 +215,9 @@ class Repo:
         self._validate_table(table)
         with self._lock:
             cur = self._conn.execute(f"SELECT * FROM {table} WHERE memory_id = ?", (memory_id,))
-            cur.row_factory = sqlite3.Row
-            return cur.fetchone()
+            cur.row_factory = sqlite3.Row  # type: ignore[assignment]
+            result: sqlite3.Row | None = cur.fetchone()
+            return result
 
     def _row_to_memory(self, row: sqlite3.Row, *, include_deleted: bool) -> EpisodicMemory:
         return EpisodicMemory(
@@ -422,7 +426,7 @@ class Repo:
         sql += " ORDER BY created_at DESC"
         with self._lock:
             cur = self._conn.execute(sql, tuple(params))
-            cur.row_factory = sqlite3.Row
+            cur.row_factory = sqlite3.Row  # type: ignore[assignment]
             rows = cur.fetchall()
         for row in rows:
             yield self._row_to_memory(row, include_deleted=(table == "episodic_memory"))

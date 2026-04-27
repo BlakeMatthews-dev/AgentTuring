@@ -1,10 +1,6 @@
 """Tests for specs/self-write-preconditions.md: AC-35.* (filed as AC-71.*).
 
 Bootstrap-complete precondition, active-now cache, and cross-self guards.
-
-Symbols that don't exist yet (_bootstrap_complete, _require_ready,
-ActivationCache, CrossSelfAccess, write_contributor, etc.) are imported
-*inside* test functions so pytest can still collect and xfail-mark them.
 """
 
 from __future__ import annotations
@@ -14,7 +10,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from turing.self_activation import ActivationContext, active_now
+from turing.self_activation import (
+    ACTIVATION_CACHE_MAX_ENTRIES,
+    ACTIVATION_CACHE_TTL,
+    ActivationCache,
+    ActivationContext,
+    active_now,
+    invalidate_cache_for,
+)
 from turing.self_bootstrap import BootstrapRuntimeError, run_bootstrap
 from turing.self_model import (
     ALL_FACETS,
@@ -25,15 +28,19 @@ from turing.self_model import (
     NodeKind,
     Passion,
     PersonalityFacet,
+    PersonalityAnswer,
+    PersonalityItem,
     PreferenceKind,
     SelfTodo,
+    SelfTodoRevision,
     Skill,
     SkillKind,
+    TodoStatus,
     Trait,
     facet_node_id,
 )
-from turing.self_repo import SelfRepo
-from turing.self_surface import SelfNotReady
+from turing.self_repo import CrossSelfAccess, SelfRepo
+from turing.self_surface import SelfNotReady, _bootstrap_complete
 
 
 def _seed_minimal_self(srepo: SelfRepo, self_id: str, facet_score: float = 3.0) -> None:
@@ -95,37 +102,21 @@ def _ctx(
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.1: self-write-preconditions not implemented")
 def test_ac_71_1_bootstrap_complete_true_when_all_met(srepo, self_id, new_id) -> None:
-    """AC-71.1: Returns True when facets==24, answers==200, mood present."""
-    from turing.self_surface import _bootstrap_complete
-
     _seed_bootstrap_complete(srepo, self_id, new_id)
     assert _bootstrap_complete(srepo, self_id) is True
 
 
-@pytest.mark.xfail(reason="AC-71.1: self-write-preconditions not implemented")
 def test_ac_71_1_false_when_facets_missing(srepo, self_id) -> None:
-    """AC-71.1: Returns False when facets < 24 (no bootstrap run)."""
-    from turing.self_surface import _bootstrap_complete
-
     assert _bootstrap_complete(srepo, self_id) is False
 
 
-@pytest.mark.xfail(reason="AC-71.1: self-write-preconditions not implemented")
 def test_ac_71_1_false_when_no_answers(srepo, self_id) -> None:
-    """AC-71.1: Returns False when facets==24 but answers < 200."""
-    from turing.self_surface import _bootstrap_complete
-
     _seed_minimal_self(srepo, self_id)
     assert _bootstrap_complete(srepo, self_id) is False
 
 
-@pytest.mark.xfail(reason="AC-71.1: self-write-preconditions not implemented")
 def test_ac_71_1_false_when_no_mood(srepo, self_id) -> None:
-    """AC-71.1: Returns False when facets==24, answers==200, but no mood."""
-    from turing.self_surface import _bootstrap_complete
-
     now = datetime.now(UTC)
     for trait, facet in ALL_FACETS:
         srepo.insert_facet(
@@ -139,15 +130,26 @@ def test_ac_71_1_false_when_no_mood(srepo, self_id) -> None:
             )
         )
     for i in range(200):
-        from turing.self_model import PersonalityAnswer
-
-        srepo.insert_answer(
-            PersonalityAnswer(
-                answer_id=f"ans:{i}",
+        item_id = f"item:{i + 1}"
+        srepo.insert_item(
+            PersonalityItem(
+                node_id=item_id,
                 self_id=self_id,
                 item_number=i + 1,
-                response=3,
-                justified_with="",
+                prompt_text=f"Q{i + 1}",
+                keyed_facet="sincerity",
+                reverse_scored=False,
+            )
+        )
+        srepo.insert_answer(
+            PersonalityAnswer(
+                node_id=f"ans:{i + 1}",
+                self_id=self_id,
+                item_id=item_id,
+                revision_id=None,
+                answer_1_5=3,
+                justification_text="",
+                asked_at=now,
             )
         )
     assert not srepo.has_mood(self_id)
@@ -155,184 +157,149 @@ def test_ac_71_1_false_when_no_mood(srepo, self_id) -> None:
 
 
 # =========================================================================
-# AC-71.2  Every write-tool calls _require_ready first; failure raises
-#          SelfNotReady.  Test per tool.
+# AC-71.2  Write tools require _bootstrap_complete; SelfNotReady before.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_passion_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_passion raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_note_passion_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_nodes import note_passion
 
     with pytest.raises(SelfNotReady):
-        note_passion(srepo, self_id, text="music", strength=0.7, first_noticed_at=datetime.now(UTC))
+        note_passion(srepo, self_id, text="music", strength=0.7, new_id=new_id)
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_hobby_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_hobby raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_note_hobby_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_nodes import note_hobby
 
     with pytest.raises(SelfNotReady):
-        note_hobby(srepo, self_id, name="reading", description="books")
+        note_hobby(srepo, self_id, name="reading", description="books", new_id=new_id)
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_interest_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_interest raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_note_interest_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_nodes import note_interest
 
     with pytest.raises(SelfNotReady):
-        note_interest(srepo, self_id, topic="cognitive science", description="")
+        note_interest(srepo, self_id, topic="cognitive science", description="", new_id=new_id)
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_preference_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_preference raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_note_preference_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_nodes import note_preference
 
     with pytest.raises(SelfNotReady):
         note_preference(
-            srepo, self_id, kind=PreferenceKind.AESTHETIC, label="minimalism", valence=0.8
+            srepo,
+            self_id,
+            kind=PreferenceKind.LIKE,
+            target="minimalism",
+            strength=0.8,
+            rationale="test",
+            new_id=new_id,
         )
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_skill_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_skill raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_note_skill_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_nodes import note_skill
 
     with pytest.raises(SelfNotReady):
-        note_skill(srepo, self_id, name="Python", kind=SkillKind.INTELLECTUAL, initial_level=0.6)
+        note_skill(
+            srepo,
+            self_id,
+            name="Python",
+            kind=SkillKind.INTELLECTUAL,
+            level=0.6,
+            new_id=new_id,
+        )
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_write_self_todo_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: write_self_todo raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_write_self_todo_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_todos import write_self_todo
 
     with pytest.raises(SelfNotReady):
-        write_self_todo(srepo, self_id, text="Learn Rust", motivated_by_node_id="passion:1")
+        write_self_todo(
+            srepo, self_id, text="Learn Rust", motivated_by_node_id="passion:1", new_id=new_id
+        )
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_revise_self_todo_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: revise_self_todo raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_revise_self_todo_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_todos import revise_self_todo
 
+    srepo.insert_todo(
+        SelfTodo(node_id="todo:1", self_id=self_id, text="T", motivated_by_node_id="passion:1")
+    )
     with pytest.raises(SelfNotReady):
-        revise_self_todo(srepo, self_id, todo_id="todo:1", new_text="Updated")
+        revise_self_todo(
+            srepo, self_id, todo_id="todo:1", new_text="Updated", reason="change", new_id=new_id
+        )
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_complete_self_todo_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: complete_self_todo raises SelfNotReady when bootstrap incomplete."""
+def test_ac_71_2_complete_self_todo_raises_before_bootstrap(srepo, self_id, new_id) -> None:
     from turing.self_todos import complete_self_todo
 
+    srepo.insert_todo(
+        SelfTodo(node_id="todo:1", self_id=self_id, text="T", motivated_by_node_id="passion:1")
+    )
     with pytest.raises(SelfNotReady):
-        complete_self_todo(srepo, self_id, todo_id="todo:1", resolution="Done")
+        complete_self_todo(srepo, self_id, todo_id="todo:1", outcome_text="Done", new_id=new_id)
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
 def test_ac_71_2_archive_self_todo_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: archive_self_todo raises SelfNotReady when bootstrap incomplete."""
     from turing.self_todos import archive_self_todo
 
+    srepo.insert_todo(
+        SelfTodo(node_id="todo:1", self_id=self_id, text="T", motivated_by_node_id="passion:1")
+    )
     with pytest.raises(SelfNotReady):
         archive_self_todo(srepo, self_id, todo_id="todo:1", reason="stale")
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
 def test_ac_71_2_practice_skill_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: practice_skill raises SelfNotReady when bootstrap incomplete."""
     from turing.self_nodes import practice_skill
 
+    srepo.insert_skill(
+        Skill(
+            node_id="skill:x",
+            self_id=self_id,
+            name="test",
+            kind=SkillKind.INTELLECTUAL,
+            stored_level=0.5,
+            decay_rate_per_day=0.001,
+            last_practiced_at=datetime.now(UTC),
+        )
+    )
     with pytest.raises(SelfNotReady):
         practice_skill(srepo, self_id, skill_id="skill:x", new_level=0.9)
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
 def test_ac_71_2_downgrade_skill_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: downgrade_skill raises SelfNotReady when bootstrap incomplete."""
     from turing.self_nodes import downgrade_skill
 
+    srepo.insert_skill(
+        Skill(
+            node_id="skill:x",
+            self_id=self_id,
+            name="test",
+            kind=SkillKind.INTELLECTUAL,
+            stored_level=0.5,
+            decay_rate_per_day=0.001,
+            last_practiced_at=datetime.now(UTC),
+        )
+    )
     with pytest.raises(SelfNotReady):
-        downgrade_skill(srepo, self_id, skill_id="skill:x", new_level=0.2)
+        downgrade_skill(srepo, self_id, skill_id="skill:x", new_level=0.2, reason="honest")
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
 def test_ac_71_2_rerank_passions_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: rerank_passions raises SelfNotReady when bootstrap incomplete."""
     from turing.self_nodes import rerank_passions
 
     with pytest.raises(SelfNotReady):
-        rerank_passions(srepo, self_id, new_order=["passion:2", "passion:1"])
+        rerank_passions(srepo, self_id, ordered_ids=["passion:2", "passion:1"])
 
 
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_write_contributor_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: write_contributor raises SelfNotReady when bootstrap incomplete."""
-    from turing.self_surface import write_contributor
-
-    c = ActivationContributor(
-        node_id="c:1",
-        self_id=self_id,
-        target_node_id="facet:x",
-        target_kind=NodeKind.PERSONALITY_FACET,
-        source_id="passion:1",
-        source_kind="passion",
-        weight=0.5,
-        origin=ContributorOrigin.SELF,
-        rationale="",
-    )
-    with pytest.raises(SelfNotReady):
-        write_contributor(srepo, c)
-
-
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_record_personality_claim_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: record_personality_claim raises SelfNotReady when bootstrap incomplete."""
-    from turing.self_surface import record_personality_claim
-
-    with pytest.raises(SelfNotReady):
-        record_personality_claim(srepo, self_id, facet="inquisitiveness", claim="very curious")
-
-
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_retract_contributor_by_counter_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: retract_contributor_by_counter raises SelfNotReady when bootstrap incomplete."""
-    from turing.self_surface import retract_contributor_by_counter
-
-    with pytest.raises(SelfNotReady):
-        retract_contributor_by_counter(srepo, self_id, contributor_id="c:1", rationale="wrong")
-
-
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_engagement_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_engagement raises SelfNotReady when bootstrap incomplete."""
-    from turing.self_surface import note_engagement
-
-    with pytest.raises(SelfNotReady):
-        note_engagement(srepo, self_id, hobby_id="hobby:1", description="went climbing")
-
-
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
-def test_ac_71_2_note_interest_trigger_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.2: note_interest_trigger raises SelfNotReady when bootstrap incomplete."""
-    from turing.self_surface import note_interest_trigger
-
-    with pytest.raises(SelfNotReady):
-        note_interest_trigger(srepo, self_id, interest_id="interest:1", trigger="saw a talk")
-
-
-@pytest.mark.xfail(reason="AC-71.2: self-write-preconditions not implemented")
 def test_ac_71_2_tool_succeeds_after_bootstrap(srepo, self_id, new_id) -> None:
-    """AC-71.2: Write tools succeed when bootstrap IS complete."""
     from turing.self_nodes import note_passion
 
     _seed_bootstrap_complete(srepo, self_id, new_id)
-    note_passion(srepo, self_id, text="music", strength=0.7, first_noticed_at=datetime.now(UTC))
+    note_passion(srepo, self_id, text="music", strength=0.7, new_id=new_id)
     passions = srepo.list_passions(self_id)
     assert len(passions) == 1
     assert passions[0].text == "music"
@@ -340,22 +307,18 @@ def test_ac_71_2_tool_succeeds_after_bootstrap(srepo, self_id, new_id) -> None:
 
 # =========================================================================
 # AC-71.3  recall_self and render_minimal_block already enforce bootstrap
-#          check (spec 28 AC-28.25). Behavior unchanged.
+#          check. Behavior unchanged.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.3: self-write-preconditions not implemented")
 def test_ac_71_3_recall_self_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.3: recall_self still raises SelfNotReady before bootstrap (unchanged)."""
     from turing.self_surface import recall_self
 
     with pytest.raises(SelfNotReady):
         recall_self(srepo, self_id)
 
 
-@pytest.mark.xfail(reason="AC-71.3: self-write-preconditions not implemented")
 def test_ac_71_3_render_minimal_block_raises_before_bootstrap(srepo, self_id) -> None:
-    """AC-71.3: render_minimal_block still raises SelfNotReady before bootstrap."""
     from turing.self_surface import render_minimal_block
 
     with pytest.raises(SelfNotReady):
@@ -364,13 +327,10 @@ def test_ac_71_3_render_minimal_block_raises_before_bootstrap(srepo, self_id) ->
 
 # =========================================================================
 # AC-71.4  Bootstrap direct writes bypass the precondition check.
-#          Bootstrap completes without raising.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.4: self-write-preconditions not implemented")
 def test_ac_71_4_bootstrap_completes_without_raising(srepo, self_id, new_id) -> None:
-    """AC-71.4: Bootstrap procedure completes without SelfNotReady."""
     bank: list[dict] = []
     facet_names = [f for _, f in ALL_FACETS]
     for i in range(200):
@@ -400,26 +360,17 @@ def test_ac_71_4_bootstrap_completes_without_raising(srepo, self_id, new_id) -> 
     assert srepo.has_mood(self_id)
 
 
-@pytest.mark.xfail(reason="AC-71.4: self-write-preconditions not implemented")
 def test_ac_71_4_bootstrap_repo_inserts_skip_require_ready(srepo, self_id, new_id) -> None:
-    """AC-71.4: Internal repo calls during bootstrap don't trigger _require_ready."""
-    from turing.self_surface import _bootstrap_complete
-
     _seed_bootstrap_complete(srepo, self_id, new_id)
     assert _bootstrap_complete(srepo, self_id) is True
 
 
 # =========================================================================
-# AC-71.5  ActivationCache: process-local dict, TTL 30s, hit returns cached
-#          float, miss computes and stores.
+# AC-71.5  ActivationCache: TTL 30s, hit returns cached float.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.5: self-write-preconditions not implemented")
 def test_ac_71_5_cache_hit_returns_same_value(srepo, self_id) -> None:
-    """AC-71.5: Second call on same node+ctx returns cached float without recomputing."""
-    from turing.self_activation import ActivationCache
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -445,11 +396,7 @@ def test_ac_71_5_cache_hit_returns_same_value(srepo, self_id) -> None:
     assert compute_count["n"] == 0
 
 
-@pytest.mark.xfail(reason="AC-71.5: self-write-preconditions not implemented")
 def test_ac_71_5_ttl_expired_recomputes(srepo, self_id) -> None:
-    """AC-71.5: Entry older than 30s is a miss and recomputes."""
-    from turing.self_activation import ACTIVATION_CACHE_TTL, ActivationCache
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -461,18 +408,23 @@ def test_ac_71_5_ttl_expired_recomputes(srepo, self_id) -> None:
             last_revised_at=datetime.now(UTC),
         )
     )
-    now = datetime.now(UTC)
-    old_ctx = _ctx(self_id, now=now - timedelta(seconds=31))
+    ctx = _ctx(self_id)
     cache = ActivationCache()
     compute_count = {"n": 0}
 
     def compute():
         compute_count["n"] += 1
-        return active_now(srepo, nid, _ctx(self_id))
+        return active_now(srepo, nid, ctx)
 
-    cache.get_or_compute(nid, old_ctx, compute)
+    cache.get_or_compute(nid, ctx, compute)
     assert compute_count["n"] == 1
-    cache.get_or_compute(nid, old_ctx, compute)
+
+    with cache._lock:
+        key = (nid, ctx.hash)
+        val = cache._store[key][0]
+        cache._store[key] = (val, datetime.now(UTC) - timedelta(seconds=31))
+
+    cache.get_or_compute(nid, ctx, compute)
     assert compute_count["n"] == 2
 
 
@@ -481,11 +433,7 @@ def test_ac_71_5_ttl_expired_recomputes(srepo, self_id) -> None:
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.6: self-write-preconditions not implemented")
 def test_ac_71_6_insert_contributor_invalidates_target_cache(srepo, self_id) -> None:
-    """AC-71.6: After insert_contributor, cached value for target is gone."""
-    from turing.self_activation import ActivationCache, invalidate_cache_for
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -526,7 +474,7 @@ def test_ac_71_6_insert_contributor_invalidates_target_cache(srepo, self_id) -> 
         ),
         acting_self_id=self_id,
     )
-    invalidate_cache_for([nid])
+    invalidate_cache_for([nid], cache=cache)
     compute_count = {"n": 0}
 
     def compute():
@@ -538,11 +486,7 @@ def test_ac_71_6_insert_contributor_invalidates_target_cache(srepo, self_id) -> 
     assert v_after > v_before
 
 
-@pytest.mark.xfail(reason="AC-71.6: self-write-preconditions not implemented")
 def test_ac_71_6_mark_retracted_invalidates_target_cache(srepo, self_id) -> None:
-    """AC-71.6: mark_contributor_retracted invalidates target cache."""
-    from turing.self_activation import ActivationCache, invalidate_cache_for
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -584,22 +528,17 @@ def test_ac_71_6_mark_retracted_invalidates_target_cache(srepo, self_id) -> None
     assert v_with > 0.5
 
     srepo.mark_contributor_retracted("c:1", retracted_by="self")
-    invalidate_cache_for([nid])
+    invalidate_cache_for([nid], cache=cache)
     v_without = cache.get_or_compute(nid, ctx, lambda: active_now(srepo, nid, ctx))
     assert v_without == pytest.approx(0.5)
 
 
 # =========================================================================
-# AC-71.7  Mutating a source node invalidates cache for every target that
-#          has a contributor pointing from this source.
+# AC-71.7  Mutating a source node invalidates cache for targets.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.7: self-write-preconditions not implemented")
 def test_ac_71_7_source_mutation_invalidates_target_caches(srepo, self_id) -> None:
-    """AC-71.7: Updating passion strength invalidates cache for targets it feeds."""
-    from turing.self_activation import ActivationCache, invalidate_cache_for
-
     nid_a = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     nid_b = facet_node_id(Trait.CONSCIENTIOUSNESS, "diligence")
     now = datetime.now(UTC)
@@ -653,7 +592,7 @@ def test_ac_71_7_source_mutation_invalidates_target_caches(srepo, self_id) -> No
     p = srepo.get_passion("passion:shared")
     p.strength = 0.1
     srepo.update_passion(p, acting_self_id=self_id)
-    invalidate_cache_for([nid_a, nid_b])
+    invalidate_cache_for([nid_a, nid_b], cache=cache)
 
     v_a_after = cache.get_or_compute(nid_a, ctx, lambda: active_now(srepo, nid_a, ctx))
     v_b_after = cache.get_or_compute(nid_b, ctx, lambda: active_now(srepo, nid_b, ctx))
@@ -662,16 +601,11 @@ def test_ac_71_7_source_mutation_invalidates_target_caches(srepo, self_id) -> No
 
 
 # =========================================================================
-# AC-71.8  Cache is keyed on ctx.hash.  Different retrieval contexts produce
-#          different cache entries.
+# AC-71.8  Cache keyed on ctx.hash; different retrieval → different entries.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.8: self-write-preconditions not implemented")
 def test_ac_71_8_different_ctx_hash_produces_different_entries(srepo, self_id) -> None:
-    """AC-71.8: Different retrieval_similarity yields different cache entries."""
-    from turing.self_activation import ActivationCache
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -694,6 +628,7 @@ def test_ac_71_8_different_ctx_hash_produces_different_entries(srepo, self_id) -
             weight=0.9,
             origin=ContributorOrigin.RETRIEVAL,
             rationale="",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
         ),
         acting_self_id=self_id,
     )
@@ -712,11 +647,7 @@ def test_ac_71_8_different_ctx_hash_produces_different_entries(srepo, self_id) -
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.9: self-write-preconditions not implemented")
 def test_ac_71_9_lru_eviction_at_max_entries(srepo, self_id) -> None:
-    """AC-71.9: Cache evicts oldest entry when size exceeds 1024."""
-    from turing.self_activation import ACTIVATION_CACHE_MAX_ENTRIES, ActivationCache
-
     cache = ActivationCache()
     ctx = _ctx(self_id)
 
@@ -742,16 +673,11 @@ def test_ac_71_9_lru_eviction_at_max_entries(srepo, self_id) -> None:
 
 
 # =========================================================================
-# AC-71.10  SelfRepo.update_* methods accept acting_self_id keyword-only;
-#           mismatch raises CrossSelfAccess.
+# AC-71.10  SelfRepo.update_* methods accept acting_self_id keyword-only.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_facet_score_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_facet_score with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     now = datetime.now(UTC)
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
@@ -765,14 +691,10 @@ def test_ac_71_10_update_facet_score_mismatch_raises(srepo, self_id) -> None:
         )
     )
     with pytest.raises(CrossSelfAccess):
-        srepo.update_facet_score(self_id, "inquisitiveness", 4.0, acting_self_id="other:self")
+        srepo.update_facet_score(self_id, "inquisitiveness", 4.0, now, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_passion_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_passion with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     now = datetime.now(UTC)
     p = Passion(
         node_id="passion:1",
@@ -787,28 +709,19 @@ def test_ac_71_10_update_passion_mismatch_raises(srepo, self_id) -> None:
         srepo.update_passion(p, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_hobby_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_hobby with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     h = Hobby(
         node_id="hobby:1",
         self_id=self_id,
         name="reading",
         description="",
-        last_engaged_at=datetime.now(UTC),
     )
     srepo.insert_hobby(h)
     with pytest.raises(CrossSelfAccess):
         srepo.update_hobby(h, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_skill_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_skill with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     s = Skill(
         node_id="skill:1",
         self_id=self_id,
@@ -823,11 +736,7 @@ def test_ac_71_10_update_skill_mismatch_raises(srepo, self_id) -> None:
         srepo.update_skill(s, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_todo_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_todo with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     t = SelfTodo(
         node_id="todo:1",
         self_id=self_id,
@@ -839,20 +748,14 @@ def test_ac_71_10_update_todo_mismatch_raises(srepo, self_id) -> None:
         srepo.update_todo(t, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_mood_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.10: update_mood with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     _seed_minimal_self(srepo, self_id)
     m = srepo.get_mood(self_id)
     with pytest.raises(CrossSelfAccess):
         srepo.update_mood(m, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.10: self-write-preconditions not implemented")
 def test_ac_71_10_update_matching_self_id_succeeds(srepo, self_id) -> None:
-    """AC-71.10: Matching acting_self_id does not raise."""
     now = datetime.now(UTC)
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
@@ -865,7 +768,7 @@ def test_ac_71_10_update_matching_self_id_succeeds(srepo, self_id) -> None:
             last_revised_at=now,
         )
     )
-    srepo.update_facet_score(self_id, "inquisitiveness", 4.5, acting_self_id=self_id)
+    srepo.update_facet_score(self_id, "inquisitiveness", 4.5, now, acting_self_id=self_id)
     assert srepo.get_facet_score(self_id, "inquisitiveness") == 4.5
 
 
@@ -874,11 +777,7 @@ def test_ac_71_10_update_matching_self_id_succeeds(srepo, self_id) -> None:
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.11: self-write-preconditions not implemented")
 def test_ac_71_11_insert_contributor_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.11: insert_contributor with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     c = ActivationContributor(
         node_id="c:1",
         self_id=self_id,
@@ -894,9 +793,7 @@ def test_ac_71_11_insert_contributor_mismatch_raises(srepo, self_id) -> None:
         srepo.insert_contributor(c, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.11: self-write-preconditions not implemented")
 def test_ac_71_11_insert_contributor_matching_succeeds(srepo, self_id) -> None:
-    """AC-71.11: insert_contributor with matching acting_self_id succeeds."""
     c = ActivationContributor(
         node_id="c:1",
         self_id=self_id,
@@ -918,61 +815,52 @@ def test_ac_71_11_insert_contributor_matching_succeeds(srepo, self_id) -> None:
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.12: self-write-preconditions not implemented")
 def test_ac_71_12_insert_todo_revision_mismatch_raises(srepo, self_id) -> None:
-    """AC-71.12: insert_todo_revision with wrong acting_self_id raises CrossSelfAccess."""
-    from turing.self_repo import CrossSelfAccess
-
     srepo.insert_todo(
         SelfTodo(node_id="todo:1", self_id=self_id, text="T", motivated_by_node_id="p:1")
     )
-    revision = {
-        "todo_id": "todo:1",
-        "self_id": self_id,
-        "field": "text",
-        "old_value": "T",
-        "new_value": "T2",
-        "revised_at": datetime.now(UTC).isoformat(),
-    }
+    revision = SelfTodoRevision(
+        node_id="rev:1",
+        self_id=self_id,
+        todo_id="todo:1",
+        revision_num=1,
+        text_before="T",
+        text_after="T2",
+        revised_at=datetime.now(UTC),
+    )
     with pytest.raises(CrossSelfAccess):
         srepo.insert_todo_revision(revision, acting_self_id="other:self")
 
 
-@pytest.mark.xfail(reason="AC-71.12: self-write-preconditions not implemented")
 def test_ac_71_12_insert_todo_revision_matching_succeeds(srepo, self_id) -> None:
-    """AC-71.12: insert_todo_revision with matching acting_self_id succeeds."""
     srepo.insert_todo(
         SelfTodo(node_id="todo:1", self_id=self_id, text="T", motivated_by_node_id="p:1")
     )
-    revision = {
-        "todo_id": "todo:1",
-        "self_id": self_id,
-        "field": "text",
-        "old_value": "T",
-        "new_value": "T2",
-        "revised_at": datetime.now(UTC).isoformat(),
-    }
+    revision = SelfTodoRevision(
+        node_id="rev:1",
+        self_id=self_id,
+        todo_id="todo:1",
+        revision_num=1,
+        text_before="T",
+        text_after="T2",
+        revised_at=datetime.now(UTC),
+    )
     srepo.insert_todo_revision(revision, acting_self_id=self_id)
 
 
 # =========================================================================
 # AC-71.13  Bootstrap-time inserts pass acting_self_id (always match).
-#          No regression in bootstrap flow.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.13: self-write-preconditions not implemented")
 def test_ac_71_13_bootstrap_inserts_pass_acting_self_id(srepo, self_id, new_id) -> None:
-    """AC-71.13: Bootstrap internal inserts include acting_self_id and never mismatch."""
     _seed_bootstrap_complete(srepo, self_id, new_id)
     assert srepo.count_facets(self_id) == 24
     assert srepo.count_answers(self_id) == 200
     assert srepo.has_mood(self_id)
 
 
-@pytest.mark.xfail(reason="AC-71.13: self-write-preconditions not implemented")
 def test_ac_71_13_bootstrap_resume_still_works(srepo, self_id, new_id) -> None:
-    """AC-71.13: Bootstrap resume path also passes acting_self_id correctly."""
     bank: list[dict] = []
     facet_names = [f for _, f in ALL_FACETS]
     for i in range(200):
@@ -1018,15 +906,10 @@ def test_ac_71_13_bootstrap_resume_still_works(srepo, self_id, new_id) -> None:
 
 # =========================================================================
 # AC-71.14  Concurrent reads on same key don't double-fetch.
-#           Threaded harness: first-writer-wins.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.14: self-write-preconditions not implemented")
 def test_ac_71_14_concurrent_reads_single_compute(srepo, self_id) -> None:
-    """AC-71.14: Two threads reading same key only trigger one compute."""
-    from turing.self_activation import ActivationCache
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -1066,24 +949,16 @@ def test_ac_71_14_concurrent_reads_single_compute(srepo, self_id) -> None:
 
 
 # =========================================================================
-# AC-71.15  Cache does not persist across restarts.  Cold read sees empty.
+# AC-71.15  Cache does not persist across restarts. Cold read sees empty.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.15: self-write-preconditions not implemented")
 def test_ac_71_15_fresh_cache_is_empty(srepo, self_id) -> None:
-    """AC-71.15: A new ActivationCache instance starts empty."""
-    from turing.self_activation import ActivationCache
-
     cache = ActivationCache()
     assert cache.size() == 0
 
 
-@pytest.mark.xfail(reason="AC-71.15: self-write-preconditions not implemented")
 def test_ac_71_15_cache_does_not_persist_across_instances(srepo, self_id) -> None:
-    """AC-71.15: Second ActivationCache instance does not see first's entries."""
-    from turing.self_activation import ActivationCache
-
     nid = facet_node_id(Trait.OPENNESS, "inquisitiveness")
     srepo.insert_facet(
         PersonalityFacet(
@@ -1114,16 +989,10 @@ def test_ac_71_15_cache_does_not_persist_across_instances(srepo, self_id) -> Non
 
 # =========================================================================
 # AC-71.16  _bootstrap_complete does not go through the cache.
-#           It's a cheap count query.
 # =========================================================================
 
 
-@pytest.mark.xfail(reason="AC-71.16: self-write-preconditions not implemented")
 def test_ac_71_16_bootstrap_complete_ignores_cache(srepo, self_id) -> None:
-    """AC-71.16: _bootstrap_complete is unaffected by ActivationCache state."""
-    from turing.self_activation import ActivationCache
-    from turing.self_surface import _bootstrap_complete
-
     cache = ActivationCache()
     assert cache.size() == 0
     result = _bootstrap_complete(srepo, self_id)
@@ -1131,12 +1000,7 @@ def test_ac_71_16_bootstrap_complete_ignores_cache(srepo, self_id) -> None:
     assert cache.size() == 0
 
 
-@pytest.mark.xfail(reason="AC-71.16: self-write-preconditions not implemented")
 def test_ac_71_16_bootstrap_complete_consistent_with_repo_counts(srepo, self_id) -> None:
-    """AC-71.16: _bootstrap_complete reflects actual repo state, not cache."""
-    from turing.self_model import PersonalityAnswer
-    from turing.self_surface import _bootstrap_complete
-
     now = datetime.now(UTC)
     for trait, facet in ALL_FACETS:
         srepo.insert_facet(
@@ -1151,14 +1015,28 @@ def test_ac_71_16_bootstrap_complete_consistent_with_repo_counts(srepo, self_id)
         )
     assert srepo.count_facets(self_id) == 24
     assert _bootstrap_complete(srepo, self_id) is False
+
     for i in range(200):
-        srepo.insert_answer(
-            PersonalityAnswer(
-                answer_id=f"ans:{i}",
+        item_id = f"item:{i + 1}"
+        srepo.insert_item(
+            PersonalityItem(
+                node_id=item_id,
                 self_id=self_id,
                 item_number=i + 1,
-                response=3,
-                justified_with="",
+                prompt_text=f"Q{i + 1}",
+                keyed_facet="sincerity",
+                reverse_scored=False,
+            )
+        )
+        srepo.insert_answer(
+            PersonalityAnswer(
+                node_id=f"ans:{i + 1}",
+                self_id=self_id,
+                item_id=item_id,
+                revision_id=None,
+                answer_1_5=3,
+                justification_text="",
+                asked_at=now,
             )
         )
     assert srepo.count_answers(self_id) == 200

@@ -50,6 +50,9 @@ def _seed_facet(srepo, self_id) -> str:
     from turing.self_model import PersonalityFacet, Trait, facet_node_id
 
     fid = facet_node_id(Trait.HONESTY_HUMILITY, "sincerity")
+    existing = srepo.get_facet(fid)
+    if existing is not None:
+        return fid
     srepo.insert_facet(
         PersonalityFacet(
             node_id=fid,
@@ -64,11 +67,11 @@ def _seed_facet(srepo, self_id) -> str:
 
 
 class TestWireContributor:
-    def test_wire_creates_contributor(self, srepo, self_id, new_id) -> None:
-        fid = _seed_facet(srepo, self_id)
+    def test_wire_creates_contributor(self, srepo, bootstrapped_id, new_id) -> None:
+        fid = _seed_facet(srepo, bootstrapped_id)
         _wire(
             srepo,
-            self_id,
+            bootstrapped_id,
             "passion:1",
             NodeKind.PASSION,
             [(fid, 0.6)],
@@ -77,17 +80,17 @@ class TestWireContributor:
         contribs = srepo.active_contributors_for(fid, at=datetime.now(UTC))
         assert any(c.source_id == "passion:1" for c in contribs)
 
-    def test_wire_none_contributes_to(self, srepo, self_id, new_id) -> None:
-        _wire(srepo, self_id, "passion:1", NodeKind.PASSION, None, new_id)
+    def test_wire_none_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        _wire(srepo, bootstrapped_id, "passion:1", NodeKind.PASSION, None, new_id)
 
-    def test_wire_empty_contributes_to(self, srepo, self_id, new_id) -> None:
-        _wire(srepo, self_id, "passion:1", NodeKind.PASSION, [], new_id)
+    def test_wire_empty_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        _wire(srepo, bootstrapped_id, "passion:1", NodeKind.PASSION, [], new_id)
 
-    def test_wire_guesses_kind_for_non_facet(self, srepo, self_id, new_id) -> None:
-        p = note_passion(srepo, self_id, "first", 0.5, new_id)
+    def test_wire_guesses_kind_for_non_facet(self, srepo, bootstrapped_id, new_id) -> None:
+        p = note_passion(srepo, bootstrapped_id, "first", 0.5, new_id)
         _wire(
             srepo,
-            self_id,
+            bootstrapped_id,
             "hobby:1",
             NodeKind.HOBBY,
             [(p.node_id, 0.3)],
@@ -129,40 +132,40 @@ class TestRejectDupeText:
 
 
 class TestSkillOperations:
-    def test_practice_skill_cross_self(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
+    def test_practice_skill_cross_self(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(PermissionError, match="cross-self"):
             practice_skill(srepo, "other-self", s.node_id)
 
-    def test_practice_skill_out_of_range(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
+    def test_practice_skill_out_of_range(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(ValueError, match="out of range"):
-            practice_skill(srepo, self_id, s.node_id, new_level=1.5)
+            practice_skill(srepo, bootstrapped_id, s.node_id, new_level=1.5)
 
-    def test_practice_skill_negative_level(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
+    def test_practice_skill_negative_level(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.5, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(ValueError, match="out of range"):
-            practice_skill(srepo, self_id, s.node_id, new_level=1.5)
+            practice_skill(srepo, bootstrapped_id, s.node_id, new_level=1.5)
 
-    def test_downgrade_skill_cross_self(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
+    def test_downgrade_skill_cross_self(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(PermissionError, match="cross-self"):
             downgrade_skill(srepo, "other-self", s.node_id, 0.5, "reason")
 
-    def test_downgrade_skill_out_of_range(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
+    def test_downgrade_skill_out_of_range(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(ValueError, match="out of range"):
-            downgrade_skill(srepo, self_id, s.node_id, 1.5, "reason")
+            downgrade_skill(srepo, bootstrapped_id, s.node_id, 1.5, "reason")
 
-    def test_downgrade_skill_blank_reason(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
+    def test_downgrade_skill_blank_reason(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(ValueError, match="reason is required"):
-            downgrade_skill(srepo, self_id, s.node_id, 0.3, "   ")
+            downgrade_skill(srepo, bootstrapped_id, s.node_id, 0.3, "   ")
 
-    def test_note_skill_custom_decay_rate(self, srepo, self_id, new_id) -> None:
+    def test_note_skill_custom_decay_rate(self, srepo, bootstrapped_id, new_id) -> None:
         s = note_skill(
             srepo,
-            self_id,
+            bootstrapped_id,
             "archery",
             0.6,
             SkillKind.PHYSICAL,
@@ -171,17 +174,17 @@ class TestSkillOperations:
         )
         assert s.decay_rate_per_day == 0.01
 
-    def test_note_skill_default_decay_rate(self, srepo, self_id, new_id) -> None:
-        s = note_skill(srepo, self_id, "archery", 0.6, SkillKind.PHYSICAL, new_id)
+    def test_note_skill_default_decay_rate(self, srepo, bootstrapped_id, new_id) -> None:
+        s = note_skill(srepo, bootstrapped_id, "archery", 0.6, SkillKind.PHYSICAL, new_id)
         assert s.decay_rate_per_day == DEFAULT_DECAY_RATES[SkillKind.PHYSICAL]
 
 
 class TestNoteHobbyWithContributor:
-    def test_hobby_with_contributes_to(self, srepo, self_id, new_id) -> None:
-        fid = _seed_facet(srepo, self_id)
+    def test_hobby_with_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        fid = _seed_facet(srepo, bootstrapped_id)
         h = note_hobby(
             srepo,
-            self_id,
+            bootstrapped_id,
             "Climbing",
             "bouldering",
             new_id,
@@ -192,11 +195,11 @@ class TestNoteHobbyWithContributor:
 
 
 class TestNoteInterestWithContributor:
-    def test_interest_with_contributes_to(self, srepo, self_id, new_id) -> None:
-        fid = _seed_facet(srepo, self_id)
+    def test_interest_with_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        fid = _seed_facet(srepo, bootstrapped_id)
         i = note_interest(
             srepo,
-            self_id,
+            bootstrapped_id,
             "Physics",
             "quantum mechanics",
             new_id,
@@ -207,11 +210,11 @@ class TestNoteInterestWithContributor:
 
 
 class TestNotePreferenceWithContributor:
-    def test_preference_with_contributes_to(self, srepo, self_id, new_id) -> None:
-        fid = _seed_facet(srepo, self_id)
+    def test_preference_with_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        fid = _seed_facet(srepo, bootstrapped_id)
         p = note_preference(
             srepo,
-            self_id,
+            bootstrapped_id,
             PreferenceKind.FAVORITE,
             "tea",
             0.9,
@@ -224,11 +227,11 @@ class TestNotePreferenceWithContributor:
 
 
 class TestNotePassionWithContributor:
-    def test_passion_with_contributes_to(self, srepo, self_id, new_id) -> None:
-        fid = _seed_facet(srepo, self_id)
+    def test_passion_with_contributes_to(self, srepo, bootstrapped_id, new_id) -> None:
+        fid = _seed_facet(srepo, bootstrapped_id)
         p = note_passion(
             srepo,
-            self_id,
+            bootstrapped_id,
             "music",
             0.8,
             new_id,

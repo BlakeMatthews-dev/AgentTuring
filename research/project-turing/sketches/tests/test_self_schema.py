@@ -278,19 +278,6 @@ def test_ac_22_12_preference_unique_on_kind_target(repos, self_id) -> None:
 # --------- AC-22.13..14 skill invariants ------------------------------------
 
 
-def test_ac_22_13_skill_non_positive_decay_raises() -> None:
-    with pytest.raises(ValueError, match="decay_rate_per_day must be positive"):
-        Skill(
-            node_id="sk",
-            self_id="s",
-            name="x",
-            kind=SkillKind.INTELLECTUAL,
-            stored_level=0.5,
-            decay_rate_per_day=0.0,
-            last_practiced_at=_now(),
-        )
-
-
 def test_ac_22_13_skill_stored_level_range() -> None:
     with pytest.raises(ValueError, match="stored_level out of range"):
         Skill(
@@ -299,7 +286,6 @@ def test_ac_22_13_skill_stored_level_range() -> None:
             name="x",
             kind=SkillKind.INTELLECTUAL,
             stored_level=1.01,
-            decay_rate_per_day=0.001,
             last_practiced_at=_now(),
         )
 

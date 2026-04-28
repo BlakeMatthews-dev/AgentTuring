@@ -262,7 +262,6 @@ def test_ac_71_2_practice_skill_raises_before_bootstrap(srepo, self_id) -> None:
             name="test",
             kind=SkillKind.INTELLECTUAL,
             stored_level=0.5,
-            decay_rate_per_day=0.001,
             last_practiced_at=datetime.now(UTC),
         )
     )
@@ -280,7 +279,6 @@ def test_ac_71_2_downgrade_skill_raises_before_bootstrap(srepo, self_id) -> None
             name="test",
             kind=SkillKind.INTELLECTUAL,
             stored_level=0.5,
-            decay_rate_per_day=0.001,
             last_practiced_at=datetime.now(UTC),
         )
     )
@@ -728,7 +726,6 @@ def test_ac_71_10_update_skill_mismatch_raises(srepo, self_id) -> None:
         name="Python",
         kind=SkillKind.INTELLECTUAL,
         stored_level=0.5,
-        decay_rate_per_day=0.001,
         last_practiced_at=datetime.now(UTC),
     )
     srepo.insert_skill(s)

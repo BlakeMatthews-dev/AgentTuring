@@ -1,8 +1,7 @@
 """Coverage gap filler for turing/self_nodes.py.
 
 Spec: AC-24 _wire helper (contributes_to path), _guess_kind for all prefixes,
-downgrade_skill range/out-of-range, practice_skill range guard,
-note_skill with custom decay_rate_per_day.
+downgrade_skill range/out-of-range, practice_skill range guard.
 
 Acceptance criteria:
 - _wire creates contributors when contributes_to is provided
@@ -10,7 +9,6 @@ Acceptance criteria:
 - _guess_kind returns correct NodeKind for every prefix and defaults to FACET
 - downgrade_skill rejects out-of-range new_level and blank reason
 - practice_skill rejects out-of-range new_level
-- note_skill accepts custom decay_rate_per_day
 - practice_skill raises on cross-self
 - downgrade_skill raises on cross-self
 """
@@ -22,7 +20,6 @@ from datetime import UTC, datetime
 import pytest
 
 from turing.self_model import (
-    DEFAULT_DECAY_RATES,
     Hobby,
     Interest,
     NodeKind,
@@ -161,22 +158,6 @@ class TestSkillOperations:
         s = note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
         with pytest.raises(ValueError, match="reason is required"):
             downgrade_skill(srepo, bootstrapped_id, s.node_id, 0.3, "   ")
-
-    def test_note_skill_custom_decay_rate(self, srepo, bootstrapped_id, new_id) -> None:
-        s = note_skill(
-            srepo,
-            bootstrapped_id,
-            "archery",
-            0.6,
-            SkillKind.PHYSICAL,
-            new_id,
-            decay_rate_per_day=0.01,
-        )
-        assert s.decay_rate_per_day == 0.01
-
-    def test_note_skill_default_decay_rate(self, srepo, bootstrapped_id, new_id) -> None:
-        s = note_skill(srepo, bootstrapped_id, "archery", 0.6, SkillKind.PHYSICAL, new_id)
-        assert s.decay_rate_per_day == DEFAULT_DECAY_RATES[SkillKind.PHYSICAL]
 
 
 class TestNoteHobbyWithContributor:

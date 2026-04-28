@@ -360,7 +360,6 @@ def single_skill(srepo, self_id) -> dict:
         name="Python",
         kind=SkillKind.INTELLECTUAL,
         stored_level=0.5,
-        decay_rate_per_day=0.001,
         last_practiced_at=datetime.now(UTC),
     )
     srepo.insert_skill(s)

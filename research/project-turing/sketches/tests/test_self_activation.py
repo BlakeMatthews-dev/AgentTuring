@@ -270,12 +270,11 @@ def test_ac_25_7_skill_state_is_current_level(srepo, self_id) -> None:
         name="x",
         kind=SkillKind.INTELLECTUAL,
         stored_level=1.0,
-        decay_rate_per_day=0.001,
         last_practiced_at=datetime.now(UTC) - timedelta(days=100),
     )
     srepo.insert_skill(s)
     got = source_state(srepo, "skill:x", "skill", _ctx(self_id))
-    assert got == pytest.approx(math.exp(-0.1), rel=1e-4)
+    assert got == pytest.approx(1.0)
 
 
 def test_ac_25_7_mood_state_is_normalized_valence(srepo, self_id, seeded_mood) -> None:

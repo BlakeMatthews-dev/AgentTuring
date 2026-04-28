@@ -99,15 +99,6 @@ def facet_node_id(trait: Trait, facet: str) -> str:
     return f"facet:{trait.value}.{facet}"
 
 
-# Per-kind default decay rates (per spec 24 AC-24.5). Per-day.
-DEFAULT_DECAY_RATES: dict[SkillKind, float] = {
-    SkillKind.INTELLECTUAL: 0.0005,
-    SkillKind.PHYSICAL: 0.005,
-    SkillKind.HABIT: 0.002,
-    SkillKind.SOCIAL: 0.001,
-}
-
-
 # ---------------------------------------------------------------- helpers ----
 
 

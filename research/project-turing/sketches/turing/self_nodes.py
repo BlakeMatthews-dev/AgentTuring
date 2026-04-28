@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 from .self_model import (
     ActivationContributor,
     ContributorOrigin,
-    DEFAULT_DECAY_RATES,
     Hobby,
     Interest,
     NodeKind,
@@ -137,7 +136,6 @@ def note_skill(
     level: float,
     kind: SkillKind,
     new_id: Callable[[str], str],
-    decay_rate_per_day: float | None = None,
     contributes_to: list[tuple[str, float]] | None = None,
 ) -> Skill:
     _require_ready(repo, self_id)
@@ -152,9 +150,6 @@ def note_skill(
         name=name,
         kind=kind,
         stored_level=level,
-        decay_rate_per_day=(
-            decay_rate_per_day if decay_rate_per_day is not None else DEFAULT_DECAY_RATES[kind]
-        ),
         last_practiced_at=_now(),
     )
     repo.insert_skill(s)

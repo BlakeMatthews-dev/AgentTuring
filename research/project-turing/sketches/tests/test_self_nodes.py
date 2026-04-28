@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from turing.self_model import (
-    DEFAULT_DECAY_RATES,
     Passion,
     PreferenceKind,
     Skill,
@@ -98,20 +97,6 @@ def test_ac_24_4_preference_different_kinds_ok(srepo, bootstrapped_id, new_id) -
 # --------- AC-24.5 skills ---------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "kind,expected_rate",
-    [
-        (SkillKind.INTELLECTUAL, 0.0005),
-        (SkillKind.PHYSICAL, 0.005),
-        (SkillKind.HABIT, 0.002),
-        (SkillKind.SOCIAL, 0.001),
-    ],
-)
-def test_ac_24_5_default_decay_rates(srepo, bootstrapped_id, new_id, kind, expected_rate) -> None:
-    s = note_skill(srepo, bootstrapped_id, f"skill-{kind.value}", 0.5, kind, new_id)
-    assert s.decay_rate_per_day == expected_rate
-
-
 def test_ac_24_5_skill_duplicate_raises(srepo, bootstrapped_id, new_id) -> None:
     note_skill(srepo, bootstrapped_id, "python", 0.8, SkillKind.INTELLECTUAL, new_id)
     with pytest.raises(ValueError, match="duplicate skill"):
@@ -177,19 +162,6 @@ def test_ac_24_15_downgrade_lowers_and_requires_reason(srepo, bootstrapped_id, n
 # --------- AC-24.12..14 current_level maths --------------------------------
 
 
-def test_ac_24_12_current_level_exponential_decay() -> None:
-    s = Skill(
-        node_id="x",
-        self_id="s",
-        name="p",
-        kind=SkillKind.PHYSICAL,
-        stored_level=1.0,
-        decay_rate_per_day=0.005,
-        last_practiced_at=datetime.now(UTC) - timedelta(days=30),
-    )
-    assert current_level(s, datetime.now(UTC)) == pytest.approx(math.exp(-0.15), rel=1e-4)
-
-
 def test_ac_24_13_current_level_clamped(srepo, bootstrapped_id, new_id) -> None:
     # stored_level=0.0 → current_level stays 0.0.
     s = note_skill(srepo, bootstrapped_id, "obscure", 0.0, SkillKind.INTELLECTUAL, new_id)
@@ -208,16 +180,15 @@ def test_ac_24_14_current_level_is_pure_no_write(srepo, bootstrapped_id, new_id)
     assert before.last_practiced_at == after.last_practiced_at
 
 
-# --------- AC-24.10 future clock returns stored_level (no past decay) ------
+# --------- AC-24.10 no decay: level is always stored_level ------
 
 
 def test_practice_resets_decay_window(srepo, bootstrapped_id, new_id) -> None:
     s = note_skill(srepo, bootstrapped_id, "python", 0.9, SkillKind.PHYSICAL, new_id)
-    # Backdate.
     s.last_practiced_at = datetime.now(UTC) - timedelta(days=100)
     srepo.update_skill(s)
-    decayed = current_level(srepo.get_skill(s.node_id), datetime.now(UTC))
+    before = current_level(srepo.get_skill(s.node_id), datetime.now(UTC))
     practice_skill(srepo, bootstrapped_id, s.node_id)
-    fresh = current_level(srepo.get_skill(s.node_id), datetime.now(UTC))
-    assert fresh > decayed
-    assert fresh == pytest.approx(0.9, rel=1e-3)
+    after = current_level(srepo.get_skill(s.node_id), datetime.now(UTC))
+    assert before == pytest.approx(0.9, rel=1e-3)
+    assert after == pytest.approx(0.9, rel=1e-3)

@@ -77,12 +77,42 @@ class Repo:
             if col not in existing:
                 self._conn.execute(f"ALTER TABLE self_identity ADD COLUMN {col} {typedef}")
         skill_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(self_skills)").fetchall()}
-        for col, typedef in [
-            ("best_version", "INTEGER DEFAULT 0"),
-            ("active_coaching", "TEXT"),
-        ]:
-            if col not in skill_cols:
-                self._conn.execute(f"ALTER TABLE self_skills ADD COLUMN {col} {typedef}")
+        if "decay_rate_per_day" in skill_cols:
+            self._conn.executescript("""
+                CREATE TABLE self_skills_new (
+                    node_id              TEXT PRIMARY KEY,
+                    self_id              TEXT NOT NULL,
+                    name                 TEXT NOT NULL,
+                    kind                 TEXT NOT NULL,
+                    stored_level         REAL NOT NULL CHECK (stored_level BETWEEN 0.0 AND 1.0),
+                    best_version         INTEGER NOT NULL DEFAULT 0,
+                    last_practiced_at    TEXT NOT NULL,
+                    active_coaching      TEXT,
+                    practice_count       INTEGER NOT NULL DEFAULT 0,
+                    created_at           TEXT NOT NULL,
+                    updated_at           TEXT NOT NULL,
+                    UNIQUE (self_id, name)
+                );
+                INSERT INTO self_skills_new
+                    (node_id, self_id, name, kind, stored_level, best_version,
+                     last_practiced_at, active_coaching, practice_count,
+                     created_at, updated_at)
+                SELECT
+                    node_id, self_id, name, kind, stored_level,
+                    COALESCE(best_version, 0),
+                    last_practiced_at, active_coaching, practice_count,
+                    created_at, updated_at
+                FROM self_skills;
+                DROP TABLE self_skills;
+                ALTER TABLE self_skills_new RENAME TO self_skills;
+            """)
+        else:
+            for col, typedef in [
+                ("best_version", "INTEGER DEFAULT 0"),
+                ("active_coaching", "TEXT"),
+            ]:
+                if col not in skill_cols:
+                    self._conn.execute(f"ALTER TABLE self_skills ADD COLUMN {col} {typedef}")
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS self_skill_artifacts ("
             "artifact_id TEXT PRIMARY KEY, self_id TEXT NOT NULL, skill_id TEXT NOT NULL, "

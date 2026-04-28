@@ -124,7 +124,6 @@ def _insert_skill(srepo, self_id) -> str:
             name="python",
             kind=SkillKind.INTELLECTUAL,
             stored_level=0.7,
-            decay_rate_per_day=0.001,
             last_practiced_at=datetime.now(UTC),
         )
     )
